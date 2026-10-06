@@ -130,16 +130,10 @@ código num produto pago. Isso é autorizado por um documento separado,
 `COMMERCIAL-LICENSE.md`, emitido por quem consta de `AUTHORIZED.md`.
 Envia um *issue* ou escreve para o endereço em `COPYRIGHT.md`.
 
-### Duas coisas que vale a pena saber
+### Vale a pena saber
 
 **Não é open source.** Se procuras uma licença OSI — GPL, AGPL, Apache —
 não a encontras aqui. É source-available, deliberadamente.
-
-**Nenhuma licença impede alterar o código.** Quem tem o código pode
-alterá-lo; é verdade em qualquer licença do mundo, incluindo as mais
-fechadas. O que a licença restringe de facto é o uso comercial, e isso é
-garantível. Se esperavas uma licença que impeça forks, nenhuma existe —
-e publicar o código é o que torna isso impossível, por desenho.
 
 ### Terceiros
 
