@@ -1,0 +1,197 @@
+# =====================================================================
+# .gitignore — OnyxChat
+# ---------------------------------------------------------------------
+# Organizado por origem do ficheiro, não por tipo. Um `.gitignore`
+# escrito como lista solta de extensão acaba sempre por faltar o ficheiro
+# que estraga o repositório, porque ninguém sabe em que secção o
+# procurar.
+#
+# A regra que guia tudo: **o que é gerado nunca é versionado, o que é
+# escrito pelo utilizador nunca é versionado, o que é deliberadamente
+# versionado tem de aparecer numa exceção comentada no fundo.**
+#
+# Contexto: este projecto vai ser público (ver `COPYRIGHT.md`), o que
+# torna cada linha daqui uma decisão com consequências públicas.
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# Dados do utilizador — a secção que mais importa
+# ---------------------------------------------------------------------
+# Estes ficheiros contêm a seed Ed25519 e as chaves das amizades. Nas
+# suas formas cifrada (`config.keystore`) e clara (`config.json`), são o
+# activo mais sensível que existe no repositório.
+#
+# Não estão aqui por discrição: estão porque `onyxchat identidade` os
+# escreve no directório de trabalho, e um `git add -A` a seguir publicaria
+# a identidade de quem o executou. E o histórico do Git não perdoa —
+# `git filter-repo` limpa o repositório, não os clones já feitos.
+config.json
+config.keystore
+
+# ---------------------------------------------------------------------
+# Chaves e segredos genéricos
+# ---------------------------------------------------------------------
+# Não são usados hoje. Uma dependência nova que os gere não deve
+# encontrar a porta aberta.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets.*
+secrets-*
+.env
+.env.*
+!.env.example
+id_rsa
+id_ed25519
+
+# ---------------------------------------------------------------------
+# Caches
+# ---------------------------------------------------------------------
+# `.hypothesis/` é a base de dados do property testing: cresce a cada
+# execução, muda a cada versão do Python e não significa nada para quem
+# lê o repositório. Não estava aqui antes da revisão que precedeu a
+# publicação.
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------
+# Rust
+# ---------------------------------------------------------------------
+target/
+**/target/
+# Cobertura de código Rust, se alguma vez activares `cargo-llvm-cov`.
+*.profraw
+*.profdata
+llvm-cov.target/
+# Relatório LCOV. `scripts/testar.sh` corre o `cargo llvm-cov` com
+# `--summary-only`, que escreve no terminal — mas sem essa flag o
+# formato por omissão é lcov e o ficheiro aparece na raiz. Custa uma
+# linha ignorá-lo; custa um relatório de cobertura alheio no repositório
+# não o ignora.
+lcov.info
+*.lcov
+# Saída de `cargo vendor`, se algum dia correres o comando. São milhares
+# de ficheiros e dezenas de MB de fontes de terceiros que já estão
+# listadas em `Cargo.lock`, com as licenças em `THIRD-PARTY.md`.
+#
+# **Ancorado à raiz com `/vendor/`** — e a âncora é o ponto todo. Um
+# padrão `vendor/` sem âncora casaria em qualquer nível e apanharia
+# `crypto/c_cpp/vendor/libsodium`, que é vendorizada **de propósito**
+# para o build ser reprodutível. Um `.gitignore` que apaga a
+# dependência que torna o build hermético é o pior `.gitignore` que
+# existe.
+/vendor/
+
+# Corpora e artefactos do `cargo fuzz`. Os *seeds* versionados vivem
+# noutro sítio; estes são o que o fuzzing descobre e vai reconstruindo.
+fuzz/artifacts/
+fuzz/corpus/
+**/*.rs.bk
+
+# ---------------------------------------------------------------------
+# C / C++
+# ---------------------------------------------------------------------
+build/
+cmake-build-*/
+*.gcda
+*.gcno
+*.gcov
+# Bibliotecas compiladas. A excepção do `vendor/` está no fundo.
+*.o
+*.a
+*.lib
+*.so
+# Bibliotecas versionadas: `libsodium.so` é um symlink para
+# `libsodium.so.23.3.0`, que `*.so` não apanha — o nome acaba em
+# `.23.3.0`, não em `.so`.
+*.so.*
+*.dylib
+*.dll
+*.obj
+
+# ---------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/lib/
+dist/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ---------------------------------------------------------------------
+# Editores, sistemas de ficheiros e SO
+# ---------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.rej
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+# Core dumps. Ancorado à raiz e com sufixo numérico, porque `core.*` sem
+# âncora apanhava `crypto/c_cpp/vendor/libsodium/include/sodium/core.h` —
+# um header de produção da K9. Um `.gitignore` que apaga headers de uma
+# biblioteca de terceiros é um `.gitignore` que vai partir um build.
+#
+# Apanha: `core` e `core.917104` na raiz. Não apanha: `src/core.rs`.
+/core
+/core.[0-9]*
+/core.[0-9]*.*
+# Core dumps nomeados pelo binário: `onyxchatd.core`, `python3.11.core`.
+# O macOS também deixa ficheiros `.core` maiores com sufixo do processo,
+# e são ficheiros de centenas de MB.
+*.core
+*.stackdump
+
+# =====================================================================
+# EXCEÇÕES — o que é versionado de propósito
+# =====================================================================
+# Estas linhas estão aqui para que ninguém as apague sem ler. Se uma
+# delas desaparecer, o repositório deixa de construir ou deixa de ter a
+# protecção de memória de que este projecto depende.
+
+# `.cargo/config.toml` fixa `jobs = 1`, que é o que impede os OOM kills
+# num portátil de 3,8 GB. Sem este ficheiro versionado, um clone alheio
+# compila com paralelismo por omissão e o editor é sacrificado. Ver
+# `docs/DEV_GUIDE.md` §1.2 e o comentário no próprio ficheiro.
+!.cargo/config.toml
+
+# A libsodium é vendorizada de propósito: os headers, o `LICENSE.txt` e
+# a biblioteca estática tornam o build reprotratível sem depender da
+# distribuição Linux. A licença é ISC e está declarada no `LICENSE`.
+#
+# A negação é **só** para a `.a`, não para `vendor/**` em geral: o
+# directório também traz um `libsodium.so`, que é um link partilhado
+# (≈100 KB) para o qual ninguém faz link — o `CMakeLists.txt` usa a
+# estática quando existe. Um `!vendor/**` traria-o de volta sem querer,
+# que é a razão de a excepção ser específica.
+!crypto/c_cpp/vendor/libsodium/lib/libsodium.a
+
+# Os vectores de teste são a fonte única de verdade do protocolo: são
+# gerados pelo Rust e consumidos por Python, C e pelos documentos. Não
+# são artefactos — são especificação.
+!tests/vectors/*.json
+
+
+GUIA-REPOSITORIO.md

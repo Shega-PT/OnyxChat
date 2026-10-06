@@ -1,0 +1,86 @@
+{
+  "camadas": [
+    {
+      "chave_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "id": "K1",
+      "implementacao": "Rust (crypto_core)",
+      "input_hex": "7665746f72204b3120646f204f6e797843686174",
+      "nome": "ChaCha20-Poly1305 (chave do par)",
+      "nonce_hex": "000102030405060708090a0b",
+      "output_hex": "ff9e7c6f5b37ee7197e750d3d773771b8a18d3935cb95ee415720f455fdce55be3375f05",
+      "parametros": "chave=000102..1f, nonce=000102030405060708090a0b"
+    },
+    {
+      "id": "K2",
+      "implementacao": "Lua (crypto/python_lua/lua/deslocamento.lua)",
+      "input_hex": "5665746f72204b323a204142432078797a20303132",
+      "nome": "Cesariana (adaptada)",
+      "output_hex": "5968777275234e353d23444546237b7c7d23333435",
+      "parametros": "deslocamento=3"
+    },
+    {
+      "chave_hex": "564947454e455245",
+      "id": "K3",
+      "implementacao": "Lua (crypto/python_lua/lua/vigenere.lua)",
+      "input_hex": "6d656e736167656d206465207465737465204b33",
+      "nome": "Vigenère",
+      "output_hex": "c3aeb5b8afacb7b276adac65c2aac5b9bb699278",
+      "parametros": "chave=\"VIGENERE\""
+    },
+    {
+      "id": "K4",
+      "implementacao": "C++ (crypto/c_cpp/transposition.cpp)",
+      "input_hex": "63616d616461204b34206465207472616e73706f736963616f",
+      "nome": "Transposição de 5 colunas (PKCS#7 bloco 5)",
+      "output_hex": "6361646173056120656e69056d4b207363056134747061056420726f6f05",
+      "parametros": "colunas=5, padding=PKCS#7"
+    },
+    {
+      "chave_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "id": "K5",
+      "implementacao": "Rust (crypto_core)",
+      "input_hex": "63616d616461204b35206165732067636d",
+      "nome": "AES-256-GCM (chave do remetente)",
+      "nonce_hex": "101112131415161718191a1b",
+      "output_hex": "43bc92732b2232cd46784641a7e8c742004dae0dbd9db4993d909286984ae2277f",
+      "parametros": "chave=202122..3f, nonce=101112131415161718191a1b"
+    },
+    {
+      "chave_hex": "504c415946414952",
+      "id": "K6",
+      "implementacao": "Lua (crypto/python_lua/lua/playfair.lua)",
+      "input_hex": "7665746f72204b3620706c617966616972",
+      "nome": "Playfair adaptado (XOR periódico)",
+      "output_hex": "2629353634610264703c2d383f27283b22",
+      "parametros": "chave=\"PLAYFAIR\""
+    },
+    {
+      "id": "K7",
+      "implementacao": "Rust (crypto_core)",
+      "input_hex": "4142",
+      "nome": "Hill 2×2 em Z/256Z",
+      "output_hex": "89cc0c0e",
+      "parametros": "matriz=[[3,3],[2,5]], modulo=256, bloco=2, padding=PKCS#7"
+    },
+    {
+      "id": "K8",
+      "implementacao": "Lua (crypto/python_lua/lua/deslocamento.lua)",
+      "input_hex": "73756273746974756963616f204b38202b37",
+      "nome": "Substituição bijetiva +7 mod 256",
+      "output_hex": "7a7c697a7b707b7c706a687627523f27323e",
+      "parametros": "deslocamento=7"
+    },
+    {
+      "chave_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "id": "K9",
+      "implementacao": "C (crypto/c_cpp/k9_chacha.c, libsodium)",
+      "input_hex": "4f6cc3a1206d756e646f21",
+      "nome": "ChaCha20-Poly1305 (chave do receptor)",
+      "nonce_hex": "000102030405060708090a0b",
+      "output_hex": "c697cba1097ad02ed3ec1e0d6d90cb2ed51ad4e0f6c833ee3f1dee",
+      "parametros": "chave=000102..1f, nonce=000102030405060708090a0b"
+    }
+  ],
+  "descricao": "KATs por camada (input/key/parameters/expected) — Resumo §25",
+  "versao": "1"
+}

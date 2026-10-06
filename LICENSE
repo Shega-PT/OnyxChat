@@ -1,0 +1,198 @@
+=====================================================================
+ONYXCHAT — LICENÇA DE BASE
+=====================================================================
+Licenciador:      ShegaPT (pseudónimo)
+Nome civil:       Carlos Alberto da Silva Brito
+Repositório:      https://github.com/Shega-PT/OnixChat
+Ano:              2026
+
+Licença:          PolyForm Noncommercial License 1.0.0
+SPDX:             PolyForm-Noncommercial-1.0.0
+
+O pseudónimo «ShegaPT» é a identidade pública do projecto. O nome civil
+acima é o titular dos direitos de autor e só é conhecido por quem o
+editar — ver COPYRIGHT.md.
+
+O ficheiro CONTÉM TAMBÉM código de terceiros, que mantém as suas
+próprias licenças (ver §Licenças de terceiros, no fim). Esta licença
+aplica-se apenas ao código do projecto OnyxChat.
+
+PolyForm Noncommercial NÃO é uma licença open source pela definição
+da OSI. É uma licença «source-available»: concede uso, alteração e
+redistribuição para fins não-comerciais, e proíbe o uso comercial sem
+autorização escrita do licenciador. Para fins comerciais, ver
+COMMERCIAL-LICENSE.md.
+
+=====================================================================
+POLYFORM NONCOMMERCIAL LICENSE 1.0.0
+(texto verbatim — não modificar)
+=====================================================================
+
+https://polyformproject.org/licenses/noncommercial/1.0.0
+
+Acceptance
+
+In order to get any license under these terms, you must agree to them
+as both strict obligations and conditions to all your licenses.
+
+Copyright License
+
+The licensor grants you a copyright license for the software to do
+everything you might do with the software that would otherwise infringe
+the licensor's copyright in it for any permitted purpose.  However, you
+may only distribute the software according to [Distribution
+License](#distribution-license) and make changes or new works based on
+the software according to [Changes and New Works License](#changes-and-new-works-license).
+
+Distribution License
+
+The licensor grants you an additional copyright license to distribute
+copies of the software.  Your license to distribute covers distributing
+the software with changes and new works permitted by [Changes and New
+Works License](#changes-and-new-works-license).
+
+Notices
+
+You must ensure that anyone who gets a copy of any part of the software
+from you also gets a copy of these terms or the URL for them above, as
+well as copies of any plain-text lines beginning with `Required Notice:`
+that the licensor provided with the software.  For example:
+
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+
+Changes and New Works License
+
+The licensor grants you an additional copyright license to make changes
+and new works based on the software for any permitted purpose.
+
+Patent License
+
+The licensor grants you a patent license for the software that covers
+patent claims the licensor can license, or becomes able to license, that
+you would infringe by using the software.
+
+Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+Personal Uses
+
+Personal use for research, experiment, and testing for the benefit of
+public knowledge, personal study, private entertainment, hobby projects,
+amateur pursuits, or religious observance, without any anticipated
+commercial application, is use for a permitted purpose.
+
+Noncommercial Organizations
+
+Use by any charitable organization, educational institution, public
+research organization, public safety or health organization,
+environmental protection organization, or government institution is use
+for a permitted purpose regardless of the source of funding or
+obligations resulting from the funding.
+
+Fair Use
+
+You may have "fair use" rights for the software under the law. These
+terms do not limit them.
+
+No Other Rights
+
+These terms do not allow you to sublicense or transfer any of your
+licenses to anyone else, or prevent the licensor from granting licenses
+to anyone else.  These terms do not imply any other licenses.
+
+Patent Defense
+
+If you make any written claim that the software infringes or contributes
+to infringement of any patent, your patent license for the software
+granted under these terms ends immediately. If your company makes such a
+claim, your patent license ends immediately for work on behalf of your
+company.
+
+Violations
+
+The first time you are notified in writing that you have violated any of
+these terms, or done anything with the software not covered by your
+licenses, your licenses can nonetheless continue if you come into full
+compliance with these terms, and take practical steps to correct past
+violations, within 32 days of receiving notice.  Otherwise, all your
+licenses end immediately.
+
+No Liability
+
+***As far as the law allows, the software comes as is, without any
+warranty or condition, and the licensor will not be liable to you for
+any damages arising out of these terms or the use or nature of the
+software, under any kind of legal claim.***
+
+Definitions
+
+The **licensor** is the individual or entity offering these terms, and
+the **software** is the software the licensor makes available under these
+terms.
+
+**You** refers to the individual or entity agreeing to these terms.
+
+**Your company** is any legal entity, sole proprietorship, or other kind
+of organization that you work for, plus all organizations that have
+control over, are under the control of, or are under common control with
+that organization.  **Control** means ownership of substantially all the
+assets of an entity, or the power to direct its management and policies
+by vote, contract, or otherwise.  Control can be direct or indirect.
+
+**Your licenses** are all the licenses granted to you for the software
+under these terms.
+
+**Use** means anything you do with the software requiring one of your
+licenses.
+
+
+=====================================================================
+LICENÇAS DE TERCEIROS
+=====================================================================
+Esta licença cobre **apenas** o código do projecto OnyxChat. O código
+distribuído de terceiros mantém a sua própria licença.
+
+### libsodium (`crypto/c_cpp/vendor/libsodium`)
+
+A camada K9 de produção assenta sobre a **libsodium**, biblioteca
+externa distribuída em `crypto/c_cpp/vendor/libsodium` e compilada
+estaticamente. A libsodium é ISC e mantém a sua licença original:
+
+```text
+ISC License
+Copyright (c) 2013-2018 Frank Denis <j at pureftpd dot org>
+```
+
+A licença completa está em
+`crypto/c_cpp/vendor/libsodium/LICENSE.txt`, e a máquina de
+`crypto/c_cpp/vendor/libsodium/include/sodium/` referencia-a a partir de
+cada ficheiro.
+
+Uma consequência prática desta dependência é que o binário `onyxchatd`
+incorpora código da libsodium. A auditoria de segurança da K9 é, em boa
+parte, a auditoria da libsodium — ver
+`crypto/c_cpp/vendor/libsodium/include/sodium/version.h` para a versão
+exacta.
+
+### Lua (`crypto/python_lua/lua`, embutida via `mlua`)
+
+As camadas K2/K3/K6/K8 estão escritas em Lua e são executadas no daemon
+através do embedding do interpretador Lua 5.4, que é compilado de
+código-fonte (`mlua`, feature `vendored`). A licença do Lua é a MIT —
+ver `~/.cargo/registry/src/*/lua-src-*/README` na árvore de
+dependências, ou <https://www.lua.org/license.html>.
+
+### Dependências Rust e Python
+
+As dependências declaradas em `Cargo.toml` e `pyproject.toml` mantêm as
+suas próprias licenças e **não** são relicenciadas por esta licença.
+
+Auditoria feita a partir de `cargo metadata`: **548 pacotes no grafo
+completo, nenhum sob GPL, AGPL, SSPL ou equivalente copyleft forte.**
+Três pacotes são MPL-2.0 ou oferecem LGPL em alternativa — copyleft
+fraco, e sem obrigação porque não os modificamos. O Python não tem
+dependências de runtime (`dependencies = []`).
+
+O relatório completo, incluindo o que a auditoria **não** cobre, está
+em **`THIRD-PARTY.md`**.

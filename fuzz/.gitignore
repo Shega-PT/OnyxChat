@@ -1,0 +1,28 @@
+# =====================================================================
+# .gitignore do crate de fuzzing
+# ---------------------------------------------------------------------
+# `target` e `coverage` são artefactos de build: nunca versionados.
+#
+# `artifacts` é onde o libFuzzer guarda os crashers encontrados. São
+# **evidência de um bug**, não seeds — e versioná-los transformaria um
+# ficheiro que documenta um defeito já corrigido num_inputs que o
+# libFuzzer tentaria reprocessar para sempre.
+#
+# `corpus` NÃO é ignorado: as seeds são geradas por
+# `cargo run -p onyxchatd --example gerar_vetores` a partir de
+# `tests/vectors/*.json` e versionadas de propósito. Sem seeds válidas
+# — um envelope bem formado, um corpo de handshake bem formado, os
+# limites exactos — o libFuzzer não ganha profundidade nos ramos onde
+# os parsers falham, e o alvo não passa de exercised entradas absurdas.
+# =====================================================================
+
+target
+artifacts
+coverage
+
+# Excepção: as seeds sim, o resto do corpus não. O `cargo fuzz` vai
+# acrescentando ao corpus os inputs que considera interessantes; só os
+# gerados (nome `NN-<hex>.bin`) é que são versionados.
+corpus/*
+!corpus/*/
+!corpus/*/[0-9][0-9]-*.bin

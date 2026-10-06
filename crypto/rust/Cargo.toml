@@ -1,0 +1,43 @@
+# =====================================================================
+# crypto_core — núcleo de criptografia digital do OnyxChat (Rust)
+# ---------------------------------------------------------------------
+# Implementa as camadas digitais do pipeline K1→K9:
+#   K1 → ChaCha20-Poly1305  (chave única do par remetente+receptor)
+#   K5 → AES-256-GCM        (chave única do remetente)
+#   K9 → ChaCha20-Poly1305  (chave única do receptor; espelho de
+#        referência da camada C/libsodium usada pelo daemon)
+#   + assinaturas Ed25519 (estabilização de identidade, fora do pipeline)
+# =====================================================================
+
+[package]
+name = "crypto_core"
+version = "0.1.0"
+edition = "2021"
+description = "Núcleo de criptografia digital (K1/K5/K9 + Ed25519 + derivação) do OnyxChat"
+license = "PolyForm-Noncommercial-1.0.0"
+
+[dependencies]
+# AEAD simétrico — K1 e K9 (ChaCha20-Poly1305) e K5 (AES-256-GCM)
+chacha20poly1305 = { version = "0.10", features = ["alloc"] }
+aes-gcm = "0.10"
+# CSPRNG para geração de chaves e nonces (nunca reutilizar nonces)
+rand = "0.9"
+# Assinaturas digitais Ed25519 (identidade do utilizador)
+ed25519-dalek = "2"
+# Derivação de chaves — semente da amizade e K1 por mensagem.
+#  e  já estão no Cargo.lock (trazidos por , via
+# arti), por isso não há unidade de compilação nova no perfil com arti.
+sha2 = "0.10"
+hkdf = "0.12"
+# Limpeza garantida de segredos em memória (não deixar chaves em RAM)
+zeroize = "1"
+# `mlockall`/`munlockall` — impede que páginas de material sensível sejam
+# descartadas para swap, onde a `zeroize` do `Segredo` não as alcança.
+# Ver `docs/key_management.md` §Exposição a swap e page-out.
+libc = "0.2"
+
+# ---------------------------------------------------------------------
+# Dev-dependencies — property tests (Fase 3.2)
+# ---------------------------------------------------------------------
+[dev-dependencies]
+proptest = { workspace = true }

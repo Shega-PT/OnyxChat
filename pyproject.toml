@@ -1,0 +1,79 @@
+# =====================================================================
+# pyproject.toml — projeto Python do OnyxChat
+# ---------------------------------------------------------------------
+# Empacota a camada de utilizador (user/), o mensageiro (messenger/) e o
+# servidor de descoberta (server/), e configura o tooling de testes:
+#   pytest + coverage com meta de 100% de cobertura de linhas.
+# =====================================================================
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onyxchat"
+version = "0.1.0"
+description = "Mensageiro E2E peer-to-peer com Tor embutido e pipeline híbrido K1→K9"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "PolyForm-Noncommercial-1.0.0" }
+
+# Sem dependências externas de runtime: o núcleo de criptografia vive no
+# daemon Rust; o Python usa apenas a biblioteca padrão (venv de testes
+# traz pytest/coverage).
+dependencies = []
+
+# Licença declarada como `{ text = "…" }` e **não** como expressão SPDX
+# nua (`license = "PolyForm-Noncommercial-1.0.0"`).
+#
+# A forma SPDX é PEP 639 e exige setuptools ≥ 77. Este ficheiro exige
+# `setuptools>=68`, onde a forma SPDX simples é tratada como texto livre
+# e o `License ::` classifier abaixo fica como a fonte da verdade para
+# ferramentas de empacotamento. A inconsistência valeria um aviso do
+# `twine check`, que é exactamente o tipo de aviso que só se descobre
+# depois de tentar publicar.
+#
+# Quando o requisito mínimo subir para ≥77, trocar para a forma SPDX e
+# remover os classifiers — a PEP 639 torna-os redundantes.
+classifiers = [
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+]
+
+[project.optional-dependencies]
+# `hypothesis` sustenta os property tests (docs/testing.md §Property
+# tests) — gera domínios inteiros de inputs em vez de exemplos fixos.
+dev = ["pytest>=8", "coverage>=7", "pytest-cov>=5", "hypothesis>=6"]
+
+[project.scripts]
+onyxchat = "user.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["user*", "messenger*", "server*"]
+
+# ---------------------------------------------------------------------
+# Testes: pytest com raiz do projeto no pythonpath (imports diretos)
+# ---------------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+# ---------------------------------------------------------------------
+# Cobertura: meta de 100% de linhas em todo o código Python de produção
+# ---------------------------------------------------------------------
+[tool.coverage.run]
+source_pkgs = ["messenger", "user", "server"]
+branch = false
+# Os ficheiros de teste não contam para a métrica do produto.
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+precision = 2
+exclude_also = [
+    # Defensas puramente informativas (nunca executam em condições normais)
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

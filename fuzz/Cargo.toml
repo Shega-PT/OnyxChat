@@ -1,0 +1,83 @@
+# =====================================================================
+# onyxchat-fuzz — fuzzing dos parsers que recebem dados externos
+# ---------------------------------------------------------------------
+# Alvos declarados em `docs/testing.md` §Fuzzing. Cada `fuzz_targets/*.rs`
+# alimenta um parser com bytes arbitrários à procura de crashes, panics,
+# loops e parsing inconsistente — complementa (não substitui) os testes
+# tradicionais e os property tests.
+#
+# O crate está **excluído** do workspace raiz (`workspace.exclude`):
+# só é construído pelo `cargo fuzz`, que o trata como pacote próprio
+# com toolchain nightly e sanitizadores.
+# =====================================================================
+
+[package]
+name = "onyxchat-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# Harness libFuzzer liga o motor de mutação ao `fuzz_target!`.
+libfuzzer-sys = "0.4"
+
+# Núcleo criptográfico — alvos `k4_decoder`/`k7_decoder` (camadas de
+# decifragem que recebem ciphertext arbitrário do transporte).
+crypto_core = { path = "../crypto/rust" }
+
+# Biblioteca do daemon — alvos `envelope_parser`, `handshake_parser`,
+# `ipc_parser` e `relay_parser` (fronteiras Python/Rust e P2P).
+#
+# `default-features = false` desliga a feature `tor-real` do daemon: os
+# alvos de fuzzing nunca tocam na rede real (`TorFalso` basta) e essa
+# feature é a única que arrasta a árvore da arti (~335 de 482 crates).
+# Resultado prático: build do fuzz ~4× mais leve e sem o pico de memória
+# que estrangulava a máquina — ver `docs/testing.md` §Fuzzing.
+onyxchatd = { path = "../network/daemon_rust", default-features = false }
+
+# Cada alvo é um binário separado: `cargo fuzz run <nome>`.
+# `test = false`/`doc = false` porque não são testes nem documentação.
+[[bin]]
+name = "envelope_parser"
+path = "fuzz_targets/envelope_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake_parser"
+path = "fuzz_targets/handshake_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_parser"
+path = "fuzz_targets/ipc_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "relay_parser"
+path = "fuzz_targets/relay_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "k4_decoder"
+path = "fuzz_targets/k4_decoder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "k7_decoder"
+path = "fuzz_targets/k7_decoder.rs"
+test = false
+doc = false
+bench = false

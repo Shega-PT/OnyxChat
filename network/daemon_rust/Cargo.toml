@@ -1,0 +1,151 @@
+[package]
+name = "onyxchatd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Daemon OnyxChat: pipeline K1→K9, IPC local e hidden services Tor"
+
+# ---------------------------------------------------------------------
+# Features
+# ---------------------------------------------------------------------
+# `tor-real` liga o backend Tor verdadeiro (arti-client + runtime).
+#
+# Porquê existir como feature separada: a árvore de dependências da arti
+# é enorme — ~458 das 548 crates do lock do workspace — e é a única
+# razão pela qual compilar este crate exigiria vários GB de RAM. Tudo o
+# que ela arrasta (`arti-client`, `tor-*`, `rustls`, `tokio`, `futures`,
+# `safelog`, `libsqlite3-sys`) é consumido EXCLUSIVAMENTE por
+# `tor_arti.rs`; o resto do daemon (pipeline, envelope, IPC, P2P,
+# handshake) é síncrono e puro.
+#
+# Porquê NÃO ser feature de omissão:
+#
+#   * O ciclo de testes não precisa de Tor. Todos os testes E2E correm
+#     com `--tor nenhum` (backend `TorFalso`, loopback em memória).
+#   * Com `tor-real` no omissão, `cargo test`, `cargo build`, `cargo
+#     clippy` e `cargo llvm-cov` pagariam 548 crates em vez de 90 — e
+#     em hardware com < 8 GB de RAM isso esgota a memória.
+#
+# Consequência: **produção exige a feature explícita.**
+#
+# ```bash
+# cargo build --release --features tor-real     # produção (ou `cargo release-tor`)
+# cargo build                                     # desenvolvimento, sem Tor
+# cargo check --features tor-real                 # CI: tor_arti.rs compila
+# ```
+#
+# Um binário compilado sem a feature **não finge ter Tor**: `--tor arti`
+# devolve erro e o daemon não arranca (`main.rs`, `construir_backend`).
+# Falhar alto é melhor do que degradar em silêncio para um modo que não
+# oferece as garantias que o projecto promete.
+[features]
+default = []
+
+# `docs` expõe `docs_vec::gerar_markdown`, a função pura que renderiza
+# `docs/test_vectors.md` a partir de `tests/vectors/*.json`.
+#
+# Vive na biblioteca (e não dentro do exemplo `gerar_vetores`) para que
+# `tests/vetores.rs` possa re-renderizar o documento e comparar com o
+# ficheiro em disco — o que transforma «não editar à mão» numa regra
+# verificada por teste em vez de uma instrução.
+docs = ["dep:serde_json"]
+
+tor-real = [
+    "dep:arti-client",
+    "dep:tor-hsrproxy",
+    "dep:tor-hsservice",
+    "dep:tor-rtcompat",
+    "dep:rustls",
+    "dep:tokio",
+    "dep:futures",
+    "dep:safelog",
+]
+
+[dependencies]
+# Núcleo criptografia digital (K1/K5/K9-ref/K7 + Ed25519)
+crypto_core = { path = "../../crypto/rust" }
+# Embebeding de Lua para as camadas analógicas K2/K3/K6/K8
+mlua = { version = "0.12", features = ["lua54", "vendored", "send"] }
+# getuid() para derivar o caminho padrão do socket (/tmp/onyxchat-{uid}.sock)
+libc = "0.2"
+# Zeroização de segredos em memória (Resumo §22; política em
+# `docs/key_management.md`) — structs de chaves e buffers de
+# pedido/resposta apagam-se no descarte.
+zeroize = "1"
+
+# ---------------------------------------------------------------------
+# Etapa 7 — rede (Tor embutido + P2P + handshake)
+# ---------------------------------------------------------------------
+# Backend Tor real: hidden services efémeros + ligações de saída .onion.
+# `default-features = false` mantém o build mínimo (sem CLI/cranelift);
+# `rustls` é o backend TLS puro-Rust (não exige headers de openssl no
+# sistema) — sem ele a arti não arranca nem cria `PreferredRuntime`.
+# `optional = true` → só é compilado com a feature `tor-real` (ver acima).
+arti-client = { version = "0.47", default-features = false, features = [
+    "tokio",
+    "rustls",
+    "compression",
+    "onion-service-client",
+    "onion-service-service",
+    "experimental-api",
+    "vanguards",
+    # sqlite compilada dentro do binário (rusqlite/bundled): o sistema só
+    # tem libsqlite3.so.0 sem os headers/ficheiro de ligação de dev.
+    "static-sqlite",
+], optional = true }
+# Encaminhamento dos pedidos de rendeZvous do hidden service para o
+# servidor P2P local (forma documentada pela arti de tratar RendRequests).
+tor-hsrproxy = { version = "0.47", optional = true }
+# Apelidos de hidden service (HsNickname) usados na config do serviço.
+tor-hsservice = { version = "0.47", optional = true }
+# Runtime tokio preferido da arti (ponte síncrono ↔ assíncrono).
+tor-rtcompat = { version = "0.47", optional = true }
+# Fornecedor criptográfico do rustls da arti: a arti traz o rustls com
+# `default-features = false`, sem nenhum provider — sem um destes a
+# rustls panica ao criar o cliente. `ring` fica como único ativo (o
+# aws-lc-rs fica de fora) e `TorReal` instala-o explicitamente.
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+], optional = true }
+# Runtime tokio dedicado (glue arti) — usado apenas em `tor_arti.rs`.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "io-util"], optional = true }
+# Streams de RendRequest/StreamRequest (ponte do hidden service).
+futures = { version = "0.3", optional = true }
+# Redação de endereços .onion em logs (mostrar sem redigir é explícito).
+safelog = { version = "0.10", optional = true }
+# SHA-256: derivação dos mailboxes do relay (docs/relay.md §Identidade).
+sha2 = "0.10"
+
+# Leitura/escrita de JSON — **só** para a renderização de
+# `docs/test_vectors.md` (feature `docs`). É opcional de propósito: um
+# binário de produção não tem de linkar um parser de JSON para gerar um
+# documento em tempo de build. Ver `src/docs_vec.rs`.
+serde_json = { version = "1", optional = true }
+
+[build-dependencies]
+# Compila os ficheiros C/C++ do pipeline (K4 transposição, K9 libsodium)
+cc = "1"
+
+# ---------------------------------------------------------------------
+# Dev-dependencies — testes, examples e vetores oficiais
+# ---------------------------------------------------------------------
+[dev-dependencies]
+# Property-based testing: invariantes do pipeline, envelope, handshake e
+# anti-replay para inputs arbitrários (`docs/testing.md`).
+proptest = { workspace = true }
+
+# ---------------------------------------------------------------
+# Alvos que precisam da feature `docs`
+# ---------------------------------------------------------------
+# Sem isto, `cargo test` compilaria estes alvos sem `serde_json` e
+# falharia — e o erro seria pouco claro.
+[[example]]
+name = "gerar_vetores"
+required-features = ["docs"]
+
+[[test]]
+name = "vetores"
+required-features = ["docs"]

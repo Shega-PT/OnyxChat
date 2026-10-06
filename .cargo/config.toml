@@ -1,0 +1,72 @@
+# =====================================================================
+# .cargo/config.toml — configuração de build do OnyxChat
+# ---------------------------------------------------------------------
+# Objectivo: que o ciclo de testes caiba em hardware modesto.
+#
+# Este ficheiro existe porque o cargo, por omissão, usa uma job por
+# *thread lógica* (4 neste projecto) e uma compilação Debug sem
+# restrições de memória. Com a árvore de dependências do Tor (arti), isso
+# significa quatro processos `rustc` concorrentes a centenas de MB cada
+# um — o suficiente para esgotar a RAM e fazer o sistema recorrer a
+# swap, onde os builds «congelam» ou são mortos.
+#
+# Ver `docs/DEV_GUIDE.md` §1.2 (janela de hardware) e
+# `docs/testing.md` §Gate de hardware.
+# =====================================================================
+
+[build]
+# Jobs = 1, e é deliberado.
+#
+# Medido nesta máquina (i3-5005U, 2 núcleos físicos / 4 threads, 3,8 GB
+# de RAM) com `scripts/memoria.sh --pico`, build a partir do zero:
+#
+#   workspace sem arti (103 crates)   pico 881 MB
+#
+# A versão anterior punha `jobs = 2` e escrevia a regra
+# `jobs <= RAM_em_GB / 1.5`. A regra está errada por duas razões, e as
+# duas contribuíram para três OOM kills do kernel:
+#
+#   * a RAM total não diz o que está DISPONÍVEL. Com o editor aberto,
+#     `MemAvailable` era 548 MB, e dois jobs precisam de ~1,2 GB. A
+#     regra dizia 2 porque a máquina tem 3,8 GB. Tem 3,8 GB *e* não
+#     tem 3,8 GB livres ao mesmo tempo;
+#
+#   * `-j` não é um controlo de memória. Reduzir o paralelismo muda
+#     *qual* processo o kernel mata quando a memória acaba, não se a
+#     memória acaba. Nos três OOM kills registados pelo kernel
+#     (out. 04 17:32, out. 04 18:25, out. 05 16:44) a vítima foi o
+#     `rust-analyzer` (446 MB a 1,0 GB de RSS), nunca o `rustc` — que
+#     no momento do OOM das 16:44 estava a 39 MB. O `-j` estava
+#     correcto e o editor morreu na mesma.
+#
+# Quem protege o editor é o tecto de cgroup, não o `-j`: o build corre
+# dentro de uma scope com `MemoryMax` e `OOMPolicy=kill`, e o que morre
+# é o `rustc`. Ver `scripts/memoria.sh`.
+#
+# Este valor é o piso para quando se chama o cargo directamente, sem o
+# gate. `scripts/memoria.sh --jobs` calcula-o a partir da memória
+# disponível e sobe-o para 2 quando a máquina tem folga.
+jobs = 1
+
+# ---------------------------------------------------------------------------
+# Um alvo de depuração opcional que aponta para o binário de release,
+# para não recompilar tudo quando se faz medição de desempenho.
+# ---------------------------------------------------------------------------
+[alias]
+# Snapshot rápido: testa o workspace leve (sem arti — 90 crates).
+test-leve = "test --workspace --no-default-features"
+
+# Verifica que tor_arti.rs compila sem pagar o build completo de arti.
+# É o substituto barato do `cargo build --features tor-real` no dia-a-dia.
+check-tor = "check --features tor-real"
+
+# Gera os vectors oficiais, o documento legível e os corpora de fuzz.
+# NUNCA editar os JSON nem o `docs/test_vectors.md` à mão — um teste
+# falha se o documento divergir dos JSON (`tests/vetores.rs`).
+vectors = "run -p onyxchatd --example gerar_vetores --no-default-features --features docs"
+
+# Testes incluindo os que leem os vectors (precisam da feature `docs`).
+test-doc = "test --workspace --no-default-features --features docs"
+
+# Compilacao de producao: inclui o Tor embutido.
+release-tor = "build --release --features tor-real"

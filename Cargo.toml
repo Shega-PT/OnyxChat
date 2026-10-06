@@ -1,0 +1,142 @@
+# =====================================================================
+# Workspace Rust do OnyxChat
+# ---------------------------------------------------------------------
+# Agrupa todos os crates do sistema para builds/testes únicos:
+#   - crypto_core   → núcleo de criptografia digital (K1/K5/K7/K9, Ed25519)
+#   - onyxchatd     → daemon ARTI: pipeline K1→K9 + IPC + rede Tor
+# =====================================================================
+
+[workspace]
+resolver = "2"
+members = [
+    "crypto/rust",
+    "network/daemon_rust",
+]
+# O crate de fuzzing só é construído pelo `cargo fuzz` (nightly +
+# sanitizadores) e tem o seu próprio alvo de build — ficar aqui faria
+# `cargo test --workspace` tentar compilar o harness libFuzzer.
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+
+# ---------------------------------------------------------------------
+# Perfis de desenvolvimento e teste
+# ---------------------------------------------------------------------
+# Estes dois perfis são deliberadamente **sem optimização**. A
+# optimização é, de longe, o maior consumidor de memória do rustc: cada
+# passo de optimização mantém a representação intermédia viva e constrói
+# tabelas de optimização por função. Num perfil `opt-level = 1`, o build
+# da árvore de dependências do Tor (arti) chega a esgotar a RAM de uma
+# máquina com 4 GB — e a máquina passa a trocar, e o build a "bugar".
+#
+# Perder optimização nos testes não é perder verificação — é ganhá-la:
+#
+#   * `overflow-checks` e `debug-assertions` ficam activos por omissão
+#     em dev/test, pelo que aritmética com overflow é apanhada;
+#   * o LLVM não pode explorar comportamento indefinido, o que num build
+#     optimizado pode *fazer desaparecer* um bug em vez de o expor.
+#
+# `debug = "line-tables-only"` em vez de `debug = 0`: o DWARF completo
+# praticamente duplica o pico de memória do rustc e, neste projecto,
+# produz rlibs de centenas de MB. Mas um backtrace sem ficheiro nem
+# linha é praticamente inútil para diagnosticar uma falha AEAD ou
+# Ed25519. As tabelas de linha dão `ficheiro:linha` por uma fracção
+# do tamanho — é o melhor compromisso entre RAM e diagnóstico.
+#
+# `codegen-units = 4` em vez do omissão (256): menos unidades de geração
+# de código significa menos módulos LLVM vivos ao mesmo tempo, ao custo
+# de menos optimização dentro do crate — irrelevante aqui, porque não
+# estamos a optimizar.
+#
+# `incremental = true` troca disco por tempo. Numa máquina com RAM
+# apertada e swap disponível, é um ganho líquido: recompilar só o que
+# mudou é melhor do que esperar por page-out do resto.
+#
+# A produção NÃO usa estes perfis — compila com `--release`
+# (`opt-level = 3`). Ver o alias `cargo release-tor`.
+#
+# Detalhe em `docs/DEV_GUIDE.md` §2.1 e `docs/security_model.md`
+# §Porque é que os testes correm sem optimização.
+[profile.dev]
+opt-level = 0
+debug = "line-tables-only"
+codegen-units = 4
+incremental = true
+
+[profile.test]
+opt-level = 0
+debug = "line-tables-only"
+codegen-units = 4
+incremental = true
+
+# ---------------------------------------------------------------------
+# Perfil de produção
+# ---------------------------------------------------------------------
+# Aqui a optimização conta: a latência de cifra e de parsing é medida em
+# microssegundos contra um deadline de rede, e a assinatura Ed25519 e o
+# pipeline K1→K9 são executados em cada mensagem.
+#
+# Não se activa LTO nem `codegen-units = 1`: ambos multiplicam o pico
+# de RAM e o tempo de compilação por várias vezes, e num binário que se
+# quer construir uma vez a troca raramente compensa. Se a medição
+# mostrar algum dia que LTO vale o custo, activa-se **aqui** — nunca nos
+# perfis de teste, onde o custo é certo e o benefício é nulo.
+[profile.release]
+opt-level = 3
+debug = false
+codegen-units = 16
+
+# ---------------------------------------------------------------------
+# Overrides por pacote
+# ---------------------------------------------------------------------
+# O cargo herda o `opt-level` do perfil para as dependências. É a
+# opção correcta para o `rustc`, onde o custo de optimizar é o que
+# estamos a controlar — mas é a opção errada para código C
+# compilado por um `build.rs`, que o cargo não sabe que é alheio ao
+# perfil.
+#
+# `lua-src` é esse caso: `mlua` com a feature `vendored` compila o
+# interpretador Lua (32 ficheiros C, ~1,7 MB de `.a`) dentro do build.
+# Com `[profile.dev] opt-level = 0`, o `build.rs` do `lua-src` lê
+# `OPT_LEVEL` do ambiente e herda o 0 — e o interpretador que executa
+# **quatro das nove camadas do pipeline** fica sem optimização em todos
+# os builds de desenvolvimento e de teste.
+#
+# As camadas analógicas processam byte a byte em Lua. A diferença entre
+# `-O0` e `-O2` nesse código é da ordem de 3×, e paga-se em cada
+# mensagem — não uma vez, mas em cada `cifrar`.
+#
+# Isto não aumenta a memória em repouso do daemon: o que aumenta é o
+# pico transitório de cada mensagem, proporcional ao payload. Num
+# payload de 64 KB, K2/K3/K6/K8 percorrem 256 KB byte a byte; o
+# interpretador é que decide a quantos MB por segundo isso corre.
+#
+# O override vale também em `release`, onde `opt-level = 3` já é o
+# pretendido; ficar explícito evita que uma mudança futura do perfil de
+# release rebaixe o interpretador sem ninguém dar por isso.
+[profile.dev.package.lua-src]
+opt-level = 2
+
+[profile.test.package.lua-src]
+opt-level = 2
+
+[profile.release.package.lua-src]
+opt-level = 3
+
+# `luajit-src` entra no grafo de resolução do `mlua` mas não é
+# compilado — a crate só descompacta a fonte. Declarar o override
+# impede que, se alguma vez passar a ser compilada, herde o
+# `opt-level = 0` do perfil.
+[profile.dev.package.luajit-src]
+opt-level = 2
+
+# ---------------------------------------------------------------------
+# Dependências partilhadas pelos crates do workspace
+# ---------------------------------------------------------------------
+[workspace.dependencies]
+# Property-based testing: invariantes para todo o domínio de inputs, não
+# só exemplos fixos. Ver `docs/testing.md` §Propriedades obrigatórias.
+proptest = "1"
