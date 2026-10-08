@@ -1,0 +1,302 @@
+onyxchat/ — estrutura do projecto
+=====================================================================
+Reconciliado com o código em 2026-10-07 (B5).
+
+Este ficheiro é um **mapa, não uma fonte de verdade**. A fonte de
+verdade é a árvore de ficheiros, e `scripts/verificar_estrutura.py`
+confere que os dois concordam — porque um mapa desatualizado é pior do
+que não ter mapa: dá para responder com confiança a uma pergunta cuja
+resposta já não é verdade.
+
+O que mudou face à versão anterior está em §O que a versão anterior
+inventava, e são sete ficheiros.
+
+**Onde vive este ficheiro mudou em 2026-10-07.** Estava um nível acima,
+fora do repositório. Foi por isso que apodreceu em silêncio: um ficheiro
+que não está no repositório não é versionado, não é clonado, e não pode
+ser conferido por um workflow — as três coisas que mantêm um mapa
+honesto. Passou a estar na raiz, e `scripts/verificar_estrutura.py`
+confere-o em cada push.
+
+
+# Raiz
+---------------------------------------------------------------------
+├─ Cargo.toml               # Workspace Rust: `crypto_core` + `onyxchatd`;
+│                           # `fuzz/` fica excluído (só o `cargo fuzz` o
+│                           # compila, e tê-lo aqui faria `cargo test
+│                           # --workspace` tentar linkage de libFuzzer)
+├─ Cargo.lock               # Versões exactas das dependências
+├─ .cargo/config.toml       # Perfis e aliases (`cargo release-tor`, …)
+├─ pyproject.toml           # Metadados e ferramental do Python
+├─ .gitignore               # O que **não** é versionado; ver §Gerados
+├─ Estrutura.txt             # Este ficheiro: o índice, conferido por
+│                           # `scripts/verificar_estrutura.py`
+├─ .github/workflows/        # Integração contínua; ver docs/testing.md
+│   ├─ portoes.yml           # portões de entrega, em cada push
+│   └─ verificacao.yml       # matriz, Tor, fuzzing e interface
+├─ README.md                # Ponto de entrada
+├─ LICENSE                  # PolyForm Noncommercial 1.0.0
+├─ COPYRIGHT.md             # Titular dos direitos de autor
+├─ COMMERCIAL-LICENSE.md    # Autorização para uso comercial
+├─ AUTHORIZED.md            # Quem tem autorização, e de quê
+├─ CONTRIBUTING.md          # Como contribuir
+└─ THIRD-PARTY.md           # Dependências de terceiros e respectivas licenças
+
+
+# docs/ — 19 documentos
+---------------------------------------------------------------------
+├─ index.md                 # Índice; é o porta de entrada
+├─ SYS_GUIDE.md             # Manual do sistema, para quem usa
+├─ USER_GUIDE.md            # Manual do utilizador
+├─ DEV_GUIDE.md             # Manual de desenvolvimento
+├─ architecture.md          # Onde vive cada responsabilidade
+├─ pipeline.md              # As nove camadas K1→K9, com parâmetros
+├─ message_format.md        # Envelope binário: versão, nonces, payload
+├─ ipc_spec.md              # Contrato IPC Python ↔ Rust (framing, códigos)
+├─ handshake.md             # Handshake de amizade e ciclo de vida das chaves
+├─ key_management.md        # Derivação, rotação e eliminação de chaves
+├─ relay.md                 # Protocolo do relé (SUBSCREVER/ENVIAR/FECHO)
+├─ p2p.md                   # Ligação directa e Via relay
+├─ discovery.md             # Descoberta {ID → .onion}
+├─ security_model.md        # O que o projecto protege, e o que não protege
+├─ threat_model.md          # Adversários considerados e o que cada um ganha
+├─ privacy_model.md         # Que metadados existem, e onde
+├─ test_vectors.md          # Vectores por camada, renderizados de JSON
+├─ testing.md               # Cobertura, fuzzing e o portão de memória
+└─ roadmap.md               # IMPLEMENTADO / PLANEADO / CONCEITO
+
+
+# scripts/ — portões e auditores
+---------------------------------------------------------------------
+# Tudo o que decide se o projecto pode ser entregue. Um portão que não
+# corre não protege nada, e um auditor que reporta o que não deve
+# transforma-se em ruído — por isso ambos têm testes.
+├─ testar.sh                # Matriz completa: Rust, C/C++, Python, E2E, fuzz
+├─ memoria.sh               # Decide a configuração A/B/C antes de compilar
+├─ memoria-envolver.sh      # Aplica os tectos de cgroup e mede o pico
+├─ medir-arti.sh            # Mede o pico real de cada configuração
+├─ verificar_requisitos.sh  # Ferramentas e versões mínimas
+├─ verificar_gitignore.sh   # O que está e o que não está versionado
+├─ verificar_portugues.py        # Americanismos no código e nos documentos
+├─ verificar_comentarios.py      # Americanismos só na prosa
+├─ verificar_alfabeto.py    # Caracteres fora do repertório português
+├─ verificar_imports.py     # Cada import nomeado existe mesmo
+└─ verificar_estrutura.py   # Este ficheiro bate com a árvore real
+
+
+# 1. Criptografia
+# `crypto_core` (Rust) é o núcleo; C/C++ tem o que é pesado e já
+# existe noutro sítio; Lua tem o que é analógico e legível.
+crypto/
+├─ rust/                    # crate `crypto_core`
+│   ├─ Cargo.toml
+│   ├─ src/
+│   │   ├─ lib.rs           # API pública: K1/K5/K7/K9(ref)/assinaturas
+│   │   ├─ aead_chacha.rs   # K1 ChaCha20-Poly1305 e espelho de referência de K9
+│   │   ├─ aead_aes.rs      # K5 AES-256-GCM (AES-NI)
+│   │   ├─ hill.rs          # K7 matriz de Hill 2×2 mod 256, inversa própria
+│   │   ├─ signer.rs        # Ed25519 — estabilização da identidade
+│   │   ├─ secret.rs        # Segredo com `zeroize` na queda
+│   │   ├─ rng.rs           # CSPRNG único: nonces e chaves saem daqui
+│   │   ├─ amizade.rs       # Derivação da chave de mensagem de uma amizade
+│   │   ├─ paginas.rs       # Impede que material sensível vá para swap
+│   │   └─ error.rs         # `CryptoError`; `Result` em toda a API
+│   └─ tests/propriedades.rs
+├─ c_cpp/                   # As camadas pesadas
+│   ├─ CMakeLists.txt
+│   ├─ onyx_crypto.h        # API C das camadas pesadas
+│   ├─ transposition.cpp    # K4 transposição de 5 colunas + PKCS#7
+│   ├─ k9_chacha.c          # K9 ChaCha20-Poly1305 sobre libsodium
+│   ├─ tests/               # CTest, com medição de cobertura por gcov
+│   └─ vendor/libsodium/    # Cabeçalhos e `libsodium.a` versionados
+└─ python_lua/
+    ├─ README.md
+    └─ lua/
+        ├─ deslocamento.lua # K2 (+3) e K8 (+7) — o mesmo módulo
+        ├─ vigenere.lua     # K3
+        └─ playfair.lua     # K6
+
+
+# 2. Daemon (Rust)
+# O binário `onyxchatd`. É o único processo que fala Tor, e o único que
+# tem as chaves de sessão em memória.
+network/daemon_rust/
+├─ Cargo.toml
+├─ build.rs                 # Compila o C/C++ e liga a libsodium vendorizada
+├─ src/
+│   ├─ lib.rs               # Biblioteca partilhada pelos testes
+│   ├─ main.rs              # Arranque, `--socket`/`--tor`, ciclo de vida
+│   ├─ tor.rs               # `BackendTor` e `TorFalso` para teste/E2E
+│   ├─ tor_arti.rs          # `TorReal` sobre a arti — único ficheiro com
+│   │                       # rede real, e por isso fora da cobertura
+│   ├─ p2p.rs               # Ligação directa e Via relay, com limite de taxa
+│   ├─ handshake.rs         # FRIEND_REQUEST/ACCEPT/REJECT
+│   ├─ anti_replay.rs       # Registo circular de `nonce1` do chat
+│   ├─ orcamento.rs         # Tecto de memória por operação
+│   ├─ ipc.rs               # Servidor UDS: ENCODE/DECODE e rede 0x03..0x0C
+│   ├─ pipeline.rs          # Orquestra K1→K9 sobre Rust, C e Lua
+│   ├─ lua_camadas.rs       # K2/K3/K6/K8 com o Lua embutido
+│   ├─ envelope.rs          # Serialização e parsing do envelope
+│   ├─ ffi_c.rs             # Ligação FFI com K4 e K9
+│   ├─ erros.rs             # `ErroPipeline` e os códigos de erro IPC
+│   ├─ docs_vec.rs          # Gera `docs/test_vectors.md` a partir dos JSON
+│   ├─ handshake_testes.rs  # Testes dentro do crate, para usar o `pub(crate)`
+│   ├─ ipc_testes.rs
+│   └─ p2p_testes.rs
+├─ tests/
+│   ├─ daemon_binario.rs    # `--help`, `--version`, erros de arranque
+│   ├─ guarda_tor.rs        # O daemon não arranca Tor sem o pedir
+│   ├─ propriedades.rs      # Invariantes com `proptest`
+│   └─ vetores.rs           # Os mesmos vectores que `docs/test_vectors.md`
+└─ examples/gerar_vetores.rs
+
+
+# 3. Mensageiro (Python)
+# O lado que fala com o utilizador. Não tem chaves de sessão: pede-as
+# ao daemon por IPC, e é por isso que nenhum ficheiro daqui tem segredos.
+messenger/
+├─ pipeline.py              # Coordena as nove camadas por IPC
+├─ envelope.py              # Montagem e parsing do envelope binário
+├─ keys.py                  # Chaves do pipeline e identidade Ed25519 local
+├─ ipc_client.py            # Cliente UDS: framing, comandos e erros
+├─ storage.py               # Keystore cifrado, anti-replay e cache
+├─ conta.py                 # Registo, entrada, eliminação e cópias
+├─ amizade.py               # Derivação da chave de mensagem de uma amizade
+├─ identidade.py            # ID Onyx e impressão digital
+└─ descoberta.py            # Resolução do destino P2P do lado do cliente
+
+
+# 4. Servidores (Python, só biblioteca padrão)
+server/
+├─ discovery_server.py      # Mapeia {ID → .onion} com TTL efémero, sem mensagens
+├─ relay_server.py          # Relé cego, em asyncio
+├─ sidecar.py               # A ponte entre o browser e o que é verdade
+├─ rotas.py                 # A tabela de rotas do sidecar
+├─ origem.py                # Quem tem o direito de falar com o sidecar
+└─ loja.py                  # `sqlite3`: conversas e contactos que a UI mostra
+
+
+# 5. Utilizador
+user/
+├─ cli.py                   # Interface de linha de comando
+├─ ui.py                    # Renderizador TUI minimalista, opcional
+└─ config.py                # Identidade local e preferências
+
+
+# 6. Interface
+# React + Vite. `src/` é o que se escreve; o resto é ferramental.
+UI/
+├─ README.md                # Padrões, decisões e o que a interface promete
+├─ package.json
+├─ src/
+│   ├─ main.jsx  App.jsx  index.css
+│   ├─ pages/               # Um ficheiro por ecrã
+│   ├─ components/onyx/     # Componentes próprios: shell, lista, modais
+│   ├─ components/ui/       # Componentes base (shadcn/ui)
+│   ├─ hooks/               # `use-mobile`, `use-size`
+│   └─ lib/onyx/            # Adaptadores, contexto e formatação
+├─ tools/
+│   ├─ onyxchat             # `instalar`: Node local com SHA-256 fixado
+│   ├─ versoes.txt
+│   └─ node/                # Node instalado pelo `onyxchat instalar` (terceiros)
+├─ public/                  # `fonts/`, `onyxchat.png`
+├─ eslint.config.js  jsconfig.json  components.json
+├─ postcss.config.js  tailwind.config.js  vite.config.js
+├─ src-tauri/               # **Vazio**: só `gen/` e `target/`. Não há
+│                           # código de ambiente de trabalho; o plano é
+│                           # outro e a interface é web
+└─ app/desktop/             # **Vazio**: reservado, sem ficheiros
+
+
+# 7. Testes
+tests/                      # pytest: unidade, integração e E2E
+├─ apoio.py                 # Utilitários partilhados
+├─ test_cli.py  test_config.py  test_ui.py
+├─ test_conta.py  test_amizade.py  test_identidade.py
+├─ test_identidade_interface.py
+├─ test_keys.py  test_storage.py  test_envelope.py  test_pipeline.py
+├─ test_ipc_client.py
+├─ test_descoberta.py  test_discovery.py
+├─ test_sidecar.py                # `rotas.py` e `origem.py` são testados
+│                                # aqui, não em ficheiros com o nome deles
+├─ test_origem.py  test_loja.py
+├─ test_relay.py
+├─ test_propriedades.py     # `hypothesis`
+├─ test_vectors.py          # Confere que Rust e Python dão o mesmo
+├─ test_verificar_portugues.py    # Americanismos: apanha, e não engole
+├─ test_verificar_comentarios.py # A extracção de prosa alcança o JS
+├─ test_verificar_estrutura.py   # A `Estrutura.txt` bate com a árvore
+├─ test_e2e_daemon.py       # E2E com o binário e Tor desligado
+├─ test_e2e_sidecar.py      # E2E do sidecar com daemon real
+├─ test_e2e_rede.py         # E2E: dois daemons ligados por relé
+└─ vectors/                 # Fontes dos vectores; `docs/test_vectors.md` é gerado
+    ├─ camadas.json  handshake.json  pipeline.json  identidade.json
+
+
+# 8. Fuzzing
+# Crate separado e fora do workspace: libFuzzer precisa de nightly.
+fuzz/
+├─ Cargo.toml  Cargo.lock  .gitignore
+├─ fuzz_targets/
+│   ├─ envelope_parser.rs  handshake_parser.rs  ipc_parser.rs
+│   └─ k4_decoder.rs  k7_decoder.rs  relay_parser.rs
+└─ corpus/                  # Sementes versionadas; o resto é ignorado
+
+
+# Mapa das nove camadas
+---------------------------------------------------------------------
+| Camada | Onde está              | Nota                                   |
+| ------ | ---------------------- | -------------------------------------- |
+| K1     | crypto/rust/src/aead_chacha.rs | AEAD do canal de sessão           |
+| K2     | crypto/python_lua/lua/deslocamento.lua | deslocamento +3         |
+| K3     | crypto/python_lua/lua/vigenere.lua     | Vigenère                |
+| K4     | crypto/c_cpp/transposition.cpp         | 5 colunas + PKCS#7        |
+| K5     | crypto/rust/src/aead_aes.rs | AES-256-GCM                       |
+| K6     | crypto/python_lua/lua/playfair.lua     | Playfair               |
+| K7     | crypto/rust/src/hill.rs      | Hill 2×2 mod 256                    |
+| K8     | crypto/python_lua/lua/deslocamento.lua | deslocamento +7         |
+| K9     | crypto/c_cpp/k9_chacha.c | libsodium, com espelho em Rust     |
+
+**K2 e K8 são o mesmo módulo**, com deslocamentos diferentes. São a
+única camada implementada duas vezes, e é de propósito: um único módulo
+elimina a classe de bug em que as duas divergem sem nenhum teste as
+distinguir. `network/daemon_rust/src/lua_camadas.rs` documenta o porquê.
+
+
+# Gerado, e portanto fora da estrutura
+---------------------------------------------------------------------
+| Directório        | Quem o produz                        |
+| ----------------- | ------------------------------------ |
+| `target/`, `**/target/` | `cargo`                          |
+| `UI/dist/`        | `vite build`                         |
+| `UI/tools/node/`  | `UI/tools/onyxchat instalar`         |
+| `UI/node_modules/`| `npm ci`                             |
+| `.venv/`          | `python -m venv`                     |
+| `fuzz/corpus/`    | execuções do `cargo fuzz` (as sementes versionadas não) |
+| `__pycache__/`, `.pytest_cache/` | o próprio Python e o pytest |
+
+`fuzz/corpus/` é o único sítio onde o que é gerado **e** o que é
+versionado coexistem: `fuzz/.gitignore` mantém as sementes e apaga o
+resto. `scripts/verificar_gitignore.sh` confere que a linha está certa.
+
+
+# O que a versão anterior inventava
+---------------------------------------------------------------------
+A versão anterior listava sete ficheiros que **não existem**. Estavam lá
+desde antes de o código os substituir, e ninguém notou porque um mapa
+não se executa:
+
+| Ficheiro listado                    | Realidade                              |
+| ----------------------------------- | -------------------------------------- |
+| `crypto/python_lua/python/*.py` (4) | A referência em Python **não existe**  |
+| `~crypto/python_lua/lua/cesar.lua` | K2 passou a `deslocamento.lua`         |
+| `~crypto/python_lua/lua/substituicao.lua` | K8 passou a `deslocamento.lua`     |
+| `~messenger/plugins_loader.py`       | Não existe plugin loader              |
+
+Faltavam inteiros: `scripts/`, `fuzz/`, `tests/` quase todo, a
+`UI/` inteira, `messenger/conta.py`, `server/loja.py` e os quatro
+ficheiros Rust que não constam de lado nenhum.
+
+Cada uma destas linhas é agora conferida por
+`scripts/verificar_estrutura.py`, que falha se um ficheiro aqui deixar
+de existir — que é o que teria apanhado a versão anterior.

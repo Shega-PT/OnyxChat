@@ -1,0 +1,261 @@
+# =====================================================================
+# OnyxChat — matriz de verificação
+# ---------------------------------------------------------------------
+# Corre a mesma matriz que `./scripts/testar.sh` corre localmente.
+# **A mesma**, não uma versão paralela dela: um CI que corre outra coisa é
+# uma opinião sobre o projecto, e uma opinião que divergiu da matriz é
+# pior do que não ter CI.
+#
+# ## As duas diferenças, e porque são legítimas
+#
+# 1. `ONYXCHAT_SEM_CGROUP=1` — o tecto de memória existe para proteger
+#    o editor de quem está a trabalhar na máquina. Num runner não há
+#    editor ao lado, e o `testar.sh` **diz** em cada passo que deixou de
+#    medir. Ver `scripts/testar.sh` §Porque é que existe uma saída.
+#
+# 2. `ONYXCHAT_PULAR_TOR=1` no job de pull request — o passo 5 compila
+#    458 crates da arti e é o mais lento da matriz. O mesmo passo corre
+#    no job `tor`, agendado e manual, onde o tempo se paga. Também
+#    diz que saltou.
+#
+# Documentação: `docs/testing.md` §Como correr.
+# =====================================================================
+
+name: verificação
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  # O Tor é agendado porque é caro; o botão manual existe porque a
+  # pergunta «isto ainda compila com rede real?» tem de se poder fazer a
+  # qualquer momento, e não esperar pelo calendário.
+  schedule:
+    - cron: "17 4 * * *"   # 04:17 UTC — e não à hora redonda, porque
+                            # à hora redonda todos os repositórios do
+                            # mundo tentam ao mesmo tempo e o runner
+                            # fica à espera na fila
+  workflow_dispatch:
+
+concurrency:
+  group: verificação-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Sem tecto de cgroup: ver o cabeçalho. Isto **não** desliga a
+  # medição em máquina local — o valor por omissão continua a ser
+  # medido, e só o CI o desliga, porque é o único sítio onde não há
+  # editor a proteger.
+  ONYXCHAT_SEM_CGROUP: "1"
+  CARGO_TERM_COLOR: always
+  # O `cargo` do runner não tem cache próprio entre jobs; sem isto, cada
+  # job volta a desempacotar as mesmas 103 crates.
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # ------------------------------------------------------------------
+  # A matriz. Um job só, e não um por linguagem, porque `testar.sh` é
+  # um só e partir a matriz em jobs diferentes partiria também o `cargo
+  # build` que os passos seguintes usam.
+  # ------------------------------------------------------------------
+  matriz:
+    name: matriz completa
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: obter o código
+        uses: actions/checkout@v4
+
+      - name: Rust com `rustup`
+        # O runner já traz Rust, mas uma toolchain nomeada é
+        # reprodutível e o log passa a dizer exactamente com que
+        # versão compilou. `fuzz` exige `nightly`, que se instala no job `fuzz`.
+        run: |
+            rustup toolchain install stable --profile minimal
+            rustup default stable
+            rustc --version
+
+      - name: dependências de sistema
+        # `cmake` para o CTest; `pkg-config` e `libssl-dev` para o que o
+        # grafo de dependências do daemon compila. `libsodium` **não**
+        # entra aqui: é vendorizada em `crypto/c_cpp/vendor/`, e é uma
+        # das decisões que a `UI/tools/versoes.txt` documenta pelo
+        # simétrico — o artefacto fica fixado por conteúdo, e não por
+        # o que o `apt` decidir entregar.
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              cmake pkg-config libssl-dev
+
+      - name: Python e o virtualenv
+        # `testar.sh` procura `.venv`. Criá-lo aqui, e não confiar no
+        # Python do runner, é o que faz `PYTEST="$VENV/bin/pytest"`
+        # resolver para um caminho que existe.
+        run: |
+            python3 -m venv .venv
+            .venv/bin/pip install --upgrade pip
+            .venv/bin/pip install -e '.[dev]'
+
+      - name: a matriz
+        run: ./scripts/testar.sh
+        env:
+          # O passo 5 vai no job `tor`, não aqui — ver o cabeçalho.
+          ONYXCHAT_PULAR_TOR: "1"
+
+      - name: resumo
+        # `testar.sh` sai != 0 se algum passo falhar, e o runner pára
+        # aí. Este passo não faz nada: existe para deixar escrito onde
+        # se lê o sumário, porque o sumário é a última linha do log do
+        # passo anterior e ninguém desce um log até ao fundo.
+        run: echo "matriz concluída — o sumário está no fim do log anterior"
+
+  # ------------------------------------------------------------------
+  # O passo 5 da matriz, isolado.
+  # ------------------------------------------------------------------
+  tor:
+    name: compila tor_arti.rs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Não corre em cada push: 458 crates é a conta mais cara do
+    # projecto, e o que apanha é uma regressão num ficheiro.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: obter o código
+        uses: actions/checkout@v4
+
+      - name: Rust com `rustup`
+        run: |
+            rustup toolchain install stable --profile minimal
+            rustup default stable
+
+      - name: dependências de sistema
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              cmake pkg-config libssl-dev
+
+      - name: cache do cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: tor-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: compilacao de tor_arti.rs
+        # O passo que provocou os OOM kills em 2026-10-07, com o
+        # editor aberto, tinha um pico de 1156 MB. Num runner de 16 GB
+        # isso não é um problema — e o `testar.sh` local continua a pôr
+        # o tecto, porque lá o problema é real.
+        run: ./scripts/testar.sh
+        env:
+          ONYXCHAT_PULAR_TOR: "0"
+
+  # ------------------------------------------------------------------
+  # Fuzzing. Nightly, porque `libFuzzer` só existe em `rustup nightly`.
+  # ------------------------------------------------------------------
+  fuzz:
+    name: fuzzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Um crash escreve em `fuzz/artifacts/`; continuar a correr os
+    # outros alvos depois de um crash daria um verde que esconde o
+    # buraco. O job é que para. Ver `scripts/testar.sh` §Fuzzing.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: obter o código
+        uses: actions/checkout@v4
+
+      - name: Rust nightly
+        run: |
+            rustup toolchain install nightly --profile minimal
+            rustup component add llvm-tools-preview --toolchain nightly
+            rustup default nightly
+
+      - name: dependências de sistema
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends cmake pkg-config
+
+      - name: Python e o virtualenv
+        run: |
+            python3 -m venv .venv
+            .venv/bin/pip install --upgrade pip
+            .venv/bin/pip install -e '.[dev]'
+
+      - name: cargo_fuzz
+        # `--fuzz` é o modo do `testar.sh` que constrói e corre os 6
+        # alvos. O número de execuções é o mesmo do local: 2000 por
+        # alvo, 120 segundos de limite. Um CI com mais execuções daria
+        # uma confiança que a máquina de quem desenvolve não tem — e
+        # isso é exactamente o tipo de verde que não se deve dar.
+        run: ./scripts/testar.sh --fuzz
+
+      - name: artefactos de crash
+        # Um crash tem de ser **visível**. O job já falhou pelo passo
+        # anterior, mas listar os ficheiros diz *o que* provocou o
+        # crash, e é isso que alguém precisa de saber primeiro.
+        if: failure()
+        run: |
+            if [ -d fuzz/artifacts/onyxchat-fuzz ]; then
+              ls -1 fuzz/artifacts/onyxchat-fuzz/
+            else
+              echo "sem artefactos: a falha não foi um crash de fuzzing"
+            fi
+
+  # ------------------------------------------------------------------
+  # A interface. Node pelo instalador do projecto, com SHA-256 fixado.
+  # ------------------------------------------------------------------
+  interface:
+    name: interface
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: obter o código
+        uses: actions/checkout@v4
+
+      - name: dependências de sistema
+        # `xz` para descompactar o pacote do Node, e `curl` para o ir
+        # buscar. `libfuse` não é preciso: o `instalar` descompacta para
+        # um directório e não monta nada.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xz-utils
+
+      - name: Node pelo instalador do projecto
+        # **Não** `actions/setup-node`. A decisão do projecto é que
+        # quem exclusivamente tem `UI/tools/onyxchat instalar`, e o
+        # SHA-256 está escrito em `UI/tools/versoes.txt` — versionado,
+        # em diff, ao lado do anterior. Um `setup-node` verificaria o
+        # pacote contra o próprio nodejs.org, o que é o mesmo que não
+        # verificar nada: ver `UI/tools/versoes.txt` §Porque é que os
+        # sumários são fixados e não descarregados.
+        run: |
+            UI/tools/onyxchat instalar
+            UI/tools/onyxchat verificar
+
+      - name: dependências da interface
+        run: UI/tools/onyxchat instalar-ui
+
+      - name: lint, tipos e build
+        # `ver` é o comando do projecto para os três. `lint:quiet` e não
+        # `lint`: os avisos não fecham o CI, e um portão que fecha por
+        # um aviso ensina a ignorar-se.
+        run: UI/tools/onyxchat ver
+
+      - name: o `dist` não chama nada de fora
+        # `UI/README.md` promete «nenhum recurso externo» e dá o comando
+        # que prova. Prometer sem verificar é o que a Etapa 7 vai
+        # corrigir; enquanto a promessa existe, ela é verificada.
+        run: |
+            if grep -E 'src="https?://|href="https?://' UI/dist/index.html; then
+              echo "o dist/index.html aponta para recursos externos"
+              exit 1
+            fi
+            echo "dist/index.html sem recursos externos"

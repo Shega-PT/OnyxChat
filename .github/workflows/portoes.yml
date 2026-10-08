@@ -1,0 +1,120 @@
+# =====================================================================
+# OnyxChat — portões de entrega
+# ---------------------------------------------------------------------
+# Corre em **cada** push e em cada pull request, e é o workflow mais
+# barato do projecto: sem `cargo`, sem `npm`, sem RAM medida. Só o que
+# decide se o repositório está em ordem.
+#
+# Porque um workflow separado dos testes, e não um job dentro deles:
+# um portão que só corre depois de um build de dez minutos avisa dez
+# minutos mais tarde do que devia. Estes dé cronometram-se em segundos e
+# apanham o que é barato de apanhar — que inclui erros de escrita nos
+# próprios portões.
+#
+# Documentação: `docs/testing.md` §Os portões de entrega.
+# =====================================================================
+
+name: portões
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Um `cancel-in-progress` aqui é seguro e vale o preço: um push novo
+# invalida o teste do push anterior, e deixá-lo correr gasta minutos de
+# runner a responder a uma pergunta que já não interessa.
+concurrency:
+  group: portões-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # O identificador do job é ASCII mesmo quando o nome não é: o
+  # GitHub valida a chave do job contra um esquema que não aceita
+  # acentos, e um erro de esquema só aparece depois do push.
+  portoes:
+    name: portões de entrega
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: obter o código
+        uses: actions/checkout@v4
+
+      - name: Python da máquina
+        # O runner já traz Python, mas a versão exacto não é
+        # garantida entre imagens. Fixar aqui torna o log honesto: se a
+        # cobertura mudar de comportamento, o log diz com que Python.
+        run: |
+            python3 --version
+            python3 -c 'import sys; assert sys.version_info >= (3, 12), sys.version'
+
+      # ------------------------------------------------------------------
+      # A sintaxe dos scripts de shell, antes de tentar correr um deles.
+      # Um `bash -n` em `.github/workflows/*.sh` não vale nada; o que
+      # interessa é que os portões são shell válido.
+      # ------------------------------------------------------------------
+      - name: sintaxe dos scripts
+        run: |
+            for f in scripts/*.sh UI/tools/onyxchat UI/tools/instalar.sh; do
+              printf '  %-34s ' "$f"
+              bash -n "$f" && printf 'ok\n'
+            done
+
+      - name: permissões de execução
+        # `verificar_gitignore.sh` também confirma os bits, mas um
+        # `git add` feito em Windows sem `core.fileMode` chega a
+        # desligá-los sem dar erro nenhum. Ver aqui é mais barato.
+        run: |
+            git config core.fileMode true
+            git ls-files -s scripts UI/tools | awk '$1 != 100755 {print "  não executável: " $4; f=1} END {exit f?1:0}'
+
+      - name: o que está e o que não está versionado
+        # A pendência «por versionar» que este portão imprime não é
+        # falha — é informação. Ver `scripts/verificar_gitignore.sh`
+        # §Estado de um ficheiro.
+        run: ./scripts/verificar_gitignore.sh
+
+      - name: a `Estrutura.txt` bate com a árvore?
+        # O mapa nomeia 170 ficheiros. Um nome que aponte para o sítio
+        # errado — um ficheiro que se apagou, um caminho que se mudou —
+        # é a forma mais barata de a documentação divergir sem o código
+        # tocar nele, e é o que este portão existe para apanhar.
+        run: ./scripts/verificar_estrutura.py
+
+      - name: texto em português
+        # Os quatro auditores. `verificar_alfabeto` varre tudo o que está
+        # versionado, e por isso apanha também o que os outros três não
+        # leem.
+        run: |
+            set -e
+            python3 scripts/verificar_portugues.py
+            python3 scripts/verificar_frases.py
+            python3 scripts/verificar_comentarios.py
+            python3 scripts/verificar_alfabeto.py
+
+      - name: imports nomeados existem
+        # Corre depois dos auditores de propósito: se um import foi
+        # partido por uma edição, os auditores de texto dizeriam algo
+        # sobre a linha, e este portão diz o que falta.
+        run: python3 scripts/verificar_imports.py
+
+      - name: nada por versionar
+        # O `.gitignore` deixar visível um ficheiro que não está no
+        # índice é o estado em que o `git clone` da próxima pessoa não
+        # fica com ele. Não é uma falha de quem fez o push — é uma
+        # falha de quem se esqueceu, e ela tem de ser visível **aqui**.
+        run: |
+            por_versionar="$(git ls-files --others --exclude-standard | wc -l)"
+            printf 'ficheiros visíveis fora do índice: %s\n' "$por_versionar"
+            if [ "$por_versionar" -gt 0 ]; then
+              git ls-files --others --exclude-standard | head -30
+              printf '%s\n' \
+                'Estes ficheiros existem na árvore e não estão no índice.' \
+                'Num clone não lá vão. `git add` antes de fazer push.'
+              exit 1
+            fi

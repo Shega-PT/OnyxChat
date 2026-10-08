@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* OnyxChat — sistema de design escuro, técnico e sóbrio. */
+
+@layer base {
+  :root {
+    --background: 195 46% 5%;      /* #071013 */
+    --foreground: 188 2% 91%;      /* #E3EAEB */
+
+    --card: 193 41% 7%;            /* #0A1518 */
+    --card-foreground: 188 2% 91%;
+
+    --popover: 193 42% 9%;         /* #0D1C20 */
+    --popover-foreground: 188 2% 91%;
+
+    --primary: 190 47% 20%;        /* #1B434B */
+    --primary-foreground: 188 2% 93%;
+
+    --secondary: 192 45% 11%;
+    --secondary-foreground: 188 2% 91%;
+
+    --muted: 192 42% 12%;
+    --muted-foreground: 186 6% 65%;
+
+    --accent: 191 48% 18%;
+    --accent-foreground: 188 2% 91%;
+
+    --destructive: 0 28% 51%;      /* #A65D5D */
+    --destructive-foreground: 188 2% 93%;
+
+    --border: 192 26% 15%;
+    --input: 192 28% 17%;
+    --ring: 186 12% 47%;
+
+    --radius: 0.5rem;
+
+    /* Superfícies OnyxChat */
+    --surface-1: 193 41% 7%;
+    --surface-2: 193 42% 9%;
+    --surface-3: 192 45% 11%;
+    --elevated-1: 193 48% 15%;
+    --elevated-2: 191 48% 18%;
+    --metallic-1: 186 12% 47%;
+    --metallic-2: 186 10% 56%;
+    --text-secondary: 186 6% 65%;
+    --text-disabled: 188 10% 42%;
+    --success: 148 25% 49%;
+    --warning: 40 35% 51%;
+    --error: 0 28% 51%;
+    --info: 196 22% 49%;
+
+    --chart-1: 190 47% 30%;
+    --chart-2: 148 25% 49%;
+    --chart-3: 196 22% 49%;
+    --chart-4: 186 12% 47%;
+    --chart-5: 40 35% 51%;
+
+    --font-heading: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+    --sidebar-background: 193 41% 7%;
+    --sidebar-foreground: 186 6% 65%;
+    --sidebar-primary: 190 47% 20%;
+    --sidebar-primary-foreground: 188 2% 93%;
+    --sidebar-accent: 192 45% 11%;
+    --sidebar-accent-foreground: 188 2% 91%;
+    --sidebar-border: 192 26% 15%;
+    --sidebar-ring: 186 12% 47%;
+
+    color-scheme: dark;
+  }
+
+  .dark {
+    --background: 195 46% 5%;
+    --foreground: 188 2% 91%;
+    --card: 193 41% 7%;
+    --card-foreground: 188 2% 91%;
+    --popover: 193 42% 9%;
+    --popover-foreground: 188 2% 91%;
+    --primary: 190 47% 20%;
+    --primary-foreground: 188 2% 93%;
+    --secondary: 192 45% 11%;
+    --secondary-foreground: 188 2% 91%;
+    --muted: 192 42% 12%;
+    --muted-foreground: 186 6% 65%;
+    --accent: 191 48% 18%;
+    --accent-foreground: 188 2% 91%;
+    --destructive: 0 28% 51%;
+    --destructive-foreground: 188 2% 93%;
+    --border: 192 26% 15%;
+    --input: 192 28% 17%;
+    --ring: 186 12% 47%;
+    color-scheme: dark;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+    font-feature-settings: 'cv05' 1, 'ss01' 1;
+  }
+
+  ::selection {
+    background: hsl(var(--primary));
+    color: hsl(var(--foreground));
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--elevated-1)) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--elevated-1));
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--metallic-1));
+    background-clip: content-box;
+    border: 3px solid transparent;
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer utilities {
+  /* Anéis concêntricos — linguagem gráfica do logo, sempre discreta. */
+  .onyx-rings {
+    background-image: radial-gradient(
+      circle at 50% 50%,
+      transparent 0 27%, hsl(var(--metallic-1) / 0.07) 27% 27.4%,
+      transparent 27.4% 45%, hsl(var(--metallic-1) / 0.055) 45% 45.4%,
+      transparent 45.4% 63%, hsl(var(--metallic-1) / 0.04) 63% 63.4%,
+      transparent 63.4% 81%, hsl(var(--metallic-1) / 0.03) 81% 81.4%,
+      transparent 81.4%
+    );
+  }
+
+  .onyx-mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    letter-spacing: 0.02em;
+  }
+
+  .onyx-label {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 10px;
+    line-height: 1;
+    font-weight: 500;
+    color: hsl(var(--text-secondary));
+  }
+}

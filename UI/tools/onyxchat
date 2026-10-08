@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# =====================================================================
+# onyxchat — ponto de entrada para trabalhar na interface
+# ---------------------------------------------------------------------
+# Um comando para tudo o que é preciso fazer em `UI/`, e que não depende
+# do que a distribuição do sistema instalou.
+#
+# ## Uso
+#
+#   UI/tools/onyxchat instalar      instala a ferramenta local, se faltar
+#   UI/tools/onyxchat verificar     diz o que falta, sem instalar nada
+#   UI/tools/onyxchat instalar-ui   instala a ferramenta e as dependências
+#   UI/tools/onyxchat dev           servidor de desenvolvimento
+#   UI/tools/onyxchat build         compila para dist/
+#   UI/tools/onyxchat ver          corre lint, tipos e construção
+#   UI/tools/onyxchat <outro>       passa ao npm
+#
+# ## Porque um comando próprio
+#
+# Porque numa distribuição com o Node 18, `npm run dev` falha com um erro
+# de módulo que não menciona versões. Quem está a desenvolver tem de saber
+# que o comando certo é outro — e um requisito que precisa de ser lembrado
+# é um requisito que vai ser esquecido.
+#
+# Este script põe o `PATH` certo antes de chamar o `npm`, e por isso o
+# `npm` também passa a servir a versão certa dos pacotes npm. Fora dele, a
+# dependência passa a ser o Node do sistema.
+#
+# ## Quando não há ferramenta local
+#
+# Se `install/tools/node` não existe, este script **não falha de
+# imediato**: aceita um Node do sistema que sirva e diz qual é. Recusar
+# funcionar só porque falta a cópia local tornaria o script inútil para
+# quem já tem o Node certo instalado, e a cópia local é uma conveniência,
+# não um requisito.
+#
+# O que nunca é aceito é um Node demasiado antigo, porque aí a falha é
+# opaca e aparece no meio de um build.
+# =====================================================================
+set -euo pipefail
+
+AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RAIZ="$(cd "$AQUI/../.." && pwd)"
+UI="$RAIZ/UI"
+LOCAL_BIN="$AQUI/node/bin"
+
+cor_verde() { printf '\033[32m%s\033[0m\n' "$1"; }
+cor_amarelo() { printf '\033[33m%s\033[0m\n' "$1"; }
+cor_vermelho() { printf '\033[31m%s\033[0m\n' "$1"; }
+erro() { cor_vermelho "erro: $1" >&2; exit 1; }
+
+# Versão mínima que o Vite 8 impõe. Extraída de `package.json` para que
+# não haja dois números a guardar — se o `engines` mudar e este ficar, o
+# sintoma é um erro de módulo e não uma mensagem de aviso.
+versao_minima() {
+    grep -oE '"node": "[^"]+"' "$UI/package.json" \
+        | head -1 \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+        | head -1
+}
+
+# Devolve verdadeiro se `obtida` for pelo menos `minima`.
+#
+# Compara componente a componente e decide na primeira diferença; a
+# terceira casa é para não ter de tratar versões com número diferente de
+# componentes. Um componente ausente conta como zero, o que faz "22"
+# contra "22.14" dar 22 == 22 e depois 0 < 14 — a leitura correcta de que
+# 22 não chega a 22.14.
+#
+# O nome é `basta` e não `menor_ou_igual` porque é isso que responde:
+# "serve?". Uma versão anterior chamava-se ao contrário e a condição de
+# chamada ficou invertida, o que fez o script aceitar um Node 18 quando o
+# Vite exige 20.19 — exactamente o que esta função existe para impedir.
+versao_basta() {
+    local obtida="$1" minima="$2" i
+    local -a A B
+    IFS='.' read -r -a A <<<"$obtida"
+    IFS='.' read -r -a B <<<"$minima"
+    for i in 0 1 2; do
+        local x="${A[i]:-0}" y="${B[i]:-0}"
+        x="${x%%[!0-9]*}"
+        y="${y%%[!0-9]*}"
+        [ -z "$x" ] && x=0
+        [ -z "$y" ] && y=0
+        [ "$x" -gt "$y" ] 2>/dev/null && return 0
+        [ "$x" -lt "$y" ] 2>/dev/null && return 1
+    done
+    return 0
+}
+
+# ---------------------------------------------------------------------
+# Escolha do Node
+# ---------------------------------------------------------------------
+# Devolve o caminho para o `node` a usar, ou falha com a explicação.
+escolher_node() {
+    local minimo
+    minimo="$(versao_minima)"
+    [ -n "$minimo" ] || erro "não consegui ler a versão mínima de Node de UI/package.json"
+
+    if [ -x "$LOCAL_BIN/node" ]; then
+        printf '%s' "$LOCAL_BIN/node"
+        return 0
+    fi
+
+    local de_sistema=""
+    if command -v node >/dev/null 2>&1; then
+        de_sistema="$(command -v node)"
+    fi
+
+    if [ -n "$de_sistema" ]; then
+        local actual
+        actual="$("$de_sistema" --version 2>/dev/null || echo 'desconhecida')"
+        if versao_basta "${actual#v}" "$minimo"; then
+            cor_amarelo "aviso: a ferramenta local não está instalada; a usar o Node do sistema ($actual)"
+            printf '%s' "$de_sistema"
+            return 0
+        fi
+        erro "o Node do sistema é $actual e o Vite exige >= $minimo.
+  Corre com:  ${0##*/} instalar
+Não aceito continuar: a falha daqui em diante seria um erro de módulo
+que não menciona versões, e perde-se tempo a descobrir a causa."
+    fi
+
+    erro "não há Node nem em tools/node/bin nem no PATH.
+  Corre com:  ${0##*/} instalar"
+}
+
+# Põe o `node` escolhido (e o `npm` que vem com ele) no `PATH` e executa
+# o `npm` a partir da pasta da interface.
+#
+# Sem `exec`, de propósito. Com `exec`, a primeira chamada substituiria o
+# processo deste script e os comandos seguintes — `ver`, que corre lint,
+# tipos e construção em sequência — nunca chegariam a executar. Quem
+# chamaLimits o código de saída; quem chama do fim da cadeia é que
+# substitui o processo.
+com_node() {
+    local node; node="$(escolher_node)"
+    local dir; dir="$(dirname "$node")"
+    PATH="$dir:$PATH"
+    export PATH
+    cd "$UI" || erro "não encontrei a pasta da interface em $UI"
+    "$dir/npm" "$@"
+}
+
+# Idêntico, mas substitui este processo. Usado apenas no encaminhamento
+# por omissão, onde não há nada para executar a seguir.
+com_node_exec() {
+    local node; node="$(escolher_node)"
+    local dir; dir="$(dirname "$node")"
+    PATH="$dir:$PATH"
+    export PATH
+    cd "$UI" || erro "não encontrei a pasta da interface em $UI"
+    exec "$dir/npm" "$@"
+}
+
+# ---------------------------------------------------------------------
+# Comandos
+# ---------------------------------------------------------------------
+cmd_instalar() {
+    "$AQUI/instalar.sh" "$@"
+}
+
+cmd_instalar_ui() {
+    cmd_instalar
+    printf '\n%s\n' 'a instalar as dependências da interface'
+    com_node install
+}
+
+# Diz o que falta, sem mudar nada. É o comando a correr primeiro numa
+# máquina nova, e o único que é seguro correr em CI.
+cmd_verificar() {
+    local problemas=0
+    printf '%s\n' '--- ferramenta local da interface ---'
+    if [ -x "$LOCAL_BIN/node" ]; then
+        cor_verde "  Node local $("$LOCAL_BIN/node" --version)"
+    else
+        cor_amarelo "  Node local não instalado — ${0##*/} instalar"
+        problemas=$((problemas + 1))
+    fi
+
+    printf '%s\n' '--- portaões da interface ---'
+    if [ -d "$UI/node_modules" ]; then
+        cor_verde "  dependências instaladas"
+    else
+        cor_amarelo "  node_modules ausente — ${0##*/} instalar-ui"
+        problemas=$((problemas + 1))
+    fi
+
+    cd "$UI" || exit 1
+    if [ -d node_modules ]; then
+        local s
+        s="$(com_node run lint:quiet 2>&1)" && cor_verde "  lint sem erros" \
+            || { cor_vermelho "  lint com erros"; printf '%s\n' "$s" | tail -20; problemas=$((problemas + 1)); }
+        s="$(com_node run typecheck 2>&1)" && cor_verde "  tipos sem erros" \
+            || { cor_vermelho "  erros de tipo"; printf '%s\n' "$s" | tail -20; problemas=$((problemas + 1)); }
+    fi
+
+    printf '\n'
+    if [ "$problemas" -eq 0 ]; then
+        cor_verde 'tudo em ordem'
+    else
+        cor_amarelo "${problemas} problema(s)"
+    fi
+    return "$problemas"
+}
+
+cmd_ver() {
+    com_node run lint:quiet
+    com_node run typecheck
+    com_node run build
+}
+
+principal() {
+    [ $# -ge 1 ] || {
+        printf 'uso: %s <instalar|instalar-ui|verificar|dev|build|ver|...>\n' "${0##*/}"
+        exit 2
+    }
+    local comando="$1"; shift
+    case "$comando" in
+        instalar)     cmd_instalar "$@" ;;
+        instalar-ui)  cmd_instalar_ui "$@" ;;
+        verificar)    cmd_verificar "$@" ;;
+        ver)          cmd_ver "$@" ;;
+        *)            com_node_exec run "$comando" "$@" ;;
+    esac
+}
+
+principal "$@"

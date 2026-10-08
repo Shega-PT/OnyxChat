@@ -1,0 +1,44 @@
+{
+  "//": [
+    "Verificação de tipos sobre JavaScript (checkJs), não TypeScript real:",
+    "o projecto é JS/JSX puro e não usa anotações de tipo.",
+    "",
+    "Âmbito — a regra que mudou nesta revisão:",
+    "antes só se verificava `src/components/**/*.js` e `src/pages/**/*.jsx`,",
+    "o que deixava fora `src/lib/**` (o adaptador de dados e a formatação),",
+    "`src/api/**` e `src/App.jsx` — precisamente as camadas onde um erro de",
+    "tipo é silencioso em produção. O âmbito passou a ser todo o `src/`.",
+    "",
+    "Excepção deliberada: `src/components/ui/` é código do shadcn gerado pelo",
+    "`shadcn add`, não código nosso. Verificá-lo produziria dezenas de avisos",
+    "sobre código que não controlamos e que regeneraríamos a cada adição de",
+    "primitivo. Fica de fora, e as dependências internas dele estão resolvidas",
+    "pelo `package.json`."
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["esnext", "dom"],
+    "target": "esnext",
+    "checkJs": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": [
+      "vite/client"
+    ]
+  },
+  "include": [
+    "src/**/*.js",
+    "src/**/*.jsx",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": ["node_modules", "dist", "src/components/ui/**"]
+}
