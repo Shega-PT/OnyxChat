@@ -503,6 +503,95 @@ fn licenca_e_metadados_sao_coerentes() {
     );
 }
 
+/// Directório de ferramenta de terceiros dentro do repositório.
+///
+/// A pasta `UI/tools/node/` é um Node.js completo, descompactado de um
+/// pacote oficial por `UI/tools/instalar.sh`. Traz cabeçalhos C e C++ que
+/// a PolyForm não cobre e não pode cobrir — a licença deles é a do
+/// projecto de que vêm, e exigirem um `Required Notice:` nosso seria
+/// falso.
+///
+/// A comparação é por **caminho relativo**, e não por nome de directório.
+/// Excluir pelo nome `node` apanharia qualquer pasta nossa com esse nome,
+/// e a regra tem de continuar a valer quando alguém criar uma. Um guard
+/// que se estreita sozinho deixa de proteger o que protegia.
+const FERRAMENTAS_DE_TERCEIROS: &[&str] = &["UI/tools/node"];
+
+/// O caminho está dentro de uma ferramenta de terceiros?
+///
+/// `raiz` tem de ser a **raiz do repositório**, não o directório que se
+/// está a percorrer. A diferença não é de estilo: com o directório
+/// actual, ao descer em `UI/tools` o caminho relativo de `UI/tools/node`
+/// reduz-se a `node`, e a comparação nunca casa. A exclusão fica então
+/// escrita mas inerte, e o guard passa a verde por estar a proteger o
+/// ficheiro errado — que é a forma mais cara de um guard partir.
+fn e_ferramenta_de_terceiros(raiz: &Path, caminho: &Path) -> bool {
+    let Ok(relativo) = caminho.strip_prefix(raiz) else {
+        return false;
+    };
+    let texto = relativo.to_string_lossy().replace('\\', "/");
+    FERRAMENTAS_DE_TERCEIROS
+        .iter()
+        .any(|base| texto == *base || texto.starts_with(&format!("{base}/")))
+}
+
+/// A exclusão de ferramentas de terceiros funciona de facto.
+///
+/// A primeira vez que o guard apanhou a árvore do Node foi quando esta
+/// exclusão **não** funcionava: o `strip_prefix` era feito contra o
+/// directório corrente. O directório do Node estava instalado, o guard
+/// acusou 2367 ficheiros sem aviso, e a causa era uma comparação escrita
+/// contra a base errada.
+///
+/// Daí este teste: uma exclusão que só se exercita quando a ferramenta
+/// de terceiros está instalada é uma exclusão que falha em silêncio no
+/// exactamente momento em que importa.
+#[test]
+fn a_exclusao_de_ferramentas_de_terceiros_exclui_o_caminho_certo() {
+    let raiz = Path::new("/repo");
+
+    // O caminho que tem de ser excluído.
+    assert!(e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/UI/tools/node")
+    ));
+    // E tudo o que está dentro dele.
+    assert!(e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/UI/tools/node/include/node/v8.h")
+    ));
+    assert!(e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/UI/tools/node/share/doc/node/lldb_commands.py")
+    ));
+
+    // O que **não** pode ser excluído, que é onde um `starts_with` mal
+    // escrito parte as coisas: uma pasta nossa cujo nome começa pelo
+    // mesmo.
+    assert!(!e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/UI/tools/node-antigo/notes.md")
+    ));
+    assert!(!e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/UI/tools")
+    ));
+    assert!(!e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/UI/src/main.js")
+    ));
+    assert!(!e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/messenger/node/identidade.py")
+    ));
+
+    // Um caminho fora da raiz não é de ninguém.
+    assert!(!e_ferramenta_de_terceiros(
+        Path::new("/outro"),
+        Path::new("/repo/UI/tools/node")
+    ));
+}
+
 /// Os ficheiros de fonte que vão ser distribuídos.
 ///
 /// Percorre a árvore a partir da raiz, em vez de listar directórios à
@@ -515,8 +604,8 @@ fn licenca_e_metadados_sao_coerentes() {
 /// teste não são distribuídos. Inclui-os dava um guard que falha por
 /// ficheiros que ninguém recebe.
 fn collectar_fontes(raiz: &Path) -> Vec<PathBuf> {
-    fn descender(base: &Path, saida: &mut Vec<PathBuf>) {
-        let Ok(entradas) = fs::read_dir(base) else {
+    fn descender(atual: &Path, raiz: &Path, saida: &mut Vec<PathBuf>) {
+        let Ok(entradas) = fs::read_dir(atual) else {
             return;
         };
         for entrada in entradas.flatten() {
@@ -526,13 +615,32 @@ fn collectar_fontes(raiz: &Path) -> Vec<PathBuf> {
             // licenças e as suas próprias linhas de aviso. `target` e
             // `build` são artefactos. `tests` e `fuzz` não são
             // distribuídos. Um ponto à frente é `.git`, `.venv`, etc.
-            if matches!(nome, "vendor" | "target" | "build" | "tests" | "fuzz")
+            //
+            // `node_modules` é `vendor` noutro nome: é a árvore de
+            // dependências que o npm instala dentro do repositório, com as
+            // suas próprias licenças e sem qualquer relação com a
+            // PolyForm.
+            //
+            // Isto percorre o **sistema de ficheiros**, não o índice do
+            // Git, e por isso não beneficia do `.gitignore`: a pasta
+            // está correctamente ignorada, mas ignorada não é o mesmo
+            // que ausente, e este guard lê o disco.
+            //
+            // A comparação é feita contra a **raiz do repositório**, não
+            // contra o directório que se está a percorrer. Fazer
+            // `strip_prefix(atual)` daria o nome do último componente — ao
+            // descer em `UI/tools`, `UI/tools/node` reduziria a `node`,
+            // que não casa com nada em `FERRAMENTAS_DE_TERCEIROS`. A
+            // exclusão passava a não excluir nada, e o guard continuava a
+            // dar verde por estar a proteger o ficheiro errado.
+            if matches!(nome, "vendor" | "target" | "build" | "tests" | "fuzz" | "node_modules")
                 || nome.starts_with('.')
+                || e_ferramenta_de_terceiros(raiz, &caminho)
             {
                 continue;
             }
             if caminho.is_dir() {
-                descender(&caminho, saida);
+                descender(&caminho, raiz, saida);
             } else if matches!(
                 caminho.extension().and_then(|e| e.to_str()),
                 Some("rs" | "py" | "c" | "cpp" | "h")
@@ -543,7 +651,7 @@ fn collectar_fontes(raiz: &Path) -> Vec<PathBuf> {
     }
 
     let mut saida = Vec::new();
-    descender(raiz, &mut saida);
+    descender(raiz, raiz, &mut saida);
     saida.sort();
     saida
 }

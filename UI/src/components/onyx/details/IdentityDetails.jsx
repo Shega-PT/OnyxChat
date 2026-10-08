@@ -67,7 +67,7 @@ export default function IdentityDetails({ person, kind = 'contact' }) {
         <div className="mt-3 border-t border-onyx-line pt-1">
           <OnyxRow
             label="Impressão digital"
-            value={shortFingerprint(person.id)}
+            value={shortFingerprint(person.fingerprint)}
             mono
             action={
               <Copy

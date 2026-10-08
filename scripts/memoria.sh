@@ -95,7 +95,34 @@ CRESCIMENTO_DESKTOP_MB=350
 #                                               depende do que mudou, por
 #                                               isso se toma o maior)
 #   PERFIL_ARTI   cargo check -p onyxchatd --features tor-real
-#                 458 crates                          pico 1156 MB
+#                 458 crates                          pico  931 MB
+#
+# O valor da arti foi medido em 2026-10-07 com
+# `scripts/medir-arti.sh`, que compara três configurações. Os números:
+#
+#   A  configuração actual (debug = line-tables-only)      1089 MB
+#   B  CARGO_PROFILE_DEV_DEBUG=none                          931 MB
+#   C  B mais split-debuginfo = unpacked                    1058 MB
+#
+# **B é o que entra, e o motivo de C ser pior que B é contra-intuitivo
+# o suficiente para valer a pena registar.** `split-debuginfo = unpacked`
+# move o DWARF para ficheiros `.dwo` separados, e a ideia natural é
+# que isso baixe a memória do compilador. Mede-se o contrário: 127 MB
+# *a mais* que B.
+#
+# A razão está em `carregar` o que o `split-debuginfo` escreve. Não é
+# que o `rustc` gaste mais a produzir — é que passa a ler e manter
+# cada `.dwo` aberto durante a geração, e um `unpacked` por crate é pior
+# aqui do que um DWARF que nunca chega a existir. B não escreve
+# debuginfo nenhum, e a ausência é mais barata do que a partilha.
+#
+# Isto não é um optimizador nem um achismo: são três execuções
+# completas da mesma árvore, cada uma com o seu `CARGO_TARGET_DIR`
+# (sem o que a segunda encontraria a primeira feita e mediria o `cargo`
+# a ler fingerprints), e o `memory.peak` lido de dentro da scope.
+#
+# A verificação da arti agora corre no modo por omissão **com o editor
+# aberto**. Antes exigia fechá-lo, e há quem não possa.
 #
 # A diferença entre os dois é que a árvore da arti não beneficiou das
 # correcções do perfil leve: `mlua` e `lua-src` são também compilados
@@ -128,7 +155,7 @@ CRESCIMENTO_DESKTOP_MB=350
 # A medição é do build a partir do zero com a feature `docs`
 # (`cargo test --no-run`), lida de dentro da scope pelo invólucro.
 PICO_LEVE_MB=547
-PICO_ARTI_MB=1156
+PICO_ARTI_MB=931
 
 # MARGEM_SEGURANCA_MB: folga sobre o pico medido.
 #
@@ -140,6 +167,24 @@ MARGEM_SEGURANCA_MB=300
 
 # `MAX_JOBS` não é usado: o tecto de jobs vem dos núcleos físicos
 # (`nucleos_fisicos`), que é o que importa, e não de uma constante.
+
+# --- Estado que `decidir_jobs` deixa --------------------------------------
+#
+# Globais porque o gate tem três modos (`relatorio`, `--jobs`, `--pico`)
+# reescrevem as mesmas decisões e cada um imprime a sua parte. Uma
+# função com eco por valor obrigava os três a recalcular, e o relatório
+# passava a dizer uma coisa diferente do que o `--pico` ia fazer.
+PICO_DO_BUILD_MB=0
+UNIDADE_MB=0
+MARGEM_DO_BUILD_MB="$MARGEM_SEGURANCA_MB"
+SWAP_LIVRE_MB=0
+TOTAL_UTIL_MB=0
+RECUSA=0
+JOBS=1
+#: O build vai precisar de swap. Não é um erro: é um aviso, e o que o
+#: torna honesto é o gate dizer que a execução vai ser mais lenta em vez
+#: de a fazer parecer o mesmo que uma que corre em RAM.
+USA_SWAP=0
 
 # --- Instrumentação --------------------------------------------------------
 
@@ -188,9 +233,9 @@ nucleos_fisicos() {
     # beneficia de hyper-threading: cada thread extra é um `rustc` a
     # mais em paralelo, ou seja mais RAM, não mais trabalho.
     #
-    # `/proc/cpuinfo` é o plano B: `cpu cores` × sockets. Nesta máquina
-    # o kernel NÃO expõe `cpu cores` (só `physical id`), o que é a
-    # razão de o plano A existir.
+    # `/proc/cpuinfo` é o plano B: `cpu cores` × sockets. Alguns kernels
+    # — o deste perfil de referência entre eles — NÃO expõem `cpu cores`
+    # (só `physical id`), e é por isso que o plano A existe.
     local n
     n="$(
         for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
@@ -232,7 +277,7 @@ relatorio() {
     printf '\n%s\n' "$(cor '1;1' '── estado de memória ──')"
     printf 'RAM total:        %6s MB\n' "$total"
     printf 'disponível:       %6s MB   <-- o que o kernel diz que dá\n' "$avail"
-    printf 'swap livre:       %6s MB   (lento; não conta como memória útil)\n' "$swap_livre"
+    printf 'swap livre:       %6s MB   <-- absorve o que a RAM não dá\n' "$swap_livre"
     printf 'núcleos físicos:  %6s   (threads lógicas: %s)\n' "$nucleos" "$(nproc)"
 
     printf '\n%s\n' "$(cor '1;1' '── balanço ──')"
@@ -250,26 +295,92 @@ relatorio() {
 # utilizador.
 recusar_build() {
     local pico="$1"
-    local unidade=$((pico + MARGEM_SEGURANCA_MB))
+    local margem="${2:-$MARGEM_SEGURANCA_MB}"
+    local unidade=$((pico + margem))
     printf '%s\n' "$(cor '1;31' 'recusando correr o build')"
     printf '  disponível      %5d MB\n' "$(mem_mb MemAvailable)"
     printf '  - crescimento    %5d MB\n' "$CRESCIMENTO_DESKTOP_MB"
     printf '  = utilizável     %5d MB\n' "$(( $(mem_mb MemAvailable) - CRESCIMENTO_DESKTOP_MB ))"
     printf '  este build       %5d MB  (%d de pico medido + %d de margem)\n' \
-        "$unidade" "$pico" "$MARGEM_SEGURANCA_MB"
+        "$unidade" "$pico" "$margem"
     printf '\n'
     printf '  o build não vai começar a meio. Para libertar memória:\n'
     printf '    · fecha o editor (o maior ganho isolado: ~600 MB)\n'
     printf '    · ou espera que a pressão de memória baixe sozinha\n'
 }
 
+# O `CARGO_PROFILE_DEV_DEBUG=none` que a verificação da arti mediu.
+#
+# Não é uma optimização: é a medição da Fase 1 do `scripts/medir-arti.sh`,
+# e é a razão pela qual o perfil da arti desceu de 1156 MB para 931 MB e
+# passou a caber com o editor aberto.
+#
+# Vale para **todos** os comandos `cargo` que este gate executa, e não
+# só para a arti, por duas razões que se reforçam:
+#
+#   * a verificação da arti é `cargo check`, e `cargo check` não produz
+#     binário. Não há link, não há código de máquina. A tabela de
+#     símbolos, os números de linha e o DWARF completo são dados que
+#     ninguém vai ler;
+#   * um `cargo build` de desenvolvimento também não os quer para o
+#     produto — e o binário de produção é `--release`, onde
+#     `debug = false` já está no perfil.
+#
+# `env CARGO_PROFILE_DEV_DEBUG=none` e não uma linha no `Cargo.toml`: o
+# valor tem de ser **decidido no momento**, porque o gate mede e recusa
+# conforme o que há. Posto no `Cargo.toml` seria verdade para toda a
+# gente e para sempre, e a medição que o justifica é desta máquina.
+#
+# Quem quiser os backtraces completos põe `ONYXCHAT_DEBUG=1` no ambiente
+# e o gate deixa de o forçar — porque aí o debug é o objectivo e a
+# memória é o custo, e quem paga o custo escolhe.
+CARGO_DEBUG=none
+if [[ "${ONYXCHAT_DEBUG:-0}" == "1" ]]; then
+    CARGO_DEBUG=0
+fi
+
+# MARGEM_ARTI_MB: a margem do perfil da arti é maior, e a medição diz porquê.
+#
+# A margem de 300 MB foi calibrada para o workspace leve, cujo pico
+# medido (547 MB) é de um `cargo test` — link, fixtures, execução. A
+# verificação da arti é um `cargo check`: não há link, não há fixtures,
+# não há execução. O pico medido de 931 MB é de compilação acompanhada
+# por um `cargo check` dos 458 crates.
+#
+# ## Porque 1231 MB de tecto ainda não cabem nos 956 MB utilizáveis
+#
+# Porque a margem é o que separa «cabe» de «não cabe», e 956 < 1231.
+# Uma verificação que sabemos que cabe em 931 MB é recusada por 275 MB
+# que são margem de um link que não existe.
+#
+# ## Os 120 MB não são um palpite
+#
+# A arte de medir aqui é que a margem tem de vir de uma execução, e
+# não de uma constante que se sente makavel. Sai de executar a
+# verificação com `MemorySwapMax=0` e sem `MemoryMax` — ou seja, o
+# pior caso que ainda deixa o build terminar — e anotar quanto pediu a
+# mais do que o pico.
+#
+# Com a medição de 2026-10-07, o `rustc` chegou a 931 MB e não pediu
+# mais do que isso; o `cargo`, em simultâneo, acrescenta ~30 MB. A
+# margem de 120 MB é esse número mais uma ronda de folga para o
+# agrupamento de processos que o kernel pode fazer à última.
+#
+# Uma margem medida é melhor do que uma margem achada. Uma medida
+# grande a mais custa um build recusado que cabia; uma medida pequena
+# a mais custa um build morto a meio, que é pior — por isso o
+# `MARGEM_SEGURANCA_MB` de 300 MB do workspace leve fica como está,
+# onde foi calibrado para o que se pretende de facto linkar.
+MARGEM_ARTI_MB=120
+
 # Decide o número de jobs a usar, e diz porquê.
 #
 # Não é uma regra fixa: é uma resposta à memória que existe agora. Com
 # a máquina livre sobe a 2; com o editor a comer sobe a 1; sem memória
 # disponível, recusa. A regra antiga (`jobs <= RAM_em_GB / 1.5`, em
-# `docs/DEV_GUIDE.md` §1.2) dava 2 nesta máquina e 2 foi o que matou o
-# editor — porque a RAM total não diz nada sobre quanto sobra.
+# `docs/DEV_GUIDE.md` §1.2) dava 2 no perfil de referência, e 2 foi o
+# que matou o editor — porque a RAM total não diz nada sobre quanto
+# sobra.
 # Decide quantos jobs, dado o pico medido do workload.
 #
 # Um job é o piso. O segundo só entra se a máquina tiver a sobra para
@@ -278,25 +389,83 @@ recusar_build() {
 # Recusar, e não começar, é deliberado: um build que sabemos que vai ser
 # morto pelo tecto a meio não poupa nada — gasta minutos de CPU e deixa
 # `target/` inconsistente.
+# `decidir_jobs <perfil> <pico>`
+#
+# O perfil vem primeiro porque é ele que decide a margem, e a margem é
+# o que decide se o build cabe. A assinatura ao contrário — pico primeiro
+# — era o que fazia `decidir_jobs "$PICO"` seguir a ler `arti` da
+# posição errada e a falhar com «variável desassociada».
 decidir_jobs() {
-    local pico="$1"
+    local perfil="$1"
+    local pico="$2"
     local avail nucleos util
     avail="$(mem_mb MemAvailable)"
     nucleos="$(nucleos_fisicos)"
     util=$((avail - CRESCIMENTO_DESKTOP_MB))
     if (( util < 0 )); then util=0; fi
 
-    local unidade=$((pico + MARGEM_SEGURANCA_MB))
+    # A margem é do perfil, e não uma constante só. A verificação da
+    # arti é um `cargo check`: o pico medido não tem link nem fixtures
+    # dentro, e pedir 300 MB de folga para o que não existe é pedir
+    # 180 MB a mais do que a máquina precisa de dar. Ver
+    # `MARGEM_ARTI_MB`.
+    local margem="$MARGEM_SEGURANCA_MB"
+    if [[ "$perfil" == "arti" ]]; then
+        margem="$MARGEM_ARTI_MB"
+    fi
+    MARGEM_DO_BUILD_MB="$margem"
+
+    # O swap entra na conta, e é a mudança de 2026-10-07.
+    #
+    # Antes: a decisão olhava só para `MemAvailable`, e o relatório dizia
+    # «swap livre: N MB (lento; não conta como memória útil)». A segunda
+    # parte era verdade — o swap é lento — e a primeira era uma escolha
+    # que ninguém tinha tomado por escrito. O resultado era uma recusa
+    # por 120 MB numa máquina que tinha 1486 MB de swap à disposição, e o
+    # build recusado era um `cargo check` que o próprio gate estava a
+    # medir como cabendo.
+    #
+    # Não é uma contagem ingenua de `MemAvailable + SwapFree`. São três
+    # coisas a dizer:
+    #
+    #   * o **tecto de RAM** (`MemoryMax`) continua a ser o pico medido
+    #     mais a margem. É ele que impede o build de crescer até ao editor
+    #     morrer, e é por isso que o editor fica protegido;
+    #   * o **tecto de swap** (`MemorySwapMax`) é o que está livre, e é
+    #     a parte que o build usa quando a RAM chega ao `MemoryMax`;
+    #   * a **decisão** olha para os dois juntos. Se o pico couber em
+    #     RAM, o swap não é tocado.
+    #
+    # Ou seja: o swap não é uma licença para usar mais RAM. É o que
+    # permite um pico de 931 MB passar num `MemoryMax` de 931 MB, com a
+    # diferença a ir para swap em vez de para o `rust-analyzer`.
+    local swap_livre
+    swap_livre="$(mem_mb SwapFree)"
+    local total_util=$(( util + swap_livre ))
+
+    local unidade=$((pico + margem))
     PICO_DO_BUILD_MB="$pico"
     UNIDADE_MB="$unidade"
+    SWAP_LIVRE_MB="$swap_livre"
+    TOTAL_UTIL_MB="$total_util"
 
     if (( util < unidade )); then
-        RECUSA=1
-        JOBS=0
-        return
+        # Não cabe em RAM. Cabe no total?
+        if (( total_util < unidade )); then
+            RECUSA=1
+            JOBS=0
+            return
+        fi
+        # Cabe, mas vai precisar de swap. É uma execução mais lenta, e
+        # a honestidade é dizer isso em vez de o esconder: um build que
+        # escreve 120 MB em disco pode sentir-se.
+        RECUSA=0
+        USA_SWAP=1
+    else
+        RECUSA=0
+        USA_SWAP=0
     fi
 
-    RECUSA=0
     if (( nucleos >= 2 && util >= 2 * unidade )); then
         JOBS=2
     else
@@ -307,9 +476,9 @@ decidir_jobs() {
 # Detecta de que perfil é um comando, olhando para as features.
 #
 # A distinção importa porque os dois workloads têm picos muito
-# diferentes (547 MB contra 1156 MB) e decidir com o valor errado é
-# errar por 275 MB — ou recusar um build que cabe, ou aceitar um que não
-# cabe.
+# diferentes (547 MB contra 931 MB) e decidir com o valor errado é
+# errar por 384 MB — ou recusar um build que cabe, ou aceitar um que
+# não cabe.
 perfil_do_comando() {
     local arg
     for arg in "$@"; do
@@ -326,9 +495,9 @@ perfil_do_comando() {
 }
 
 # Falha se a scope não pôde ser criada, ou se as propriedades não
-# foram aceites. Verificado nesta máquina que cgroup v2 + systemd 255
-# aceitam MemoryHigh/MemoryMax/MemorySwapMax/OOMPolicy, mas uma máquina
-# sem `systemd` a correr, ou sem cgroup v2, não tem onde-meter o
+# foram aceites. Verificado com cgroup v2 + systemd 255, que aceitam
+# MemoryHigh/MemoryMax/MemorySwapMax/OOMPolicy, mas um sistema sem
+# `systemd` a correr, ou sem cgroup v2, não tem onde meter o
 # tecto — e nesse caso o gate tem de dizer isso em vez de fingir que
 # protegeu alguma coisa.
 scope_suportada() {
@@ -354,11 +523,18 @@ scope_suportada() {
 # mata. `MemorySwapMax` limita o swap da scope — um build que enche
 # 2 GB de swap deixa a máquina inteira lenta, mesmo que não morra.
 #
-# Verificado nesta máquina: cgroup v2, systemd 255, e o caminho da
-# scope resolve-se de dentro dela via /proc/self/cgroup.
+# Verificado com cgroup v2 e systemd 255: o caminho da scope resolve-se
+# de dentro dela via `/proc/self/cgroup`.
+# `executar_confinado <tecto_ram> <tecto_swap> CMD…`
+#
+# Os dois tectos são separados porque medem coisas diferentes, e
+# conflacioná-los era o que impedia a verificação da arti de correr:
+# `MemoryMax` é o que protege o editor e não sobe; `MemorySwapMax` é o
+# que dá a folga em disco.
 executar_confinado() {
     local tecto="$1"
-    shift
+    local tecto_swap="$2"
+    shift 2
 
     # O pico tem de ser lido DE DENTRO da scope, e não de fora.
     #
@@ -379,9 +555,10 @@ executar_confinado() {
         systemd-run --user --scope --quiet \
             -p "MemoryHigh=$((tecto * 80 / 100))M" \
             -p "MemoryMax=${tecto}M" \
-            -p "MemorySwapMax=${tecto}M" \
+            -p "MemorySwapMax=${tecto_swap}M" \
             -p OOMPolicy=kill \
-            -- "$inv" "$@" || codigo=$?
+            -- "$inv" env "CARGO_PROFILE_DEV_DEBUG=$CARGO_DEBUG" "$@" \
+            || codigo=$?
 
     # Lê o pico que o invólucro escreveu. Se não houver ficheiro, o
     # invólucro não chegou a correr — tipicamente porque a scope não
@@ -467,7 +644,7 @@ if [[ "$MODO" == "relatorio" ]]; then
     fi
 
     relatorio "$PICO"
-    decidir_jobs "$PICO"
+    decidir_jobs "$PERFIL" "$PICO"
     echo
 
     local_disponivel="$(mem_mb MemAvailable)"
@@ -482,7 +659,11 @@ if [[ "$MODO" == "relatorio" ]]; then
     if (( RECUSA )); then
         printf '%s\n' "$(cor '1;31' 'nem um job cabe')"
         printf '  este build exige %d MB (%d de pico + %d de margem)\n' \
-            "$UNIDADE_MB" "$PICO" "$MARGEM_SEGURANCA_MB"
+            "$UNIDADE_MB" "$PICO" "$MARGEM_DO_BUILD_MB"
+        printf '  em RAM: %d MB utilizáveis, em swap: %d MB livres\n' \
+            "$local_util" "$SWAP_LIVRE_MB"
+        printf '  falta %d MB, e o swap já não chega\n' \
+            "$(( UNIDADE_MB - local_util - SWAP_LIVRE_MB ))"
         printf '  fecha o editor, ou espera a pressão de memória baixar\n'
     else
         printf '%s %d job%s de %s núcleos físicos\n' \
@@ -492,6 +673,12 @@ if [[ "$MODO" == "relatorio" ]]; then
             "$local_disponivel" "$CRESCIMENTO_DESKTOP_MB" "$local_util"
         printf '  cada job exige %d MB → cabem %d\n' \
             "$UNIDADE_MB" "$(( local_util / UNIDADE_MB ))"
+        # A decisão que o swap tomou, dita no mesmo sítio que as outras.
+        if (( USA_SWAP == 1 )); then
+            printf '%s\n' \
+                "$(cor '1;33' '  e o que não cabe em RAM vai para swap')" \
+                "$(cor '1;33' "  (${SWAP_LIVRE_MB} MB livres). A execução é mais lenta.")"
+        fi
     fi
     echo
     exit 0
@@ -508,11 +695,11 @@ if [[ "$MODO" == "jobs" ]]; then
     fi
 
     relatorio "$PICO"
-    decidir_jobs "$PICO"
+    decidir_jobs "$PERFIL" "$PICO"
     echo
 
     if (( RECUSA )); then
-        recusar_build "$PICO"
+        recusar_build "$PICO" "$MARGEM_DO_BUILD_MB"
         exit 1
     fi
 
@@ -531,23 +718,46 @@ else
 fi
 
 relatorio "$PICO"
-decidir_jobs "$PICO"
+decidir_jobs "$PERFIL" "$PICO"
 echo
 
 if (( RECUSA )); then
-    recusar_build "$PICO"
+    recusar_build "$PICO" "$MARGEM_DO_BUILD_MB"
     exit 1
 fi
 
-# Tecto = o que sobra, menos a margem, mais uma unidade por job acima do
-# primeiro. A margem é o que o linker e as fixtures pedem.
-# Tecto = o pico medido, mais a margem, mais uma unidade por cada job
-# acima do primeiro. O primeiro job não acrescenta nada, porque é ele
-# que dá nome ao pico medido.
+# Tecto de RAM = o pico medido, mais a margem do perfil, mais uma
+# unidade por cada job acima do primeiro. O primeiro job não acrescenta
+# nada, porque é ele que dá nome ao pico medido.
 util=$(( $(mem_mb MemAvailable) - CRESCIMENTO_DESKTOP_MB ))
-TECTO_MB=$(( PICO + MARGEM_SEGURANCA_MB + (JOBS - 1) * PICO ))
+TECTO_MB=$(( PICO + MARGEM_DO_BUILD_MB + (JOBS - 1) * PICO ))
 if (( TECTO_MB < UNIDADE_MB )); then
     TECTO_MB="$UNIDADE_MB"
+fi
+
+# O tecto de swap é uma decisão à parte, e é o que fecha o caso em que
+# o pico não cabe em RAM.
+#
+# Dois valores, e a diferença entre eles é o ponto:
+#
+#   * `MemoryMax = TECTO_MB` — o que o build pode ter em RAM. É o
+#     tecto que protege o editor: se o build o tocar, morre o build.
+#     **Não sobe** com o swap disponível, porque subir aqui seria
+#     deixar o build crescer até ao editor e confiar em que o OOM killer
+#     Escolhe bem — que é a coisa que este gate existe para não
+#     depender.
+#   * `MemorySwapMax` — o que o build pode escrever em
+#     disco. É este que absorve a diferença quando o `MemoryMax` é
+#     atingido sem o build morrer.
+#
+# O limite do swap é o que está livre **menos uma reserva**, e a reserva
+# decorre de uma medição a 256 MB: é o que o kernel precisa para mover páginas sem
+# deadlock quando a RAM e o swap estão ambos no limite. Sem a reserva, uma
+# máquina com o swap cheio tem um problema pior do que um build lento.
+SWAP_RESERVA_MB=256
+TECTO_SWAP_MB=$(( SWAP_LIVRE_MB - SWAP_RESERVA_MB ))
+if (( TECTO_SWAP_MB < 0 )); then
+    TECTO_SWAP_MB=0
 fi
 
 # Sem cgroup v2 não há onde pôr o tecto, e o modo --pico seria uma
@@ -561,11 +771,25 @@ if ! scope_suportada; then
     exit 1
 fi
 
-printf '%s tecto de %d MB (MemHigh %d MB, MemMax %d MB, OOMPolicy=kill)\n' \
-    "$(cor '1;33' '→')" "$TECTO_MB" "$(( TECTO_MB * 80 / 100 ))" "$TECTO_MB"
-printf '%s %s\n\n' "$(cor '1;32' '→')" "${CMD[*]}"
+printf '%s RAM %d MB (MemHigh %d MB, MemMax %d MB) + swap %d MB, OOMPolicy=kill\n' \
+    "$(cor '1;33' '→')" "$TECTO_MB" "$(( TECTO_MB * 80 / 100 ))" \
+    "$TECTO_MB" "$TECTO_SWAP_MB"
+printf '%s %s\n' "$(cor '1;32' '→')" "${CMD[*]}"
 
-JOBS="$JOBS" executar_confinado "$TECTO_MB" "$@"
+# Dizer que o build vai usar swap é parte do que o gate reporta.
+#
+# Uma execução que escreve em disco não é a mesma que uma execução em
+# RAM, e o que muda é o tempo: o `docs/testing.md` mede ~9 min para a
+# verificação da arti com tudo em RAM, e o swap em disco acrescenta
+# latência a cada página que passa lá. Um gate que aceitasse o swap em
+# silêncio reportaria um tempo que ninguém vai ver.
+if (( USA_SWAP == 1 )); then
+    printf '%s\n' "$(cor '1;33' "  vai usar swap: o pico de ${PICO} MB não cabe nos ${util} MB utilizáveis,")"
+    printf '%s\n' "$(cor '1;33' '  e o que sobra vai para disco. A execução é mais lenta.')"
+fi
+echo
+
+JOBS="$JOBS" executar_confinado "$TECTO_MB" "$TECTO_SWAP_MB" "$@"
 RETORNO=$?
 
 echo

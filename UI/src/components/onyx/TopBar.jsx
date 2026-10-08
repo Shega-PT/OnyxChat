@@ -9,8 +9,6 @@ import {
   MenuItem as DropdownMenuItem,
   MenuSeparador as DropdownMenuSeparator,
 } from '@/lib/shadcn';
-import { base44 } from '@/api/base44Client';
-import { cn } from '@/lib/utils';
 import OnyxLogo from '@/components/onyx/OnyxLogo';
 import OnyxAvatar from '@/components/onyx/OnyxAvatar';
 import OnyxTooltip from '@/components/onyx/OnyxTooltip';
@@ -148,11 +146,27 @@ export default function TopBar({ onOpenNav }) {
               <Settings2 className="h-3.5 w-3.5" /> Definições
             </DropdownMenuItem>
             <DropdownMenuSeparator className="my-1 bg-onyx-line" />
+            {/*
+              Este item deixa de existir na Etapa 4, com a sessão local: o
+              que se faz aqui não é terminar sessão, é fechar o sidecar, e
+              uma acção dessas não pertence a um menu de perfil. A Etapa 4
+              coloca aqui o «Bloquear» e o «Exportar chave», que são as
+              acções que uma identidade tem.
+            */}
             <DropdownMenuItem
-              onSelect={() => base44.auth.logout()}
-              className={cn('cursor-pointer gap-2 rounded text-[12.5px] focus:bg-onyx-surface3 focus:text-onyx-text')}
+              onSelect={() => openModal({ type: 'info', payload: {
+                title: 'Sem sessão local ainda',
+                description:
+                  'O bloqueio local, a palavra-passe e a exportação da chave chegam na Etapa 4, com o sistema de credenciais. Até lá, esta janela mostra o estado real do nó.',
+                rows: [
+                  { label: 'Identidade', value: identity?.identifier || '—', mono: true },
+                  { label: 'Estado', value: 'sem bloqueio activo' },
+                ],
+                note: 'A aplicação abre directamente porque o OnyxChat não tem contas — a identidade é uma chave Ed25519 local, não um token de um servidor.',
+              } })}
+              className="cursor-pointer gap-2 rounded text-[12.5px] focus:bg-onyx-surface3 focus:text-onyx-text"
             >
-              <LogOut className="h-3.5 w-3.5" /> Terminar sessão
+              <LogOut className="h-3.5 w-3.5" /> Sessão
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

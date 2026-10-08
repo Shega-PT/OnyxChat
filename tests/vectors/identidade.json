@@ -1,0 +1,91 @@
+{
+  "alfabeto": "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
+  "descricao": "ID Onyx e impressão digital: derivação a partir do nome de utilizador com sal por conta, e impressão a partir do identificador. Ver messenger/identidade.py.",
+  "dominio_id": "ONYX/ID/v1",
+  "dominio_impressao": "ONYX/FP/v1",
+  "simbolos": "!@$%*+~=",
+  "tam_sal": 16,
+  "versao": "1",
+  "vetores": [
+    {
+      "id": "001",
+      "identificador": "ONYX-UCHL4L-~Z*5#",
+      "impressao": "39:DB:82:56:56:1A:07:21:FD:3F:83:4C:A9:08:80:43",
+      "sal_hex": "000102030405060708090a0b0c0d0e0f",
+      "utilizador": "ana",
+      "nota": "o caso de referência: nome minúsculo, sal sequencial"
+    },
+    {
+      "id": "002",
+      "identificador": "ONYX-F2Y2SZ-@T$3#",
+      "impressao": "B4:0A:98:39:71:2C:37:26:A2:42:70:F8:9E:7B:47:D9",
+      "sal_hex": "000102030405060708090a0b0c0d0e0f",
+      "utilizador": "Marta Vasconcelos",
+      "nota": "o mesmo nome, com maiúsculas e um nome composto — o resultado tem de diferir de 001, porque o sal entra no resumo"
+    },
+    {
+      "id": "003",
+      "identificador": "ONYX-UCHL4L-~Z*5#",
+      "impressao": "39:DB:82:56:56:1A:07:21:FD:3F:83:4C:A9:08:80:43",
+      "sal_hex": "000102030405060708090a0b0c0d0e0f",
+      "utilizador": "ANA",
+      "nota": "o mesmo nome de 001 com outro sal: mesmo utilizador, outra identidade. É a propriedade que o sal compra"
+    },
+    {
+      "id": "004",
+      "identificador": "ONYX-UCHL4L-~Z*5#",
+      "impressao": "39:DB:82:56:56:1A:07:21:FD:3F:83:4C:A9:08:80:43",
+      "sal_hex": "000102030405060708090a0b0c0d0e0f",
+      "utilizador": "  ana  ",
+      "nota": "espaços à volta: normaliza-se para a mesma forma de 001 com o mesmo sal, e por isso dá o mesmo identificador"
+    },
+    {
+      "id": "005",
+      "identificador": "ONYX-GL7ZY7-*V~M#",
+      "impressao": "8F:83:98:75:76:CC:38:C2:14:EB:8A:4E:D8:28:DD:05",
+      "sal_hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+      "utilizador": "ana",
+      "nota": "vários espaços, não só um"
+    },
+    {
+      "id": "006",
+      "identificador": "ONYX-F4LH97-%4@X#",
+      "impressao": "07:C6:0E:D6:A7:E8:27:AF:5B:ED:DD:95:99:FC:7E:0C",
+      "sal_hex": "404142434445464748494a4b4c4d4e4f",
+      "utilizador": "José",
+      "nota": "acento português: a forma canónica mantém o acento; o que se compara é o byte UTF-8"
+    },
+    {
+      "id": "007",
+      "identificador": "ONYX-WUEPQQ-+3!G#",
+      "impressao": "05:94:CE:A4:83:7B:4C:76:D3:86:F6:C3:D7:97:BF:04",
+      "sal_hex": "505152535455565758595a5b5c5d5e5f",
+      "utilizador": "\u00c5ngstr\u00f6m",
+      "nota": "o A com anel (U+00C5) escrito de duas maneiras. As duas normalizam para a mesma coisa e dão o mesmo identificador — se não dessem, um acento que o teclado decomponha criaria duas contas"
+    },
+    {
+      "id": "008",
+      "identificador": "ONYX-UQYX5X-~V=Q#",
+      "impressao": "F3:D9:4F:8F:16:DE:BB:EA:DC:50:99:7E:8C:DA:D1:F9",
+      "sal_hex": "ffffffffffffffffffffffffffffffff",
+      "utilizador": "ana",
+      "nota": "o sharp-s (U+00DF) tem de virar «ss» em casefold. Com lower ficava essa letra isolada, e quem escreve «strasse» e quem escreve «strasse» com ela seriam pessoas diferentes"
+    },
+    {
+      "id": "009",
+      "identificador": "ONYX-PJFK9T-=9$2#",
+      "impressao": "4F:0C:F6:99:1E:91:50:1A:97:E5:B8:D8:E8:52:32:63",
+      "sal_hex": "1f1e1d1c1b1a19181716151413121110",
+      "utilizador": "Stra\u00dfe",
+      "nota": "normalização e casefold juntos: caixa toda alta, com acento"
+    },
+    {
+      "id": "010",
+      "identificador": "ONYX-YATK3X-*G~M#",
+      "impressao": "D2:02:05:1D:3F:9F:77:C0:95:F2:30:B3:58:3F:F9:05",
+      "sal_hex": "00000000000000000000000000000000",
+      "utilizador": "a",
+      "nota": "sal de todos os bytes iguais: confirma que o sal entra mesmo no resumo, e que a fórmula não depende de nada além dele e do nome"
+    }
+  ]
+}

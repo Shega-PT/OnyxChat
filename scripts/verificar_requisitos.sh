@@ -168,8 +168,10 @@ detectar() {
             fi
             ;;
         memoria)
-            # `free` escreve o cabeçalho em português nesta máquina
-            # (`total usada livre`) e em inglês noutra (`total used free`),
+            # `free` escreve o cabeçalho na língua da `LANG`: com
+            # `LANG=pt_PT.UTF-8` dá `total usada livre`, com `LANG=C` dá
+            # `total used free`. Por isso a leitura é por rótulo e não
+            # por posição —
             # e a linha de dados começa por `Mem.:` em algumas versões do
             # procps e por `Mem:` noutras. Em vez de adivinhar a posição de
             # cada campo, toma-se a primeira linha que começa por `Mem` e

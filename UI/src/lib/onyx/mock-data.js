@@ -1,15 +1,45 @@
+// =====================================================================
 // Dados de demonstração do OnyxChat.
-// Substituir pelos dados reais apenas em data-adapter.js — nenhuma vista lê este ficheiro.
+// ---------------------------------------------------------------------
+// Nenhuma vista lê este ficheiro: o caminho é sempre
+// `data-adapter → mock-adapter → mock-data`. Ver `mock-adapter.js`.
+//
+// ## A identidade é real, as pessoas não são
+//
+// Cada `identifier` e cada `fingerprint` deste ficheiro foram **derivados**
+// de `messenger/identidade.py`, a partir do nome da pessoa e do sal abaixo.
+// Não são texto inventado que «pareça» um identificador.
+//
+// A distinção importa. Uma impressão digital de demonstração que fosse um
+// número inventado ensinaria a interface a apresentar uma coisa que não
+// verifica nada, e o hábito de verificar contra o valor errado é o que
+// anula uma verificação de identidade. Com os valores realmente
+// derivados, o que se vê na interface é exactamente o que um utilizador
+// real veria.
+//
+// `tests/test_identidade_interface.py` recalcula cada valor a partir do
+// nome que está **neste** ficheiro e compara. Mudar um nome sem mudar o
+// identificador faz esse teste falhar.
+//
+// ## O sal é de demonstração e está à vista
+//
+// `SAL_DEMONSTRACAO` é um valor fixo, e é o que torna estas identidades
+// reproduzíveis. Num sistema real o sal é de 16 bytes aleatórios por
+// conta, gerado uma vez no registo e **nunca** mostrado — é o que impede
+// um dicionário de nomes de utilizador.
+// =====================================================================
+
+/** Sal da demonstração. Ver o bloco de comentário acima. */
+export const SAL_DEMONSTRACAO = '101112131415161718191a1b1c1d1e1f';
 
 const now = Date.now();
 const ago = (minutes) => new Date(now - minutes * 60000).toISOString();
 
 export const identity = {
-  id: '8F3Q5S',
+  id: '8F3Q5S', identifier: 'ONYX-K2AC69-+B!E#', fingerprint: 'DF:6B:07:6C:C1:C0:19:74:28:57:10:4A:2B:C3:31:A4',
   name: 'Marta Vasconcelos',
   status: 'online',
   role: 'Nó primário',
-  fingerprint: 'A4:7C:19:EE:52:B0:3D:81:C7:6F:24:90:11:8B:5A:D2',
   keyAlgorithm: 'Ed25519 · X25519',
   createdAt: '2024-02-11',
   region: 'Lisboa, PT',
@@ -20,15 +50,15 @@ export const identity = {
 };
 
 export const contacts = [
-  { id: 'A7K2M4', name: 'Helena Braga', status: 'online', verified: true, role: 'Operadora de nó', note: 'Arquitetura de rede · núcleo', tags: ['Equipa', 'Infraestrutura'], addedAt: '2024-03-02', lastSeen: ago(4), mutual: 6 },
-  { id: 'B3X9Q1', name: 'Rui Camacho', status: 'away', verified: true, role: 'Auditor', note: 'Auditoria de chaves', tags: ['Segurança'], addedAt: '2024-05-18', lastSeen: ago(52), mutual: 4 },
-  { id: 'C8L4D7', name: 'Inês Faria', status: 'online', verified: false, role: 'Engenheira', note: 'Interoperabilidade', tags: ['Integrações'], addedAt: '2025-01-09', lastSeen: ago(1), mutual: 2 },
-  { id: 'D2M6P9', name: 'Tomás Neves', status: 'offline', verified: false, role: 'Contacto externo', note: '', tags: [], addedAt: '2025-04-22', lastSeen: ago(2880), mutual: 0 },
-  { id: 'E5R1T3', name: 'Sofia Quintela', status: 'busy', verified: true, role: 'Protocolo', note: 'Sincronização offline', tags: ['Equipa'], addedAt: '2024-09-12', lastSeen: ago(18), mutual: 5 },
-  { id: 'F9W2Y6', name: 'Duarte Mealha', status: 'online', verified: true, role: 'Operador', note: 'Infraestrutura de relays', tags: ['Infraestrutura'], addedAt: '2024-07-30', lastSeen: ago(7), mutual: 3 },
-  { id: 'G4H8J2', name: 'Clara Antunes', status: 'away', verified: false, role: 'Contacto externo', note: '', tags: [], addedAt: '2025-06-03', lastSeen: ago(130), mutual: 1 },
-  { id: 'H7N3Z5', name: 'Nuno Sampaio', status: 'offline', verified: true, role: 'Auditor', note: 'Arquivo de auditoria', tags: ['Segurança', 'Arquivo'], addedAt: '2024-11-27', lastSeen: ago(1500), mutual: 2 },
-  { id: 'SRV002', name: 'Nó de arquivo 02', status: 'online', verified: true, role: 'Serviço', note: 'Nó de serviço · replicação', tags: ['Serviço'], addedAt: '2024-08-05', lastSeen: ago(2), mutual: 0, service: true },
+  { id: 'A7K2M4', identifier: 'ONYX-WJQVAS-=K*2#', fingerprint: 'EF:0C:A4:C3:50:51:50:35:55:59:60:C0:19:DC:D1:BA', name: 'Helena Braga', status: 'online', verified: true, role: 'Operadora de nó', note: 'Arquitetura de rede · núcleo', tags: ['Equipa', 'Infraestrutura'], addedAt: '2024-03-02', lastSeen: ago(4), mutual: 6 },
+  { id: 'B3X9Q1', identifier: 'ONYX-A6WM2T-@B!L#', fingerprint: '46:64:42:E5:73:C7:7B:95:F2:73:52:7E:AD:9C:E2:B6', name: 'Rui Camacho', status: 'away', verified: true, role: 'Auditor', note: 'Auditoria de chaves', tags: ['Segurança'], addedAt: '2024-05-18', lastSeen: ago(52), mutual: 4 },
+  { id: 'C8L4D7', identifier: 'ONYX-2FYRSK-*3%E#', fingerprint: 'D5:93:A8:18:30:58:AE:6E:2F:BB:7E:23:A7:2C:A2:C0', name: 'Inês Faria', status: 'online', verified: false, role: 'Engenheira', note: 'Interoperabilidade', tags: ['Integrações'], addedAt: '2025-01-09', lastSeen: ago(1), mutual: 2 },
+  { id: 'D2M6P9', identifier: 'ONYX-GKXAJ8-+Z$Q#', fingerprint: 'D0:30:8A:C8:2C:40:2A:56:7C:1F:54:0E:DF:9F:20:D5', name: 'Tomás Neves', status: 'offline', verified: false, role: 'Contacto externo', note: '', tags: [], addedAt: '2025-04-22', lastSeen: ago(2880), mutual: 0 },
+  { id: 'E5R1T3', identifier: 'ONYX-H7GYTK-@G%2#', fingerprint: 'C8:4D:03:1A:3B:16:89:ED:C0:CD:00:B3:D5:ED:8A:08', name: 'Sofia Quintela', status: 'busy', verified: true, role: 'Protocolo', note: 'Sincronização offline', tags: ['Equipa'], addedAt: '2024-09-12', lastSeen: ago(18), mutual: 5 },
+  { id: 'F9W2Y6', identifier: 'ONYX-YVEVRC-*D%J#', fingerprint: '2C:30:AF:87:CE:13:30:81:8C:7D:7F:A8:AB:C1:D1:0E', name: 'Duarte Mealha', status: 'online', verified: true, role: 'Operador', note: 'Infraestrutura de relays', tags: ['Infraestrutura'], addedAt: '2024-07-30', lastSeen: ago(7), mutual: 3 },
+  { id: 'G4H8J2', identifier: 'ONYX-GDKBBV-+T*A#', fingerprint: '2A:32:41:2E:6F:12:1C:9E:6F:27:E3:1C:FB:95:D1:4B', name: 'Clara Antunes', status: 'away', verified: false, role: 'Contacto externo', note: '', tags: [], addedAt: '2025-06-03', lastSeen: ago(130), mutual: 1 },
+  { id: 'H7N3Z5', identifier: 'ONYX-6PZ5DT-+4!W#', fingerprint: '3C:9D:D4:EC:FF:07:73:B7:4B:23:6F:D2:1F:96:26:5B', name: 'Nuno Sampaio', status: 'offline', verified: true, role: 'Auditor', note: 'Ficheiro de auditoria', tags: ['Segurança', 'Ficheiro'], addedAt: '2024-11-27', lastSeen: ago(1500), mutual: 2 },
+  { id: 'SRV002', identifier: 'ONYX-QG2JLP-+3*M#', fingerprint: 'A4:59:CC:99:8F:51:71:F1:5A:69:52:34:00:98:AC:38', name: 'Nó de ficheiro 02', status: 'online', verified: true, role: 'Serviço', note: 'Nó de serviço · replicação', tags: ['Serviço'], addedAt: '2024-08-05', lastSeen: ago(2), mutual: 0, service: true },
 ];
 
 export const conversations = [
@@ -79,7 +109,7 @@ export const conversations = [
     messages: [
       { id: 'c3m1', from: 'them', author: 'Sofia Quintela', text: 'Relatório semanal publicado. Três nós com latência acima do limite.', at: ago(224), state: 'read' },
       { id: 'c3m2', from: 'me', text: 'Vou marcar os dois relays alternativos para revisão.', at: ago(212), state: 'read' },
-      { id: 'c3m3', from: 'them', author: 'Duarte Mealha', text: 'Feito. Os registos ficam no arquivo do nó até sexta.', at: ago(64), state: 'read' },
+      { id: 'c3m3', from: 'them', author: 'Duarte Mealha', text: 'Feito. Os registos ficam no ficheiro do nó até sexta.', at: ago(64), state: 'read' },
       { id: 'c3m4', from: 'them', author: 'Nuno Sampaio', text: 'Anexei a lista de chaves rotacionadas.', at: ago(45), state: 'read' },
     ],
   },
@@ -109,6 +139,11 @@ export const conversations = [
     verified: false,
     route: 'relay',
     latency: 92,
+    // Estado «indisponível»: o par está guardado mas a rota por relay
+    // deixou de responder. Demonstra o quinto estado de lista que o prompt
+    // pede e que, sem isto, nunca apareceria no modo de demonstração.
+    indisponivel: true,
+    indisponivelMotivo: 'Rota por relay perdida há 2 dias',
     messages: [
       { id: 'c5m1', from: 'them', text: 'Passa-me o teu identificador outra vez, perdi o cartão.', at: ago(2900), state: 'read' },
       { id: 'c5m2', from: 'me', text: 'Envio agora. Confirma a impressão digital antes de adicionar.', at: ago(2880), state: 'delivered' },
@@ -133,9 +168,9 @@ export const conversations = [
 ];
 
 export const requests = [
-  { id: 'r1', personId: 'J5K7L9', name: 'Vasco Pontes', status: 'away', verified: false, message: 'Encontrámo-nos na auditoria de março. Podes adicionar-me?', at: ago(48), mutual: 2 },
-  { id: 'r2', personId: 'K1P3R5', name: 'Lídia Serra', status: 'online', verified: false, message: 'Preciso de confirmar a tua chave para o arquivo partilhado.', at: ago(266), mutual: 1 },
-  { id: 'r3', personId: 'M8N2V6', name: 'Identificador 4A9F21', status: 'online', verified: false, service: true, message: 'Pedido automático de nó de serviço.', at: ago(1520), mutual: 0 },
+  { id: 'r1', personId: 'J5K7L9', identifier: 'ONYX-CLE7LR-@H+2#', fingerprint: 'E5:2A:4E:6F:00:45:B7:3B:3D:1C:7F:52:78:A8:60:58', name: 'Vasco Pontes', status: 'away', verified: false, message: 'Encontrámo-nos na auditoria de março. Podes adicionar-me?', at: ago(48), mutual: 2 },
+  { id: 'r2', personId: 'K1P3R5', identifier: 'ONYX-KKBT9C-~U+7#', fingerprint: '76:15:FE:74:CF:D0:C3:5D:1B:1D:98:A3:E3:4E:78:C6', name: 'Lídia Serra', status: 'online', verified: false, message: 'Preciso de confirmar a tua chave para o ficheiro partilhado.', at: ago(266), mutual: 1 },
+  { id: 'r3', personId: 'M8N2V6', identifier: 'ONYX-FFQJRM-*B$5#', fingerprint: '82:B1:D2:5B:73:7B:7C:4A:50:9B:60:28:B1:CD:FD:D6', name: 'Identificador 4A9F21', status: 'online', verified: false, service: true, message: 'Pedido automático de nó de serviço.', at: ago(1520), mutual: 0 },
 ];
 
 export const network = {
@@ -156,7 +191,7 @@ export const network = {
   nodes: [
     { id: 'A7K2M4', label: 'Helena Braga', region: 'Lisboa', route: 'direto', latency: 19, status: 'online' },
     { id: 'E5R1T3', label: 'Sofia Quintela', region: 'Porto', route: 'direto', latency: 24, status: 'busy' },
-    { id: 'SRV002', label: 'Nó de arquivo 02', region: 'FRA-1', route: 'direto', latency: 33, status: 'online' },
+    { id: 'SRV002', label: 'Nó de ficheiro 02', region: 'FRA-1', route: 'direto', latency: 33, status: 'online' },
     { id: 'F9W2Y6', label: 'Duarte Mealha', region: 'Coimbra', route: 'relay', latency: 58, status: 'online' },
     { id: 'B3X9Q1', label: 'Rui Camacho', region: 'Braga', route: 'relay', latency: 71, status: 'away' },
   ],
@@ -189,9 +224,13 @@ export const security = {
     { id: 'a2', level: 'warn', text: 'Pedido de contacto bloqueado (identificador desconhecido)', at: ago(600) },
     { id: 'a3', level: 'ok', text: 'Chave de sessão rotacionada com A7K2M4', at: ago(180) },
   ],
+  // Todo o bloco `security` é substituído por dados reais na Etapa 7
+  // (`ESTADO 0x03`). Até lá, a impressão é a **mesma** da identidade:
+  // dois valores diferentes para a mesma chave é o que faz um painel de
+  // segurança deixar de ser crível.
   key: {
     algorithm: 'Ed25519 · X25519',
-    fingerprint: 'A4:7C:19:EE:52:B0:3D:81:C7:6F:24:90:11:8B:5A:D2',
+    fingerprint: identity.fingerprint,
     rotatedAt: '2026-09-24',
     nextRotation: '2026-12-24',
     backupAt: '2026-08-26',

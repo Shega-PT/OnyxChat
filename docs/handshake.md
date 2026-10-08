@@ -231,16 +231,66 @@ uma `Amizade` completa (`publica` + K1 + K5/K9 de cada lado).
 Não é uma optimização de estética: o registo nunca precisou das chaves.
 Só contava e confirmava presenças. As chaves saem do daemon na resposta
 IPC do `ACEITAR_AMIZADE`/`CONFIRMAR_AMIZADE` (192 bytes) e é o **cliente**
-que as persiste, no `config.keystore` (`user/config.py`, formato v2).
+que as persiste, no keystore da conta (`messenger/conta.py`), cifradas
+com a frase de segurança.
 
 A consequência prática é que o estado volátil do daemon fica sem material
 simétrico: um `Debug` do `Estado`, um `Clone` acidental ou um dump de
 memória já não expõem K1/K5/K9 de nenhuma amizade.
 
-Quem chegar ao `ACEITAR_AMIZADE` à procura das chaves de um handshake
-antigo não as encontra — e com razão: **recomeçar o daemon obriga a
-repetir o handshake**. É o custo desta fase, e é o mesmo que a memória
-poupada compra.
+## Onde as chaves são guardadas, e desde quando
+
+Até 2026-10-07 as 192 bytes eram **impressas para o terminal e perdidas no
+fim do comando**. A consequência estava escrita aqui mesmo: «recomeçar o
+daemon obriga a repetir o handshake», e uma amizade que não sobrevive a
+um reinício do daemon não é uma amizade, é um rito.
+
+Agora vivem no **keystore da conta** (`messenger/conta.py`, classe
+`Amizade`), cifradas com a frase de segurança, no mesmo dicionário e
+com a mesma cifra que a identidade.
+
+Três razões, e a escolha de não ir para a loja do sidecar é a primeira:
+
+* **A cifra é a da frase de segurança.** Guardar chaves de mensagem num
+  `sqlite3` ao lado punha material que só o daemon devia ter, num
+  ficheiro que ninguém abre com uma frase;
+* **A cópia de segurança passa a cobri-las.** `exportar` copia o
+  keystore inteiro, e portanto uma conta restaurada traz as amizades —
+  que é o que «repor uma cópia» promete em [`conta.md`](conta.md);
+* **Um ficheiro, uma frase.** Um keystore separado obrigaria a
+  exportá-lo e restaurá-lo a par, e o ecrã de recuperação passaria a ter
+  duas operações em vez de uma.
+
+`onyxchat aceitar-amizade` e `onyxchat confirmar-amizade` continuam a
+imprimir as chaves — o par precisa do `corpo` — e passam a guardá-las.
+`onyxchat amigos` lista o que sobreviveu, e pede a frase porque abrir o
+keystore **é** decifrar.
+
+### Quando a guardar falha
+
+A falha é dita e o código de saída é 1. O handshake **já aconteceu**:
+o par tem o pedido e o daemon já registou a sessão. Perder a amizade é
+melhor do que mentir à pessoa — e o comando não diz «guardada» quando
+não guardou.
+
+**Uma** das duas dá 0 com aviso em vez de erro: não haver conta local.
+O `daemon_binario` de testes e quem corre sobre a identidade do
+`config.json` não têm onde guardar, e ficar sem guardar é o
+comportamento correcto aí — o comando handshake cumpriu o que tinha a
+prometer, e quem não tem conta não tem onde pôr as chaves.
+
+Cancelar a frase de segurança dá **1**, como qualquer outra falha. A
+distinção é deliberada: sem conta, o pedido foi cumprido e não havia
+onde persistir; a cancelar, **havia** onde persistir e a pessoa
+escolheu não deixar. Sair com 0 depois de uma gravação pedida e não
+feita ensinaria a quem automatiza isto que pode deixar de verificar —
+e é a razão de `user/cli.py` insistir: cancelar a frase é uma falha,
+não um detalhe de interface.
+
+> Uma versão anterior deste parágrafo dizia que as duas situações davam
+> 0. `tests/test_cli.py` diz o contrário, e o código também: a pessoa
+> cancelou, a amizade está feita do lado do daemon, e dizer «guardada»
+> seria mentira.
 
 ---
 

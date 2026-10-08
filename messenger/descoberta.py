@@ -52,9 +52,18 @@ from server.discovery_server import consultar_descoberta
 
 __all__ = [
     "DestinoInvalido",
+    "SERVIDOR_DESCOBERTA",
     "classificar_destino",
     "resolver_ou_usar",
 ]
+
+#: O servidor de descoberta por omissão.
+#:
+#: Vive aqui e não na CLI porque quem precisa dele é
+#: :func:`resolver_ou_usar` — a CLI e a rota do sidecar precisam do mesmo
+#: endereço, e duas constantes com o mesmo valor em dois ficheiros é uma
+#: delas a divergir sem ninguém dar por isso.
+SERVIDOR_DESCOBERTA = "http://127.0.0.1:8789"
 
 #: Comprimento da etiqueta base32 de um endereço `.onion` v3.
 _ETIQUETA_ONION = 56

@@ -173,10 +173,17 @@ def test_enquadramento_comprimento_invalido(tmp_path) -> None:
 
 
 def test_enquadramento_comprimento_grande(tmp_path) -> None:
-    """Header a anunciar payload acima de 16 MiB → ``RespostaInvalida``."""
+    """Header a anunciar payload acima de ``MAX_PAYLOAD`` → ``RespostaInvalida``.
+
+    O servidor anuncia e **não envia o corpo**, e é essa a forma exacta de
+    probar a propriedade: um cliente que lesse antes de recusar ficava à
+    espera dos 512 MiB que nunca chegariam, e o teste acabaria por
+    alocar o que devia apenas recusar.
+    """
     caminho = tmp_path / "s.sock"
-    resposta = b"\x00" * (ipc_client.MAX_PAYLOAD + 1)
-    with servidor_falso(caminho, resposta) as socket:
+    with servidor_falso(
+        caminho, b"", anunciar=ipc_client.MAX_PAYLOAD + 1
+    ) as socket:
         with pytest.raises(RespostaInvalida, match="enquadramento"):
             ClienteIpc(socket).cifrar(bytes(32), bytes(32), bytes(32), bytes(32), "x")
 

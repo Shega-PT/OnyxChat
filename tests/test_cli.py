@@ -642,8 +642,12 @@ def test_aceitar_amizade_imprime_seis_chaves_e_aceite(
         assert (
             cli.main(["aceitar-amizade", "00" * 209, "--seed", HEX_SEED]) == 0
         )
+    # O aviso «sem conta local» vai para o stderr, e a stdout continua a
+    # ser só os pares `nome=valor` que o comando promete.
     linhas = dict(
-        linha.split("=", 1) for linha in capsys.readouterr().out.splitlines()
+        linha.split("=", 1)
+        for linha in capsys.readouterr().out.splitlines()
+        if "=" in linha
     )
     assert set(linhas) == {
         "k1", "k5_proprio", "k9_proprio", "k5_par", "k9_par", "publica", "corpo",
@@ -679,7 +683,9 @@ def test_confirmar_amizade_imprime_chaves_sem_corpo(
     with servidor_falso(caminho, b"\x00" + b"c" * 192):
         assert cli.main(["confirmar-amizade", "00" * 177, "--seed", HEX_SEED]) == 0
     linhas = dict(
-        linha.split("=", 1) for linha in capsys.readouterr().out.splitlines()
+        linha.split("=", 1)
+        for linha in capsys.readouterr().out.splitlines()
+        if "=" in linha
     )
     assert "corpo" not in linhas and len(linhas) == 6
 
@@ -708,6 +714,118 @@ def test_relay_erro_tipado_sai_com_1(monkeypatch, tmp_path, capsys) -> None:
     erro = capsys.readouterr().err
     assert erro.startswith("\033[31monyxchat: ")
     assert "SemEspaco" in erro
+
+
+# ---------------------------------------------------------------------
+# sidecar
+# ---------------------------------------------------------------------
+
+
+def _parar_sidecar(
+    registo: list[tuple[int, object, str, object]],
+) -> callable:
+    """Substitui ``sidecar_mod.executar`` por um registo de chamadas."""
+
+    def executar(porta, loja=None, conta=None, *, host, caminho_conta, **resto):
+        registo.append((porta, conta, host, caminho_conta))
+
+    return executar
+
+
+def test_sidecar_avisa_da_porta_e_delega(monkeypatch, tmp_path, capsys) -> None:
+    """Sem conta, arranca trancado — e a frase é pedida antes de servir."""
+    monkeypatch.setenv("ONYX_CONTA", str(tmp_path / "conta.keystore"))
+    registo: list[tuple[int, object, str, object]] = []
+    monkeypatch.setattr(cli.sidecar_mod, "executar", _parar_sidecar(registo))
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: "quatro cavalos lentos numa mare")
+
+    assert cli.main(["sidecar"]) == 0
+    assert "sidecar a escutar em 127.0.0.1:8787" in capsys.readouterr().out
+    # `aberta` é None: não há conta, e o servidor arranca a pedir a frase.
+    assert registo == [(8787, None, "127.0.0.1", tmp_path / "conta.keystore")]
+
+
+def test_sidecar_com_conta_aberta_leva_a_conta(monkeypatch, tmp_path, capsys) -> None:
+    """Conta existente e frase certa → a conta aberta vai para o servidor."""
+    from messenger import conta as conta_mod
+
+    caminho = tmp_path / "conta.keystore"
+    monkeypatch.setenv("ONYX_CONTA", str(caminho))
+    conta_mod.criar("ana", "quatro cavalos lentos numa mare", caminho)
+
+    registo: list[tuple[int, object, str, object]] = []
+    monkeypatch.setattr(cli.sidecar_mod, "executar", _parar_sidecar(registo))
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: "quatro cavalos lentos numa mare")
+
+    assert cli.main(["sidecar", "--porta", "9100"]) == 0
+    porta, aberta, host, caminho_conta = registo[0]
+    assert (porta, host, caminho_conta) == (9100, "127.0.0.1", caminho)
+    assert aberta is not None
+    assert aberta.utilizador == "ana"
+
+
+def test_sidecar_com_frase_errada_arranca_trancado(monkeypatch, tmp_path, capsys) -> None:
+    """Frase errada não é fatal: avisa e serve na mesma, trancado.
+
+    O aviso é o ponto. Um sidecar que se recusasse a arrancar por a frase
+    estar errada deixaria a pessoa sem forma de a corrigir — e a rota de
+    identidade responde ``503``, que é a resposta certa para «trancado».
+    """
+    from messenger import conta as conta_mod
+
+    caminho = tmp_path / "conta.keystore"
+    monkeypatch.setenv("ONYX_CONTA", str(caminho))
+    conta_mod.criar("ana", "quatro cavalos lentos numa mare", caminho)
+
+    registo: list[tuple[int, object, str, object]] = []
+    monkeypatch.setattr(cli.sidecar_mod, "executar", _parar_sidecar(registo))
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: "outra frase completamente diferente")
+
+    assert cli.main(["sidecar"]) == 0
+    aviso = capsys.readouterr().err
+    assert "arrancar trancado" in aviso
+    assert "\033[33m" in aviso  # cor amarela
+    assert registo[0][1] is None
+
+
+def test_sidecar_com_keystore_invalido_sai_com_1(monkeypatch, tmp_path, capsys) -> None:
+    """Um keystore ilegível é diferente de uma frase errada: sai com 1.
+
+    Não há nada a servir: o ficheiro não é um keystore, e abrir a conta
+    por outro caminho seria fingir que o sistema sabe o que tem.
+    """
+    caminho = tmp_path / "conta.keystore"
+    caminho.write_bytes(b"isto nao e um keystore")
+    monkeypatch.setenv("ONYX_CONTA", str(caminho))
+
+    registo: list[tuple[int, object, str, object]] = []
+    monkeypatch.setattr(cli.sidecar_mod, "executar", _parar_sidecar(registo))
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: "quatro cavalos lentos numa mare")
+
+    assert cli.main(["sidecar"]) == 1
+    erro = capsys.readouterr().err
+    assert erro.startswith("\033[31monyxchat: ")
+    assert registo == []  # nunca chegou a arrancar
+
+
+def test_sidecar_avisa_de_endereco_fora_do_loopback(monkeypatch, tmp_path, capsys) -> None:
+    """O aviso é sobre o **endereço**, e ``localhost`` não o merece.
+
+    A versão anterior comparava ``--porta`` (um inteiro) com
+    ``HOST_OMISSAO`` (a string do endereço): dava verdadeiro sempre, e o
+    aviso aparecia mesmo em ``sidecar`` a direito.
+    """
+    monkeypatch.setenv("ONYX_CONTA", str(tmp_path / "conta.keystore"))
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: "frase qualquer")
+    registo: list[tuple[int, object, str, object]] = []
+    monkeypatch.setattr(cli.sidecar_mod, "executar", _parar_sidecar(registo))
+
+    assert cli.main(["sidecar", "--host", "0.0.0.0"]) == 0
+    assert "vai ser recusado" in capsys.readouterr().err
+
+    for bom in ("127.0.0.1", "127.0.0.2", "localhost"):
+        assert cli.main(["sidecar", "--host", bom]) == 0
+        assert "vai ser recusado" not in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------
@@ -994,3 +1112,180 @@ def test_seed_invalida_da_erro_legivel() -> None:
     argumentos = cli.argparse.Namespace(seed="não é hex")
     with pytest.raises(SystemExit, match="hex válido"):
         cli._seed_local(argumentos)
+
+
+# ---------------------------------------------------------------------
+# As chaves de amizade: guardar, e o que sobrevive a um reinício
+#
+# O que estes testes apanham é uma classe de erro que os anteriores não
+# viam: o comando sai com 0 e diz que a amizade está feita, e a amizade
+# **não está guardada em lado nenhum**.
+# ---------------------------------------------------------------------
+
+FRASE = "quatro cavalos lentos numa mare"
+
+
+def _conta_de_teste(monkeypatch, tmp_path: Path) -> Path:
+    """Uma conta local em ``tmp_path`` e ``ONYX_CONTA`` apontada a ela."""
+    from messenger import conta as conta_mod
+
+    caminho = tmp_path / "conta.keystore"
+    monkeypatch.setenv("ONYX_CONTA", str(caminho))
+    conta_mod.criar("ana", FRASE, caminho)
+    return caminho
+
+
+def _conta_de_teste_com_amizade(monkeypatch, tmp_path: Path) -> tuple[Path, str]:
+    """Uma conta com uma amizade guardada. Devolve o caminho e a pública."""
+    from messenger import conta as conta_mod
+    from messenger import ipc_client
+
+    caminho = _conta_de_teste(monkeypatch, tmp_path)
+    chaves = ipc_client.ChavesAmizade(
+        k1=bytes(range(32)),
+        k5_proprio=bytes([1]) * 32,
+        k9_proprio=bytes([2]) * 32,
+        k5_par=bytes([3]) * 32,
+        k9_par=bytes([4]) * 32,
+        publica=bytes([5]) * 32,
+    )
+    aberta = conta_mod.entrar(FRASE, caminho)
+    conta_mod.gravar(aberta.com_amizade(conta_mod.Amizade.de_chaves(chaves)), FRASE, caminho)
+    return caminho, chaves.publica.hex()
+
+
+def test_confirmar_amizade_guarda_a_amizade(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """Confirmar guarda — e o aviso vai para o stdout, sem `=` no meio.
+
+    O teste anterior faz `dict(linha.split("="))` sobre a stdout, e o
+    aviso de «guardada» não é um par `nome=valor`. Filtrar por `=` é o
+    que mantém os dois legíveis: o comando promete pares, e o aviso é
+    informação fora do formato.
+    """
+    _conta_de_teste(monkeypatch, tmp_path)
+    caminho_sock = tmp_path / "s.sock"
+    _preparar_config(tmp_path, monkeypatch, socket=str(caminho_sock))
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: FRASE)
+
+    with servidor_falso(caminho_sock, b"\x00" + b"c" * 192):
+        assert cli.main(["confirmar-amizade", "00" * 177, "--seed", HEX_SEED]) == 0
+
+    saida = capsys.readouterr().out
+    assert "amizade guardada" in saida
+
+    # E está mesmo lá: reabrir a conta devolve a amizade.
+    from messenger import conta as conta_mod
+
+    conta = conta_mod.entrar(FRASE, tmp_path / "conta.keystore")
+    assert len(conta.amizades) == 1
+    # O servidor falso devolve `b"c" * 192`: as chaves gravadas são as que
+    # o daemon mandou, e a prova é que são essas — não as de um exemplo
+    # qualquer, que passaria mesmo com o registo trocado.
+    assert conta.amizades[0].k1_hex == (b"c" * 32).hex()
+    assert conta.amizades[0].publica_hex == (b"c" * 32).hex()
+
+
+def test_confirmar_sem_conta_avisa_e_nao_falha(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """Sem conta local, o aviso é um aviso — e o comando sai com 0.
+
+    É o caso do `daemon_binario` de testes e de qualquer pessoa a usar
+    a identidade do `config.json`. O handshake cumpriu o que tinha a
+    prometer; não havia onde guardar, e dizer que houve falha seria
+    dizer uma coisa que não é.
+    """
+    monkeypatch.delenv("ONYX_CONTA", raising=False)
+    caminho_sock = tmp_path / "s.sock"
+    _preparar_config(tmp_path, monkeypatch, socket=str(caminho_sock))
+
+    with servidor_falso(caminho_sock, b"\x00" + b"c" * 192):
+        assert cli.main(["confirmar-amizade", "00" * 177, "--seed", HEX_SEED]) == 0
+    assert "sem conta local" in capsys.readouterr().err
+
+
+def test_amigos_lista_a_amizade_guardada(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """``amigos`` mostra quem está guardado, sem mostrar as chaves."""
+    _, publica = _conta_de_teste_com_amizade(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: FRASE)
+
+    assert cli.main(["amigos"]) == 0
+    saida = capsys.readouterr().out
+    assert publica in saida
+    assert "1 amizade(s) guardada(s)" in saida
+    # As chaves não aparecem sem `--chaves`.
+    assert "k9_par=" not in saida
+
+
+def test_amigos_com_chaves_mostra_tudo(monkeypatch, tmp_path: Path, capsys) -> None:
+    """``--chaves`` existe, e existe apesar de serem segredo.
+
+    A chave de mensagem só é útil a quem vai cifrar com ela, e essa
+    pessoa é a dona da conta. Esconder a opção por ser secreta tirava a
+    quem precisa; imprimi-la sem opção seria um registo de segredos no
+    terminal.
+    """
+    _conta_de_teste_com_amizade(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: FRASE)
+
+    assert cli.main(["amigos", "--chaves"]) == 0
+    saida = capsys.readouterr().out
+    for campo in ("k1=", "k5_proprio=", "k9_proprio=", "k5_par=", "k9_par="):
+        assert campo in saida
+
+
+def test_amigos_sem_conta_da_1(monkeypatch, tmp_path: Path, capsys) -> None:
+    """Sem conta, ``amigos`` dá 1 e diz porquê."""
+    monkeypatch.delenv("ONYX_CONTA", raising=False)
+    assert cli.main(["amigos"]) == 1
+    assert "sem conta local" in capsys.readouterr().out
+
+
+def test_amigos_vazio_diz_como_se_faz_uma(monkeypatch, tmp_path: Path, capsys) -> None:
+    """Uma conta sem amizades diz como se faz a primeira.
+
+    «nenhuma amizade guardada» sozinho deixa a pessoa à procura do
+    comando certo; o comando de handshake está no mesmo texto.
+    """
+    _conta_de_teste(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "_pedir_passphrase", lambda *a, **k: FRASE)
+
+    assert cli.main(["amigos"]) == 0
+    saida = capsys.readouterr().out
+    assert "nenhuma amizade guardada" in saida
+    assert "aceitar-amizade" in saida
+
+
+def test_confirmar_com_frase_cancelada_diz_que_nao_ficou_guardada(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """Cancelar a frase sai com 1 e diz que a amizade não ficou guardada.
+
+    Este é o ramo que decide a honestidade do comando. A amizade **é**
+    feita do lado do daemon — o handshake aconteceu e o par tem o nosso
+    pedido — mas as chaves não ficaram em lado nenhum. Sair com 0 e
+    dizer «amizade guardada» seria a pior das saídas: a pessoa acredita
+    que pode mandar mensagens e descobre isso ao cifrar a primeira.
+
+    O `SystemExit` é o que o `getpass` levanta quando o EOF fecha o
+    stdin, e também o que a CLI usa para «cancelar».
+    """
+    _conta_de_teste(monkeypatch, tmp_path)
+    caminho_sock = tmp_path / "s.sock"
+    _preparar_config(tmp_path, monkeypatch, socket=str(caminho_sock))
+
+    def cancelar(*_a, **_k) -> str:
+        raise SystemExit("cancelado")
+
+    monkeypatch.setattr(cli, "_pedir_passphrase", cancelar)
+
+    with servidor_falso(caminho_sock, b"\x00" + b"c" * 192):
+        assert cli.main(["confirmar-amizade", "00" * 177, "--seed", HEX_SEED]) == 1
+
+    erro = capsys.readouterr().err
+    assert "não guardada" in erro
+    assert "guardada em" not in capsys.readouterr().out

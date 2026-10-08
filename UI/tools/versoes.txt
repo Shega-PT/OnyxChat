@@ -1,0 +1,50 @@
+# =====================================================================
+# Ferramentas locais da interface — versões fixadas
+# ---------------------------------------------------------------------
+# Este ficheiro é a única fonte de verdade sobre **qual** ferramenta é
+# instalada e **qual o seu exacto conteúdo**. O `instalar.sh` lê-o, baixa o
+# pacote declarado e recusa-se a instalar se o SHA-256 não bater.
+#
+# ## Porque é que os sumários são fixados e não descarregados
+#
+# A alternativa óbvia seria o instalador ir buscar `SHASUMS256.txt` ao
+# nodejs.org e comparar com o que vier. Parece mais robusto e não é:
+#
+#   * quem emite os sumários e quem os entrega é a mesma entidade que
+#     entrega o pacote. Um `curl` para `nodejs.org` followed de outro
+#     `curl` para o mesmo sítio verifica o pacote contra si próprio, e
+#     não contra nada de fora;
+#   * o ficheiro mudaria de conteúdo sem que nada no repositório mudasse.
+#     O `git diff` fica vazio enquanto a versão instalada muda — e um
+#     artefacto que muda sem deixar rasto não é reprodutível.
+#
+# Com o sumário aqui escrito, o artefacto está fixado por conteúdo. Mudar
+# de versão passa a ser uma alteração visível no repositório, com o novo
+# sumário ao lado do antigo, que é exactamente o rasto que se quer.
+#
+# ## Formato
+#
+#   <plataforma> | <sha256 do pacote> | <nome do ficheiro>
+#
+# Linhas que começam por `#` são comentários. O separador é a barra
+# vertical, escolhida por não aparecer em nomes de ficheiro.
+#
+# ## Actualizar
+#
+#   1. Ir a https://nodejs.org/dist/v22.14.0/SHASUMS256.txt
+#   2. Copiar o sumário da linha da plataforma para baixo
+#   3. Actualizar a versão em todas as linhas
+#   4. `UI/tools/onyxchat instalar`
+#   5. `UI/tools/onyxchat verificar` — que também confirma a versão
+# =====================================================================
+
+# Versão do Node.js. Tem de satisfazer `engines.node` de `UI/package.json`,
+# que o Vite 8 impõe. Alterar uma e não a outra faz o `instalar` passar e o
+# `build` falhar.
+node = 22.14.0
+
+# --- pacotes, por plataforma -----------------------------------------
+linux-x64    | 69b09dba5c8dcb05c4e4273a4340db1005abeafe3927efda2bc5b249e80437ec | node-v22.14.0-linux-x64.tar.xz
+linux-arm64  | 08bfbf538bad0e8cbb0269f0173cca28d705874a67a22f60b57d99dc99e30050 | node-v22.14.0-linux-arm64.tar.xz
+darwin-x64   | deb5b211c25f3f803cd49c1c3fc3964e6c3725546d7d9608d994270388dcbf02 | node-v22.14.0-darwin-x64.tar.xz
+darwin-arm64 | 4e845cb71b4e897289312743b2e31c405a8a48720655404d82a4dce23fc43527 | node-v22.14.0-darwin-arm64.tar.xz

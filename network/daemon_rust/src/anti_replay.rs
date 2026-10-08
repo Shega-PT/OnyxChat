@@ -725,6 +725,210 @@ mod tests {
         let _ = std::fs::remove_file(&caminho);
     }
 
+    /// Uma *cabeçalho* errado tem de recusar o registo inteiro.
+    ///
+    /// O teste acima passa lixo e truncamento; este passa cabeçalhos que
+    /// são quase válidos, que é a classe que escapa. Um ficheiro com a
+    /// magic de outra aplicação, ou de uma versão futura do formato, é
+    /// lido como registo de nonces se o carregamento aceitar bytes sem
+    /// verificar — e a consequência é um daemon que recusa nonces
+    /// legítimos ou aceita repetidos, conforme o que os bytes
+    /// significem.
+    #[test]
+    fn cabecalho_errado_recusa_o_registo_inteiro() {
+        let caminho = caminho_de_teste(&[0x77u8; TAM_NONCE]);
+
+        // (a) magic diferente — mesmo tamanho, cabeçalho válido.
+        let mut errado = Vec::new();
+        errado.extend_from_slice(b"ONYXNZ1");
+        errado.extend_from_slice(&VERSAO.to_le_bytes());
+        errado.extend_from_slice(&1u32.to_le_bytes());
+        errado.extend_from_slice(&[0xAA; TAM_NONCE]);
+        errado.extend_from_slice(&1_700_000_000u64.to_le_bytes());
+        std::fs::write(&caminho, &errado).expect("escreve");
+        assert_eq!(
+            RegistoNonce1::carregar_de(&caminho).quantidade(),
+            0,
+            "uma magic de outra aplicação foi aceite"
+        );
+
+        // (b) magic certa, versão diferente.
+        //
+        // A versão é o que impede um registo escrito por uma versão
+        // futura — onde o layout do timestamp pode ter mudado — de ser
+        // lido com o layout de hoje. Aceitar «qualquer versão» seria
+        // aceitar um ficheiro cujas entradas não significam o que
+        // parecem significar.
+        let mut errado = Vec::new();
+        errado.extend_from_slice(MAGIC);
+        errado.extend_from_slice(&(VERSAO + 1).to_le_bytes());
+        errado.extend_from_slice(&1u32.to_le_bytes());
+        errado.extend_from_slice(&[0xAA; TAM_NONCE]);
+        errado.extend_from_slice(&1_700_000_000u64.to_le_bytes());
+        std::fs::write(&caminho, &errado).expect("escreve");
+        assert_eq!(
+            RegistoNonce1::carregar_de(&caminho).quantidade(),
+            0,
+            "uma versão desconhecida foi aceite"
+        );
+
+        let _ = std::fs::remove_file(&caminho);
+    }
+
+    /// Um ficheiro que não se consegue gravar não derruba o daemon.
+    ///
+    /// `gravar_para` escreve num temporário e faz `rename`, e os três
+    /// passos podem falhar: o directório não existe e não pode ser
+    /// criado, o temporário não abre, ou o `rename` falha. Nenhum deles
+    /// pode ser um `panic` — o anti-replay é uma protecção, e uma
+    /// protecção que crasha o daemon é uma negação de serviço com um
+    /// nome simpático.
+    ///
+    /// O caminho usado é um que **existe como directório**: um
+    /// `rename` para dentro de um directório falha em qualquer Linux, e
+    /// é o modo de tornar o terceiro ramo observável sem permissões
+    /// especiais — `root` não está disponível e não deve ser preciso
+    /// para testar uma degradação.
+    #[test]
+    fn gravar_para_onde_nao_pode_nao_derruba() {
+        let alvo = caminho_de_teste(&[0x88u8; TAM_NONCE]);
+
+        // (a) `rename` para dentro de um directório falha.
+        std::fs::create_dir_all(&alvo).expect("cria directório");
+        let registo = RegistoNonce1::novo();
+        registo.gravar_para(&alvo); // tem de ser um no-op silencioso
+        assert!(
+            alvo.is_dir(),
+            "o caminho tem de continuar a ser um directório"
+        );
+        std::fs::remove_dir(&alvo).expect("remove directório");
+
+        // (b) um caminho sem directório pai atravessa o `if let` e grava
+        //     onde está.
+        //
+        // `gravar_para` só cria o pai se o caminho tiver um. Um nome
+        // solto — como `./registo` escrito a partir do directório de
+        // trabalho — não tem pai que criar, e esse ramo tinha de
+        // executar para a cobertura o dizer.
+        let solto = std::path::PathBuf::from("registo-sem-pai.teste");
+        let _ = std::fs::remove_file(&solto);
+        let registo = RegistoNonce1::novo();
+        registo.gravar_para(&solto);
+        assert!(solto.is_file(), "sem pai tem de gravar no sítio");
+        assert_eq!(RegistoNonce1::carregar_de(&solto).quantidade(), 0);
+        let _ = std::fs::remove_file(&solto);
+    }
+
+    /// Um ficheiro maior do que a capacidade é truncado, não cresce.
+    ///
+    /// A carga limita com `min(…, CAPACIDADE_NONCES1)` **antes** de
+    /// percorrer, e é por isso que a expulsão dentro do laço de carga
+    /// (`anti_replay.rs:207`) é inalcançável: nunca há uma entrada a
+    /// mais para expulsar. Este teste fixa essa garantia pela positiva —
+    /// um ficheiro com `CAPACIDADE + 8` fica com `CAPACIDADE`.
+    ///
+    /// É também a defesa que importa. O ficheiro diz quantas entradas
+    /// tem, e um ficheiro maior do que a capacidade não pode fazer o
+    /// registo crescer sem limite depois de carregado. O `.min()`
+    /// duplo — contra o que o ficheiro diz e contra o que o ficheiro
+    /// contém — é o que fecha os dois lados: um `u32::MAX` declarado
+    /// não faz um laço de quatro mil milhões, e um corpo truncado não
+    /// faz o laço ler fora das Reservas.
+    #[test]
+    fn um_ficheiro_acima_da_capacidade_e_truncado() {
+        let caminho = caminho_de_teste(&[0xB0u8; TAM_NONCE]);
+        let agora = agora_epoch();
+        let total = CAPACIDADE_NONCES1 + 8;
+
+        let mut dados = Vec::with_capacity(TAM_CABECALHO + total * TAM_ENTRADA);
+        dados.extend_from_slice(MAGIC);
+        dados.extend_from_slice(&VERSAO.to_le_bytes());
+        dados.extend_from_slice(&(total as u32).to_le_bytes());
+        // Cada nonce distinto, para que a inserção não caia no
+        // "já visto" e a capacidade ocupada seja mesmo a que fica.
+        for indice in 0..total {
+            let mut nonce = [0u8; TAM_NONCE];
+            nonce[0..8].copy_from_slice(&(indice as u64).to_le_bytes());
+            dados.extend_from_slice(&nonce);
+            dados.extend_from_slice(&agora.to_le_bytes());
+        }
+        std::fs::write(&caminho, &dados).expect("escreve");
+
+        let r = RegistoNonce1::carregar_de(&caminho);
+        assert_eq!(
+            r.quantidade(),
+            CAPACIDADE_NONCES1,
+            "a capacidade não foi respeita na carga: {} entradas",
+            r.quantidade()
+        );
+
+        // As primeiras `CAPACIDADE` são as que ficam; a última é a que
+        // é descartada. Um nonce que reentre tem de estar entre as
+        // que entraram.
+        let mut primeira = [0u8; TAM_NONCE];
+        primeira[0..8].copy_from_slice(&0u64.to_le_bytes());
+        let mut ultima = [0u8; TAM_NONCE];
+        ultima[0..8].copy_from_slice(&((total - 1) as u64).to_le_bytes());
+
+        let mut r = r;
+        assert!(
+            !r.reservar(&primeira),
+            "a primeira entrada deveria estar no registo"
+        );
+        assert!(
+            r.reservar(&ultima),
+            "a última entrada foi descartada, e não deveria: o ficheiro \
+             guarda as primeiras, não as últimas"
+        );
+
+        let _ = std::fs::remove_file(&caminho);
+    }
+
+    /// Um nonce repetido no ficheiro não duplica a entrada.
+    ///
+    /// O ficheiro diz quantas entradas tem, e o conteúdo pode ter menos
+    /// nonces distintos que esse número. Inserir o mesmo nonce duas
+    /// vezes faria a segunda inserção devolver «já visto» e saltar a
+    /// entrada — que é o comportamento certo, e o que evita contar um
+    /// nonce como duas ocupações na capacidade.
+    #[test]
+    fn nonce_repetido_no_ficheiro_ocupa_uma_so_entrada() {
+        let caminho = caminho_de_teste(&[0x99u8; TAM_NONCE]);
+        let mut valido = Vec::new();
+        valido.extend_from_slice(MAGIC);
+        valido.extend_from_slice(&VERSAO.to_le_bytes());
+        valido.extend_from_slice(&3u32.to_le_bytes());
+        // O mesmo nonce três vezes, com o timestamp de agora.
+        //
+        // `agora_epoch()` e não um literal: um timestamp fixo que já
+        // passou do TTL faria a entrada ser descartada na carga, e o
+        // teste passaria por zero entradas — que era a falha da
+        // primeira versão deste teste.
+        let agora = agora_epoch();
+        for _ in 0..3 {
+            valido.extend_from_slice(&[0xAA; TAM_NONCE]);
+            valido.extend_from_slice(&agora.to_le_bytes());
+        }
+        std::fs::write(&caminho, &valido).expect("escreve");
+
+        let r = RegistoNonce1::carregar_de(&caminho);
+        assert_eq!(
+            r.quantidade(),
+            1,
+            "três cópias do mesmo nonce ocuparam {} entradas",
+            r.quantidade()
+        );
+        // `reservar` é a operação de produção: devolve `false` quando o
+        // nonce já está visto, que é o que a repetição tem de produzir.
+        let mut r = r;
+        assert!(
+            !r.reservar(&[0xAA; TAM_NONCE]),
+            "um nonce já carregado do ficheiro tem de ser rejeitado"
+        );
+
+        let _ = std::fs::remove_file(&caminho);
+    }
+
     /// Entradas expiradas não são ressuscitadas pelo ficheiro.
     ///
     /// O TTL continua a valer entre arranques. Um registo gravado há

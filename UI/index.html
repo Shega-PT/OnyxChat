@@ -1,19 +1,35 @@
 <!doctype html>
-<html lang="pt">
+<!--
+  OnyxChat — página de entrada.
+
+  Não há um único recurso externo neste ficheiro. Nomeadamente:
+
+  * as fontes vêm de `public/fonts/`, servidas localmente (ver o bloco de
+    `@font-face` em `src/index.css` para a razão);
+  * o ícone é uma cópia local da marca, não um URL de um CDN de terceiros.
+
+  A versão anterior carregava Inter e JetBrains Mono de um serviço de
+  fontes e buscava o ícone de um servidor de imagens. Um produto de
+  privacidade que
+  liga a servidores de terceiros ao arrancar não é privado, e a dependência
+  de rede também o impedia de funcionar sem rede.
+-->
+<html lang="pt-PT">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="https://media.base44.com/images/public/user_690896dd7b6554f0af8c09d2/3ff7a3693_OnyxChatIcon.png" />
+    <link rel="icon" type="image/png" href="/onyxchat.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      A cor do tema é o fundo da paleta (`--background`, `#071013`).
+      Combina com o que a barra de ferramentas do navegador pinta no
+      separador, e em modo escuro evita o flash branco do contra-fundo
+      durante o arranque.
+    -->
     <meta name="theme-color" content="#071013" />
+    <meta name="color-scheme" content="dark" />
     <meta
       name="description"
       content="OnyxChat — messenger privado ponta-a-ponta, peer-to-peer e orientado para privacidade. Identidade criptográfica, ligações diretas e controlo total sobre quem te pode contactar."
-    />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
     />
     <title>OnyxChat — Messenger privado peer-to-peer</title>
   </head>

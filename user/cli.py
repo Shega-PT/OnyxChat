@@ -17,7 +17,8 @@ Subcomandos:
   ``receber-p2p``, ``fechar``;
 * handshake— ``pedir-amizade``, ``aceitar-amizade``, ``recusar-amizade``,
   ``confirmar-amizade`` (as chaves saem em ``nome=hex`` no stdout);
-* ``relay`` — corre o servidor TURN em TCP (bloqueia).
+* ``relay`` — corre o servidor TURN em TCP (bloqueia);
+* ``sidecar`` — serve a interface e a API local em ``127.0.0.1`` (bloqueia).
 
 Erros esperados (config inválida, daemon em baixo, assinatura
 rejeitada, hex malformado) saem como ``onyxchat: …`` no stderr e
@@ -32,7 +33,9 @@ import os
 import sys
 from pathlib import Path
 
-from messenger.descoberta import resolver_ou_usar
+from messenger import conta as conta_mod
+from messenger import storage
+from messenger.descoberta import SERVIDOR_DESCOBERTA, resolver_ou_usar
 from messenger.envelope import EnvelopeInvalido
 from messenger.ipc_client import (
     MODO_DIRETO,
@@ -44,14 +47,12 @@ from messenger.ipc_client import (
 from messenger.keys import Chaves
 from messenger.pipeline import AssinaturaInvalida, Pipeline
 from server import relay_server
+from server import sidecar as sidecar_mod
 from server.discovery_server import DescobertaInvalida, consultar_descoberta
 from server.relay_server import RelayErro
 from user import config as config_mod
 from user import ui
 from user.config import ConfigInvalida, PassphraseNecessaria, carregar
-
-#: Endpoint por omissão do discovery server local.
-SERVIDOR_DESCOBERTA = "http://127.0.0.1:8789"
 
 
 def _add_argumentos_passphrase(parser: argparse.ArgumentParser) -> None:
@@ -424,13 +425,89 @@ def _imprimir_chaves(chaves, corpo: bytes | None = None) -> None:
         print(f"corpo={corpo.hex()}")
 
 
+def _guardar_amizade(chaves, caminho: Path) -> bool:
+    """Guarda a amizade no keystore, e diz se conseguiu.
+
+    ## Porque é que isto não é opcional
+
+    Até 2026-10-07 as chaves eram **só impressas**. A consequência
+    estava escrita em ``docs/handshake.md``: o daemon só mantém
+    identidades em memória, e portanto reiniciá-lo obriga a refazer o
+    handshake com todas as pessoas. Uma amizade que não sobrevive a um
+    reinício do daemon não é uma amizade, é um rito.
+
+    ## Porque é que uma falha aqui **não** é fatal
+
+    O handshake já aconteceu: o par tem o nosso pedido, o daemon já
+    registou a sessão. Falhar a gravar significa que a amizade se
+    perdeu, e perder a amizade é melhor do que mentir à pessoa — que é
+    o que acontece se o comando sair com 0 depois de falhar a escrita.
+
+    Por isso a falha é dita, o código de saída é 1, e as chaves já
+    foram impressas para que a pessoa as possa guardar à mão.
+
+    ## Porque é que a frase é pedida aqui
+
+    Gravar é cifrar, e a cifra é a frase de segurança. Não há atalho:
+    derivar uma chave de sessão guardada seria pôr o segredo em dois
+    sítios, e um dos dois ficaria desatualizado.
+
+    ## Porque é que uma conta que não existe não é erro
+
+    O ``daemon_binario`` de testes e os comandos que correm sobre uma
+    identidade do ``config.json`` não têm conta local. Ficar sem
+    guardar é o comportamento correcto aí: o comando handshake cumpriu o
+    que tinha a prometer, e quem não tem conta não tem onde guardar.
+    """
+    if not conta_mod.conta_existe(caminho):
+        print(
+            ui.pintar(
+                "sem conta local: a amizade não foi guardada (o daemon "
+                "precisa dela de cada vez)",
+                "amarelo",
+            ),
+            file=sys.stderr,
+        )
+        return True
+
+    try:
+        frase = _pedir_passphrase()
+    except SystemExit:
+        # A pessoa cancelou a frase de segurança. A amizade está feita
+        # do lado do daemon e já foram impressas acima; dizer «guardado» seria
+        # mentira.
+        print(
+            ui.pintar("amizade feita mas não guardada", "amarelo"),
+            file=sys.stderr,
+        )
+        return False
+
+    aberta = conta_mod.entrar(frase, caminho)
+    conta_mod.gravar(
+        aberta.com_amizade(conta_mod.Amizade.de_chaves(chaves)), frase, caminho
+    )
+    print(
+        ui.pintar(
+            f"amizade guardada em {caminho} (sobrevive a reiniciar o daemon)",
+            "verde",
+        )
+    )
+    return True
+
+
 def _cmd_aceitar_amizade(argumentos: argparse.Namespace) -> int:
-    """Valida o ``FRIEND_REQUEST`` recebido e imprime chaves + aceite."""
+    """Valida o ``FRIEND_REQUEST`` recebido e imprime chaves + aceite.
+
+    As chaves são imprimidas **e** guardadas. Imprimir porque o par
+    precisa do ``corpo`` do aceite; guardar porque as chaves são o que
+    permite mandar mensagens depois, e perdê-las obriga a refazer o
+    handshake. Ver :func:`_guardar_amizade`.
+    """
     aceite = _cliente(argumentos).aceitar_amizade(
         _seed_local(argumentos), bytes.fromhex(argumentos.corpo)
     )
     _imprimir_chaves(aceite.chaves, aceite.corpo)
-    return 0
+    return 0 if _guardar_amizade(aceite.chaves, conta_mod.caminho_conta()) else 1
 
 
 def _cmd_recusar_amizade(argumentos: argparse.Namespace) -> int:
@@ -448,6 +525,47 @@ def _cmd_confirmar_amizade(argumentos: argparse.Namespace) -> int:
         _seed_local(argumentos), bytes.fromhex(argumentos.corpo)
     )
     _imprimir_chaves(chaves)
+    return 0 if _guardar_amizade(chaves, conta_mod.caminho_conta()) else 1
+
+
+def _cmd_amigos(argumentos: argparse.Namespace) -> int:
+    """Lista as amizades que sobreviveram dentro do keystore.
+
+    Pede a frase de segurança porque abrir o keystore **é** decifrar.
+    Um `amigos` que não pede a frase seria uma lista de friendships
+    legível por qualquer processo da máquina.
+
+    A identidade de cada par é o **cabeçalho da pública**, e não o
+    Onyx ID: o ID é um SHA-256 do sal com o nome, e sem o nome não se
+    pode confirmar que a linha é quem diz ser. A pública é o que o
+    protocolo valida, e é o que se compara com o que o daemon tem.
+    """
+    caminho = conta_mod.caminho_conta()
+    if not conta_mod.conta_existe(caminho):
+        print(ui.pintar("sem conta local: não há amizades guardadas", "amarelo"))
+        return 1
+
+    aberta = conta_mod.entrar(_pedir_passphrase(), caminho)
+    if not aberta.amizades:
+        print(ui.pintar("nenhuma amizade guardada", "amarelo"))
+        print(
+            ui.pintar(
+                "faça um handshake (`onyxchat aceitar-amizade`) para a guardar",
+                "amarelo",
+            )
+        )
+        return 0
+
+    print(ui.pintar(f"{len(aberta.amizades)} amizade(s) guardada(s)", "verde"))
+    for amizade in aberta.amizades:
+        print(f"par={amizade.publica_hex}")
+        print(f"  desde={amizade.criada_em}")
+        if argumentos.chaves:
+            print(f"  k1={amizade.k1_hex}")
+            print(f"  k5_proprio={amizade.k5_proprio_hex}")
+            print(f"  k9_proprio={amizade.k9_proprio_hex}")
+            print(f"  k5_par={amizade.k5_par_hex}")
+            print(f"  k9_par={amizade.k9_par_hex}")
     return 0
 
 
@@ -459,6 +577,59 @@ def _cmd_relay(argumentos: argparse.Namespace) -> int:
         )
     )
     relay_server.executar(argumentos.host, argumentos.porta)
+    return 0
+
+
+def _cmd_sidecar(argumentos: argparse.Namespace) -> int:
+    """Corre o sidecar em ``127.0.0.1`` (bloqueia até o processo morrer).
+
+    A frase de segurança é pedida **antes** de o servidor arrancar, e não
+    depois. Um sidecar que arranca e só depois pergunta tem uma janela em
+    que está a servir rotas sem saber se há conta — e a rota de identidade
+    devolve ``503``, o que é correcto, mas a de registo criava a conta sem
+    que ninguém a tenha pedido.
+
+    Pedir a frase aqui também evita que o sidecar corra com a conta
+    trancada e a interface fique a poder registar-se sem querer.
+    """
+    frase = _pedir_passphrase()
+    caminho_conta = conta_mod.caminho_conta()
+
+    aberta = None
+    if conta_mod.conta_existe(caminho_conta):
+        try:
+            aberta = conta_mod.entrar(frase, caminho_conta)
+        except storage.PassphraseErrada:
+            print(
+                ui.pintar(
+                    "a frase de segurança não abre a conta; o sidecar vai "
+                    "arrancar trancado e a interface vai pedir a frase",
+                    "amarelo",
+                ),
+                file=sys.stderr,
+            )
+        except storage.KeystoreInvalido as erro:
+            print(ui.pintar(f"onyxchat: {erro}", "vermelho"), file=sys.stderr)
+            return 1
+
+    print(ui.pintar(f"sidecar a escutar em {argumentos.host}:{argumentos.porta}", "verde"))
+    if not sidecar_mod.e_loopback(argumentos.host):
+        # A pergunta é ao **endereço**, e é a mesma que `criar_servidor`
+        # faz. Comparar com `HOST_OMISSAO` dava dois falsos: `localhost` e
+        # `127.0.0.2` são loopback e passariam a levar o aviso, enquanto
+        # o aviso deixava de aparecer quando o endereço era o problema.
+        print(
+            ui.pintar(
+                "o sidecar só escuta em loopback; este endereço vai ser recusado",
+                "amarelo",
+            ),
+            file=sys.stderr,
+        )
+
+    sidecar_mod.executar(
+        argumentos.porta, conta=aberta, host=argumentos.host,
+        caminho_conta=caminho_conta,
+    )
     return 0
 
 
@@ -632,10 +803,34 @@ def _construir_parser() -> argparse.ArgumentParser:
     _add_argumentos_passphrase(confirmar)
     confirmar.set_defaults(func=_cmd_confirmar_amizade)
 
+    amigos = subcomandos.add_parser(
+        "amigos", help="lista as amizades guardadas no keystore"
+    )
+    amigos.add_argument(
+        "--chaves",
+        action="store_true",
+        help="mostra também as chaves, em hex (são segredo: use com cuidado)",
+    )
+    _add_argumentos_passphrase(amigos)
+    amigos.set_defaults(func=_cmd_amigos)
+
     relay = subcomandos.add_parser("relay", help="corre o relé TURN em TCP")
     relay.add_argument("--host", default="127.0.0.1", help="interface de escuta")
     relay.add_argument("--porta", type=int, default=8788, help="porta TCP")
     relay.set_defaults(func=_cmd_relay)
+
+    sidecar = subcomandos.add_parser(
+        "sidecar", help="serve a interface e a API local em 127.0.0.1"
+    )
+    sidecar.add_argument(
+        "--host",
+        default=sidecar_mod.HOST_OMISSAO,
+        help="interface de escuta (só loopback é aceite)",
+    )
+    sidecar.add_argument(
+        "--porta", type=int, default=8787, help="porta TCP (a da interface é 8787)"
+    )
+    sidecar.set_defaults(func=_cmd_sidecar)
     return parser
 
 

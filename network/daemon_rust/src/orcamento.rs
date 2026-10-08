@@ -378,4 +378,77 @@ mod testes {
         let r = interpretar("99999999999999999999g");
         assert!(r.is_err());
     }
+
+    /// `orcaa()` lê a variável de ambiente, e as suas três saídas.
+    ///
+    /// A terceira — um override válido — é a única que altera o
+    /// comportamento do daemon, e era a única das três sem teste.
+    /// Antes desta medição de cobertura, o caminho de *recusa* nunca era
+    /// executado por nenhum teste, e é o caminho que decide se o
+    /// utilizador recebe um aviso ou um valor silenciosamente
+    /// diferente do que pediu.
+    ///
+    /// O variável de ambiente é posto e retirado dentro do teste, e não
+    /// num `OnceLock`: os testes correm um a um (`RUST_TEST_THREADS=1`,
+    /// em `.cargo/config.toml`) precisamente para que mexer em estado
+    /// global seja seguro.
+    #[test]
+    fn orcaa_segue_a_variavel_de_ambiente() {
+        let anterior = std::env::var("ONYXCHAT_MAX_PAYLOAD").ok();
+
+        // Sem variável: o valor derivado e nenhum aviso.
+        std::env::remove_var("ONYXCHAT_MAX_PAYLOAD");
+        let (valor, aviso) = orcaa();
+        assert_eq!(valor, orcamento_padrao());
+        assert!(aviso.is_none(), "sem override não há nada a avisar");
+
+        // Override válido: o valor pedido, e nenhum aviso.
+        std::env::set_var("ONYXCHAT_MAX_PAYLOAD", "1048576");
+        let (valor, aviso) = orcaa();
+        assert_eq!(valor, 1_048_576);
+        assert!(aviso.is_none());
+
+        // Override inválido: o valor derivado **e** o aviso.
+        //
+        // Este é o caso que a cobertura encontrou. Um override recusado
+        // que não avise é um override que a pessoa acredita estar
+        // activo e não está — e o daemon a calcular buffers com um
+        // limite que ela não pediu.
+        std::env::set_var("ONYXCHAT_MAX_PAYLOAD", "lixo");
+        let (valor, aviso) = orcaa();
+        assert_eq!(valor, orcamento_padrao(), "um override recusado não muda o limite");
+        let aviso = aviso.expect("um override recusado tem de ser avisado");
+
+        // E o aviso diz o quê, o que ficou, e porquê.
+        let texto = aviso_override_recusado(&aviso, MINIMO_CORPO, ORCAMENTO_PADRAO);
+        assert!(texto.contains(&aviso.pedido), "o aviso nomeia o valor pedido");
+        assert!(texto.contains(&aviso.razao), "o aviso diz porque foi recusado");
+        assert!(texto.contains(&MINIMO_CORPO.to_string()));
+        assert!(texto.contains(&ORCAMENTO_PADRAO.to_string()));
+        assert!(texto.contains("ignorado"), "o aviso diz que foi ignorado");
+
+        // Restaurar, para não vazar para o teste seguinte.
+        match anterior {
+            Some(v) => std::env::set_var("ONYXCHAT_MAX_PAYLOAD", v),
+            None => std::env::remove_var("ONYXCHAT_MAX_PAYLOAD"),
+        }
+    }
+
+    /// O aviso de arranque não pode prometer um valor que não ficou.
+    ///
+    /// O texto diz «o limite efectivo fica em {minimo} B». Se o `orcaa`
+    /// devolver um valor diferente do `minimo` que foi passado, o aviso
+    /// mente — e é o que aconteceria se alguém reordenasse as
+    /// argumentos da chamada em `main.rs` sem dar por isso.
+    #[test]
+    fn o_aviso_diz_o_valor_que_ficou() {
+        let erro = LimiteInvalido {
+            pedido: "lixo".into(),
+            razao: "lixo não é um número",
+        };
+        let texto = aviso_override_recusado(&erro, MINIMO_CORPO, ORCAMENTO_PADRAO);
+        // O mínimo do protocolo é o que o aviso afirma.
+        assert!(texto.contains(&format!("fica em {MINIMO_CORPO} B")));
+    }
+
 }

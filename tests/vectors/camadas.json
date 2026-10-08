@@ -65,9 +65,9 @@
     {
       "id": "K8",
       "implementacao": "Lua (crypto/python_lua/lua/deslocamento.lua)",
-      "input_hex": "73756273746974756963616f204b38202b37",
+      "input_hex": "6465736c6f63616d656e746f204b38202b37",
       "nome": "Substituição bijetiva +7 mod 256",
-      "output_hex": "7a7c697a7b707b7c706a687627523f27323e",
+      "output_hex": "6b6c7a73766a68746c757b7627523f27323e",
       "parametros": "deslocamento=7"
     },
     {

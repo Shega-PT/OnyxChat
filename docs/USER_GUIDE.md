@@ -18,12 +18,35 @@
 | Compilador Rust | `rustc` ≥ 1.98, com `cargo` |
 | Compilador C/C++ | `cmake` ≥ 3.16, `g++` (para a camada K4) |
 | Python | ≥ 3.10 |
+| Node.js | ≥ 20.19, **só para a interface** — e traz consigo, ver §1.4 |
 | RAM | **≥ 8 GB para compilar**; ≥ 2 GB para executar |
 
 > **Aviso sobre RAM.** O binário de produção embute Tor (arti), o que
 > arrasta ~458 dependências. Compilar isso numa máquina com 4 GB ou
 > menos pode esgotar a memória e fazer o sistema recorrer a disco. Se for
 > o seu caso, veja [`DEV_GUIDE.md`](DEV_GUIDE.md) §1 antes de tentar.
+
+### 1.1.1 Verificar o que falta
+
+Antes de tentar compilar, o mais barato que há é perguntar:
+
+```bash
+scripts/verificar_requisitos.sh
+```
+
+Lê [`../requisitos.txt`](../requisitos.txt), compara com a máquina e diz o
+que falta. **Não muda nada** — por omissão, o único modo que altera o
+sistema é o que se pede explicitamente:
+
+```bash
+scripts/verificar_requisitos.sh instalar
+```
+
+Este instala o que não precisa de privilégios (a cópia local do Node, e o
+virtualenv com os extras de desenvolvimento). O que precisa de `sudo` —
+`cmake`, `g++` — fica de fora e aparece com o comando exacto a correr.
+
+Custa meio segundo e poupa a leitura de um erro de compilação a meio.
 
 ### 1.2 Compilar
 
@@ -50,6 +73,31 @@ O OnyxChat corre como **dois processos** que falam por um socket local:
 
 O daemon tem de estar a correr antes de quase qualquer comando
 funcionar. A excepção é `iniciar` e `descobrir`, que não precisam dele.
+
+### 1.4 A interface e o Node que ela traz
+
+A interface (`UI/`) é uma aplicação à parte, com a sua própria
+ferramenta. Precisa de **Node.js ≥ 20.19** porque o Vite 8 o exige — e
+falha de uma maneira pouco útil, com um erro de módulo que não menciona
+versões.
+
+Em vez de pedir que instale o Node certo pelo gestor de pacotes do
+sistema, a interface traz um:
+
+```bash
+UI/tools/onyxchat instalar      # Node local, sem sudo, dentro do repositório
+UI/tools/onyxchat verificar     # o que falta
+UI/tools/onyxchat dev           # servidor de desenvolvimento
+```
+
+São ~120 MB em `UI/tools/node/`, **não versionados**. O pacote vem de
+nodejs.org e a soma SHA-256 é conferida contra
+[`../UI/tools/versoes.txt`](../UI/tools/versoes.txt), versionado — a
+justificativa está em [`../UI/tools/README.md`](../UI/tools/README.md).
+
+Se já tiver um Node suficientemente novo no sistema, o script usa-o e
+avisa. Se o do sistema for antigo, recusa-se a arrancar em vez de deixar
+aparecer o tal erro de módulo.
 
 ---
 

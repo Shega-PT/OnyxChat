@@ -332,7 +332,7 @@ mod tests {
             // de passar em falso.
             panic!(
                 "RLIMIT_MEMLOCK não pode ser baixado para 0 — o caminho de \
-                 degradação fica por verificar nesta máquina"
+                 degradação fica por verificar neste ambiente"
             );
         };
 

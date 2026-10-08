@@ -43,7 +43,7 @@ confere-o em cada push.
 └─ THIRD-PARTY.md           # Dependências de terceiros e respectivas licenças
 
 
-# docs/ — 19 documentos
+# docs/ — 20 documentos
 ---------------------------------------------------------------------
 ├─ index.md                 # Índice; é o porta de entrada
 ├─ SYS_GUIDE.md             # Manual do sistema, para quem usa
@@ -55,6 +55,7 @@ confere-o em cada push.
 ├─ ipc_spec.md              # Contrato IPC Python ↔ Rust (framing, códigos)
 ├─ handshake.md             # Handshake de amizade e ciclo de vida das chaves
 ├─ key_management.md        # Derivação, rotação e eliminação de chaves
+├─ conta.md                 # Conta local, frase de segurança, cópias
 ├─ relay.md                 # Protocolo do relé (SUBSCREVER/ENVIAR/FECHO)
 ├─ p2p.md                   # Ligação directa e Via relay
 ├─ discovery.md             # Descoberta {ID → .onion}
@@ -81,7 +82,8 @@ confere-o em cada push.
 ├─ verificar_comentarios.py      # Americanismos só na prosa
 ├─ verificar_alfabeto.py    # Caracteres fora do repertório português
 ├─ verificar_imports.py     # Cada import nomeado existe mesmo
-└─ verificar_estrutura.py   # Este ficheiro bate com a árvore real
+├─ verificar_estrutura.py   # Este ficheiro bate com a árvore real
+└─ verificar_roadmap.py    # Os rótulos PLANEADO/CONCEITO batem com a definição
 
 
 # 1. Criptografia
@@ -226,6 +228,7 @@ tests/                      # pytest: unidade, integração e E2E
 ├─ test_verificar_portugues.py    # Americanismos: apanha, e não engole
 ├─ test_verificar_comentarios.py # A extracção de prosa alcança o JS
 ├─ test_verificar_estrutura.py   # A `Estrutura.txt` bate com a árvore
+├─ test_verificar_roadmap.py     # Os rótulos do roadmap batem com a definição
 ├─ test_e2e_daemon.py       # E2E com o binário e Tor desligado
 ├─ test_e2e_sidecar.py      # E2E do sidecar com daemon real
 ├─ test_e2e_rede.py         # E2E: dois daemons ligados por relé

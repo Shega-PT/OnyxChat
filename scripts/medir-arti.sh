@@ -3,8 +3,8 @@
 # medir-arti.sh — mede o pico de RAM da verificação da arti
 # ---------------------------------------------------------------------
 # Existe para responder a uma pergunta que não se responde com
-# estimativas: **é possível verificar `tor_arti.rs` nesta máquina com o
-# editor aberto?**
+# estimativas: **é possível verificar `tor_arti.rs` com o editor
+# aberto?** A resposta é a mesma em qualquer máquina — muda é a folga.
 #
 # ## O problema
 #

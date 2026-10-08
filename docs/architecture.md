@@ -1,8 +1,11 @@
 # Arquitetura do OnyxChat
 
-> **Nível MÉDIO.** Descreve *como* o sistema está organizado e *como*
-> funciona: componentes, responsabilidades, fluxo e fronteiras.
->
+> **Nível MÉDIO.** Descreve *como* o sistema está organizado e *como* funciona:
+> - componentes
+> - responsabilidades
+> - fluxo
+> - fronteiras
+
 > Para o *porquê* e as decisões: [`SYS_GUIDE.md`](SYS_GUIDE.md) ·
 > Para os *bytes*: os specs normativos, via [`index.md`](index.md)
 
@@ -17,6 +20,10 @@
 ## Princípio central: cada instância é cliente e servidor
 
 Cada instalação é, simultaneamente:
+
+Este mapa é um resumo. O índice completo, com o papel de cada
+ficheiro, está em `../Estrutura.txt`, e é conferido contra a árvore
+por `scripts/verificar_estrutura.py`.
 
 ```text
          ┌─────────────────────┐
@@ -34,6 +41,20 @@ Cada instalação é, simultaneamente:
   comunica com            aceita comunicação
   outros Onyx              de outros Onyx
 ```
+
+**`crypto/python_lua/` não tem implementações em Python.** Uma versão
+anterior desta árvore anunciava «Lua = produção · Python = referência»,
+e a `Estrutura.txt` listava quatro ficheiros Python que nunca foram
+escritos. A referência dos vectores é o JSON em `tests/vectors/`, não
+uma segunda implementação — que era, de resto, o que se queria evitar
+num projecto onde duas implementações da mesma camada divergem sem
+ninguém dar por isso.
+
+**K2 e K8 são o mesmo módulo Lua**, `deslocamento.lua`, com
+deslocamentos diferentes (+3 e +7). São a única camada com duas
+entradas no mesmo ficheiro, e é deliberado: `lua_camadas.rs` documenta
+que um módulo único elimina a classe de bug em que as duas divergem sem
+nenhum teste as distinguir.
 
 Um Onyx **não** é um cliente que se liga a um servidor central:
 
@@ -70,8 +91,16 @@ mensagens». Os próprios participantes fornecem os endpoints.
 A documentação evita frases como «Python-Lua faz a criptografia». A
 formulação correcta:
 
-> O subsistema Python/Lua integra o cliente Python com as
-> implementações criptográficas Lua (produção) e Python (referência).
+> O subsistema Python/Lua integra o cliente Python com as camadas
+> criptográficas em Lua, que correm dentro do daemon.
+
+**Não há implementação de referência em Python.** A formulação
+«Lua (produção) e Python (referência)» circulou em versões anteriores
+deste documento e da `Estrutura.txt`, e era falsa nos dois sítios: não
+existe `crypto/python_lua/python/`. Quem precisou de uma referência
+implementou-a nos vectores em `tests/vectors/`, que são a mesma coisa
+com uma propriedade que o código não tem — são lidos por
+`test_vectors.py` em vez de confiar na memória de quem os escreveu.
 
 Da mesma forma, «Rust» não é apenas uma linguagem: é o componente
 responsável pelas primitivas digitais e pelo daemon.
@@ -84,21 +113,20 @@ responsável pelas primitivas digitais e pelo daemon.
 crypto/
 ├── rust/          primitivas digitais (crate crypto_core)
 ├── c_cpp/         K4, K9 (C/C++)
-└── python_lua/    Lua = produção · Python = referência
+└── python_lua/    Lua: K2, K3, K6, K8
 
 network/
 └── daemon_rust/   daemon onyxchatd
 
-server/            discovery + relay
+server/            discovery + relay + sidecar
 messenger/         cliente Python
 user/              CLI/TUI
 docs/              guias, modelos e especificações
 tests/             pytest (Python)
 fuzz/              alvos cargo-fuzz
-scripts/           automação de testes
+UI/                interface React/Vite, e o Node local de ferramentas
+scripts/           portões de entrega e auditores de texto
 ```
-
-Detalhe completo em [`../../Estrutura.txt`](../../Estrutura.txt).
 
 ---
 
@@ -121,8 +149,8 @@ messenger/pipeline.py
 └─────────────────────┬──────────────────────────┘
                       │ frame CHAT (0x01)
                       ▼
-              p2p.rs  ────  BackendTor  ────►  rede
-                        (tor.rs)
+    p2p.rs  ────  BackendTor  ────►  rede
+                   (tor.rs)
 ```
 
 ### Receptor
@@ -154,7 +182,7 @@ chegue ao pipeline.
 daemon (onyxchatd)
    │
    ▼
-   trait BackendTor          (tor.rs)
+   trait BackendTor       (tor.rs)
    │
    ├── TorReal            (tor_arti.rs — único contacto com a rede)
    └── TorFalso           (loopback — testes e E2E)
@@ -202,9 +230,8 @@ Modo B:  Onyx A ←──→ Relay ←──→ Onyx B       (fallback)
 
 O relay **não** é servidor de mensagens; **não** é proprietário da
 conversa; **não** possui as chaves de conteúdo; mantém um buffer
-temporário com TTL de 300 s e um máximo de 64 envelopes pendentes por
-mailbox. É **apenas** uma opção de transporte. Ver
-[`relay.md`](relay.md).
+temporário com TTL de 300s e um máximo de 64 envelopes pendentes por
+mailbox. É **apenas** uma opção de transporte. Ver [`relay.md`](relay.md).
 
 ---
 
@@ -215,14 +242,14 @@ Python client  ──►  UDS  ──►  Rust daemon  ──►  Tor  ──►
 ```
 
 Cada fronteira tem: formato, validação, erros, timeout, limites e
-comportamento perante dados inválidos. Ver `ipc_spec.md` §Fronteira de
-confiança (fronteira local) e [`p2p.md`](p2p.md) (fronteira rede).
+comportamento perante dados inválidos. Ver `ipc_spec.md`
+Fronteira de confiança (fronteira local) e [`p2p.md`](p2p.md) (fronteira rede).
 
 A regra de confiança é simples:
 
 > Todo componente de transporte é considerado **não confiável** —
-> discovery, relay, infraestrutura Tor e nós intermediários. A
-> confiança criptográfica existe **entre os endpoints**.
+> discovery, relay, infraestrutura Tor e nós intermediários.
+> A confiança criptográfica existe **entre os endpoints**.
 
 ---
 

@@ -20,9 +20,28 @@ target
 artifacts
 coverage
 
-# Excepção: as seeds sim, o resto do corpus não. O `cargo fuzz` vai
-# acrescentando ao corpus os inputs que considera interessantes; só os
-# gerados (nome `NN-<hex>.bin`) é que são versionados.
-corpus/*
+# Excepção: as seeds geradas sim, o que o libFuzzer escreve não.
+#
+# ## O `**` não é opcional
+#
+# `corpus/*` casa com `corpus/envelope_parser` — a directoria — mas
+# **não** com o que está dentro dela. O `*` do git não atravessa `/`, e
+# um ficheiro como `corpus/k4_decoder/abcd1234.bin` fica sem regra
+# nenhuma: não é ignorado por `corpus/*` e não é re-incluído pelo
+# padrão das seeds. É o mesmo buraco pelo outro lado, e a verificação o
+# apanhou logo que se procurou.
+#
+# ## O padrão é `NN-<hex>.bin`, e o `NN` tem de ser hex
+#
+# O `cargo fuzz` grava cada input que considera interessante com o nome
+# `<sha1>.bin` — sem prefixo nenhum. Um padrão largo, como
+# `[0-9][0-9]-*.bin`, deixa entrar tudo o que o fuzzing vai descendo, e o
+# corpus versionado cresce a cada execução.
+#
+# Confirmação medida em 2026-10-07: com `[0-9][0-9]-*.bin`, um ficheiro
+# `hash-do-fuzzer.bin` era aceite por `git add`; e sem o `**`, um
+# `abcd1234ef567890.bin` não era ignorado. Com estas duas regras, os 57
+# seeds entram e nada mais entra.
+corpus/**
 !corpus/*/
-!corpus/*/[0-9][0-9]-*.bin
+!corpus/*/[0-9a-f][0-9a-f]-[0-9a-f]*.bin

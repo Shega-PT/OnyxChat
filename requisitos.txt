@@ -1,0 +1,80 @@
+# =====================================================================
+# requisitos.txt — dependências de sistema do OnyxChat
+# ---------------------------------------------------------------------
+# O que tem de existir na máquina para construir, testar e correr o
+# projecto. É lido por `scripts/verificar_requisitos.sh`, que verifica e
+# — o que for seguro — instala.
+#
+# ## Onde vêm estas versões
+#
+# As quatro primeiras (bash, git, Python, Rust) e as duas do C/C++ estão
+# em `docs/USER_GUIDE.md` §1.1. A do Node foi acrescentada pela Etapa 1 da
+# interface: o Vite 8 declara `engines.node` e o `instalar.sh` da
+# interface fixa o mesmo número. **Estes três sítios têm de concordar**;
+# se divergirem, o sintoma é um erro de módulo que não menciona versões.
+#
+# ## Formato
+#
+#   chave | mínimo | como verificar | nível | como instalar
+#
+#   chave     identificador estável, usado pelo verificador
+#   mínimo    versão mais antiga que serve; "-" é qualquer versão
+#   verificar comando que imprime a versão detectada
+#   nível     `obrigatorio` | `para-interface` | `opcional`
+#   instalar  como pôr no sítio, ou "auto" se o verificador o faz sozinho
+#
+# Linhas que começam por `#` são comentários.
+# =====================================================================
+
+# --- Sistema ----------------------------------------------------------
+# `bash` e `git` não são uma excentricidade. Os guardas de qualidade do
+# projecto são scripts de bash, e vários leem a árvore do Git. Num
+# contentor mínimo sem nenhum dos dois, `cargo test` passa (os testes Rust
+# correm) e os guardas todos falham — que é a pior configuração possível:
+# a verificação parece estar a correr e não está.
+bash       | 4.2  | bash --version                    | obrigatorio    | auto
+git        | -    | git --version                     | obrigatorio    | auto
+
+# --- Python -----------------------------------------------------------
+# `pyproject.toml` declara `requires-python = ">=3.10"`. O código não usa
+# qualquer dependência de execução — só a biblioteca padrão — de modo que
+# não há uma lista de pacotes para aqui. O que há são os **extras** de
+# desenvolvimento (`.[dev]`), que o verificador instala no virtualenv.
+python     | 3.10 | python3 --version                 | obrigatorio    | auto
+virtualenv | -    | test -d .venv                     | obrigatorio    | auto
+pytest     | -    | .venv/bin/pytest --version        | obrigatorio    | auto
+
+# --- Rust -------------------------------------------------------------
+# O binário de produção embute Tor (arti), que arrasta ~458 dependências.
+# `rustc` 1.98 é o mínimo declarado no guia do utilizador.
+rustc      | 1.98 | rustc --version                   | obrigatorio    | rustup
+
+# --- C/C++ ------------------------------------------------------------
+# A camada K4 (transposição) é C++ e a K9 passa por libsodium, que está
+# **vendorizada** em `crypto/c_cpp/vendor/libsodium` — não há de instalar
+# nada disso. O que precisa de existir é o compilador e o cmake.
+cmake      | 3.16 | cmake --version                   | obrigatorio    | gestor-de-pacotes
+gpp        | -    | g++ --version                     | obrigatorio    | gestor-de-pacotes
+
+# --- Interface --------------------------------------------------------
+# Instalada por `UI/tools/onyxchat instalar`, sem privilégios. Não está
+# aqui como um pacote de sistema porque não é: é uma cópia local dentro
+# do repositório, ver `UI/tools/README.md`.
+node       | 20.19 | UI/tools/onyxchat --versao         | para-interface | auto
+
+# --- Opcionais --------------------------------------------------------
+# Sem `pkg-config` e sem `libssl-dev` o projecto constrói na mesma (o
+# Rust compila a sua própria criptografia e o `main.rs` falha com
+# mensagem explícita se a feature `tor-real` for pedida sem eles). Por
+# isso são `opcional` e não travam a instalação.
+pkg-config | -    | pkg-config --version              | opcional       | gestor-de-pacotes
+libssl-dev | -    | test -e /usr/include/openssl/ssl.h | opcional       | gestor-de-pacotes
+
+# --- Memória ----------------------------------------------------------
+# Não é um pacote, e por isso não tem coluna: o limite está em
+# `docs/USER_GUIDE.md` §1.1. O verificador **mede-a** e avisa, porque
+# é a causa número um de compilação que falha a meio sem erro útil.
+#
+#   >= 8 GB para compilar o binário de produção (com arti)
+#   >= 2 GB para executar
+memoria    | 8    | memoria-disponivel                | obrigatorio    | hardware

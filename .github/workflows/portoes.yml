@@ -86,6 +86,13 @@ jobs:
         # tocar nele, e é o que este portão existe para apanhar.
         run: ./scripts/verificar_estrutura.py
 
+      - name: os rótulos do roadmap estão certos
+        # Um `PLANEADO` sem especificação é uma promessa que o código
+        # não pode cumprir. Houve uma linha assim desde que o roadmap
+        # foi escrito, e ninguém deu por isso: um rótulo errado não dá
+        # sintaxe inválida.
+        run: python3 scripts/verificar_roadmap.py
+
       - name: texto em português
         # Os quatro auditores. `verificar_alfabeto` varre tudo o que está
         # versionado, e por isso apanha também o que os outros três não
@@ -96,6 +103,13 @@ jobs:
             python3 scripts/verificar_frases.py
             python3 scripts/verificar_comentarios.py
             python3 scripts/verificar_alfabeto.py
+
+      - name: a documentação não fala da máquina
+        # Um pico de RAM é uma propriedade do build — do grafo de crates
+        # e dos perfis de `Cargo.toml` — e não do computador onde corre.
+        # Documentar «nesta máquina» prende o número a um ambiente que
+        # quem lê não tem, e sugere que o número pode ser outro.
+        run: python3 scripts/verificar_ambiente.py
 
       - name: imports nomeados existem
         # Corre depois dos auditores de propósito: se um import foi

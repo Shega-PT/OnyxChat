@@ -7,7 +7,7 @@ import OnyxBadge from '@/components/onyx/OnyxBadge';
 import OnyxStatus from '@/components/onyx/OnyxStatus';
 import OnyxAvatar from '@/components/onyx/OnyxAvatar';
 import { useOnyxUI } from '@/lib/onyx/onyx-context';
-import { copyToClipboard, fingerprintFor, formatDate } from '@/lib/onyx/format';
+import { copyToClipboard, formatDate } from '@/lib/onyx/format';
 
 /** Cartão de identidade — representação visual forte, identificador em monospace. */
 export default function IdentityCardModal({ open, onClose, payload }) {
@@ -21,7 +21,7 @@ export default function IdentityCardModal({ open, onClose, payload }) {
   const own = !payload?.contact;
   const identifier = person.identifier || '';
   const lines = identifier.split('-');
-  const fingerprint = person.fingerprint || fingerprintFor(person.id);
+  const fingerprint = person.fingerprint || '';
 
   const copy = (value, label) => {
     copyToClipboard(value)

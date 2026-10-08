@@ -138,7 +138,7 @@ export default function Identity() {
                 ]}
               />
               <div className="mt-3 border-t border-onyx-line pt-1">
-                <OnyxRow label="Impressão digital" value={shortFingerprint(identity.id)} mono />
+                <OnyxRow label="Impressão digital" value={shortFingerprint(identity.fingerprint)} mono />
                 <OnyxRow label="Algoritmo" value={identity.keyAlgorithm} mono />
               </div>
             </section>

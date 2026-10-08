@@ -3,11 +3,15 @@ import { RotateCcw, Save } from 'lucide-react';
 import { usarToast as useToast } from '@/lib/shadcn';
 import { cn } from '@/lib/utils';
 import { dataAdapter } from '@/lib/onyx/data-adapter';
+import { definirDemonstracao, demonstracaoEstaForcada } from '@/lib/onyx/runtime';
+import { useSessao } from '@/lib/SessaoContext';
 import { useAsync } from '@/lib/onyx/use-async';
 import { useContextLabel, useDetails, useOnyxUI } from '@/lib/onyx/onyx-context';
 import PageHeader from '@/components/onyx/PageHeader';
+import OnyxBadge from '@/components/onyx/OnyxBadge';
 import OnyxButton from '@/components/onyx/OnyxButton';
 import OnyxLoader from '@/components/onyx/OnyxLoader';
+import OnyxSwitch from '@/components/onyx/OnyxSwitch';
 import TechnicalDetails from '@/components/onyx/details/TechnicalDetails';
 import SettingRow from '@/components/onyx/settings/SettingRow';
 
@@ -19,6 +23,8 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const { openModal } = useOnyxUI();
   const { toast } = useToast();
+  const { demonstracao } = useSessao();
+  const forcado = demonstracaoEstaForcada();
 
   useEffect(() => {
     if (!data) return;
@@ -111,6 +117,29 @@ export default function Settings() {
 
       <div className="flex min-h-0 flex-1">
         <nav className="hidden w-[212px] shrink-0 overflow-y-auto border-r border-onyx-line bg-onyx-surface p-2 lg:block">
+          {/*
+            A navegação é de duas naturezas e não se misturam.
+            «Demonstração» é estado da aplicação, guardado em
+            `localStorage` e aplicado ao recarregar. As restantes são
+            preferências que van para o adaptador. Não estão no mesmo
+            `draft` porque não se guardam da mesma maneira: se fossem, o
+            botão «Guardar alterações» diria que guardou o interruptor sem
+            o ter gravado.
+          */}
+          <button
+            type="button"
+            onClick={() => setActiveSection('demonstracao')}
+            className={cn(
+              'flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[12.5px] transition-colors duration-150',
+              activeSection === 'demonstracao'
+                ? 'bg-onyx-elevated text-onyx-text'
+                : 'text-onyx-text2 hover:bg-onyx-surface3 hover:text-onyx-text'
+            )}
+          >
+            <span className="truncate">Demonstração</span>
+            {demonstracao && <OnyxBadge variant="warning">activo</OnyxBadge>}
+          </button>
+
           {draft.map((item) => (
             <button
               key={item.id}
@@ -131,6 +160,18 @@ export default function Settings() {
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="shrink-0 overflow-x-auto border-b border-onyx-line bg-onyx-surface px-3 py-2 lg:hidden">
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveSection('demonstracao')}
+                className={cn(
+                  'h-7 shrink-0 rounded px-2 text-[11.5px] transition-colors duration-150',
+                  activeSection === 'demonstracao'
+                    ? 'bg-onyx-elevated text-onyx-text'
+                    : 'text-onyx-text3 hover:bg-onyx-surface3 hover:text-onyx-text2'
+                )}
+              >
+                Demonstração
+              </button>
               {draft.map((item) => (
                 <button
                   key={item.id}
@@ -151,39 +192,119 @@ export default function Settings() {
 
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
             <div className="mx-auto max-w-[720px]">
-              <div className="rounded-lg border border-onyx-line bg-onyx-surface2 px-4 py-1">
-                {section?.items.map((item) => (
-                  <SettingRow
-                    key={item.id}
-                    item={item}
-                    value={item.value}
-                    onChange={(value) => update(section.id, item.id, value)}
-                    onAction={handleAction}
-                  />
-                ))}
-              </div>
+              {activeSection === 'demonstracao' ? (
+                <SecaoDemonstracao
+                  activo={demonstracao}
+                  forcado={forcado}
+                  aoMudar={definirDemonstracao}
+                />
+              ) : (
+                <div className="rounded-lg border border-onyx-line bg-onyx-surface2 px-4 py-1">
+                  {section?.items.map((item) => (
+                    <SettingRow
+                      key={item.id}
+                      item={item}
+                      value={item.value}
+                      onChange={(value) => update(section.id, item.id, value)}
+                      onAction={handleAction}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 border-t border-onyx-line bg-onyx-surface px-5 py-3">
-            <span className="text-[11px] text-onyx-text3">
-              {dirty ? 'Tens alterações por guardar nesta secção.' : 'Todas as alterações estão guardadas.'}
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <OnyxButton
-                size="sm"
-                variant="ghost"
-                disabled={!dirty}
-                onClick={() => setDraft(JSON.parse(JSON.stringify(baseline)))}
-              >
-                <RotateCcw className="h-3.5 w-3.5" /> Repor
-              </OnyxButton>
-              <OnyxButton size="sm" variant="primary" disabled={!dirty || saving} onClick={save}>
-                <Save className="h-3.5 w-3.5" /> {saving ? 'A guardar…' : 'Guardar alterações'}
-              </OnyxButton>
+          {activeSection !== 'demonstracao' && (
+            <div className="flex shrink-0 items-center gap-2 border-t border-onyx-line bg-onyx-surface px-5 py-3">
+              <span className="text-[11px] text-onyx-text3">
+                {dirty ? 'Tens alterações por guardar nesta secção.' : 'Todas as alterações estão guardadas.'}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <OnyxButton
+                  size="sm"
+                  variant="ghost"
+                  disabled={!dirty}
+                  onClick={() => setDraft(JSON.parse(JSON.stringify(baseline)))}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Repor
+                </OnyxButton>
+                <OnyxButton size="sm" variant="primary" disabled={!dirty || saving} onClick={save}>
+                  <Save className="h-3.5 w-3.5" /> {saving ? 'A guardar…' : 'Guardar alterações'}
+                </OnyxButton>
+              </div>
             </div>
-          </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Secção de demonstração.
+ *
+ * ## Porque está fora do mecanismo de rascunho
+ *
+ * As restantes secções editam `draft` e chamam `saveSettings()`. Aqui o
+ * interruptor grava em `localStorage` e recarrega. São operações
+ * diferentes, com garantias diferentes, e o botão «Guardar alterações» não
+ * tem nada a ver com isto.
+ *
+ * Misturá-los daria um botão que «guarda» algo que não guardou — que é o
+ * género de mentira que a Etapa 2 passou a remover de todo o resto.
+ *
+ * ## Porque o interruptor é recarregado
+ *
+ * Porque a escolha da implementação acontece na leitura de cada chamada ao
+ * adaptador. Sem recarregar, metade da aplicação continuaria a falar da
+ * demonstração e a interface ficaria num estado misto — pior do que estar
+ * inteiramente num dos dois.
+ *
+ * @param {object} props
+ * @param {boolean} props.activo
+ * @param {boolean} props.forcado O parâmetro `?mock=` está a sobrepor.
+ * @param {(valor: boolean) => void} props.aoMudar
+ */
+function SecaoDemonstracao({ activo, forcado, aoMudar }) {
+  return (
+    <div className="rounded-lg border border-onyx-line bg-onyx-surface2">
+      <div className="flex flex-wrap items-center gap-3 border-b border-onyx-line px-4 py-3.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[12.5px] text-onyx-text">Modo de demonstração</span>
+            {activo ? (
+              <OnyxBadge variant="warning">activo</OnyxBadge>
+            ) : (
+              <OnyxBadge variant="success">desligado</OnyxBadge>
+            )}
+          </div>
+          <p className="mt-1 max-w-[520px] text-[11px] leading-relaxed text-onyx-text3">
+            Com a demonstração ligada, a interface mostra dados fictícios para poder
+            ser desenhada e mostrada sem o backend. Latências, dispositivos, o score
+            de segurança e o grupo de conversa <strong className="text-onyx-text2">não
+            existem</strong> no OnyxChat.
+          </p>
+        </div>
+        <OnyxSwitch
+          checked={activo}
+          disabled={forcado}
+          onCheckedChange={(valor) => aoMudar(valor)}
+        />
+      </div>
+
+      <div className="px-4 py-3.5">
+        {forcado ? (
+          <p className="text-[11.5px] leading-relaxed text-onyx-warning">
+            Este valor está a ser forçado pelo parâmetro <code className="font-mono">?mock</code> da
+            ligação. Altera o endereço para o retirar, ou recarrega sem ele.
+          </p>
+        ) : (
+          <p className="text-[11.5px] leading-relaxed text-onyx-text3">
+            Desligar deixa a interface a falar com o backend local. A ponte que o serve
+            ainda não existe — chega na Etapa 5 —, e até lá a aplicação mostra um estado
+            próprio a dizer isso, em vez de fingir que não há conversas.
+          </p>
+        )}
       </div>
     </div>
   );

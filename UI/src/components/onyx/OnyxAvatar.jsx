@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { hashSeed } from '@/lib/onyx/format';
+import { sementeDeAvatar } from '@/lib/onyx/format';
 
 // Ver a nota sobre valores por omissão explícitos em `OnyxBadge.jsx`.
 
@@ -33,7 +33,7 @@ export default function OnyxAvatar({
   className = undefined,
   flat = false,
 }) {
-  const hash = hashSeed(seed || name || 'onyx');
+  const hash = sementeDeAvatar(seed || name || 'onyx');
   const hue = 184 + (hash % 24);
   const saturation = flat ? 10 : 24 + (hash % 12);
   const baseLight = 10 + ((hash >> 4) % 6);

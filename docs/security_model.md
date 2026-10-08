@@ -101,8 +101,9 @@ detectado. Compilar os testes sem optimização é, para este projecto,
 a escolha que **mais apanha bugs**.
 
 A contrapartida é tempo de execução mais alto nos testes. Como o
-perfil não é usado em produção, e como o custo de compilação é o
-factor limitante nesta máquina, a troca é favorável.
+perfil não é usado em produção, e como o custo de compilação é o factor
+limitante de qualquer máquina que não tenha um `build farm`, a troca é
+favorável.
 
 > A produção compila com `--release` (`opt-level = 3`). O que é
 > verificado em testes é a **lógica**; o desempenho é uma propriedade de

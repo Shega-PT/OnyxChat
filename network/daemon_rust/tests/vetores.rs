@@ -318,6 +318,7 @@ fn test_vectors_md_bate_com_os_json() {
     let camadas = carregar("camadas.json");
     let pipeline = carregar("pipeline.json");
     let handshake = carregar("handshake.json");
+    let identidade = carregar("identidade.json");
 
     // `.as_array()` converte `&Value` em `&Vec<Value>`, que é o que a
     // função de renderização espera. Um vector em falta dá `None` e o
@@ -326,6 +327,7 @@ fn test_vectors_md_bate_com_os_json() {
         camadas["camadas"].as_array().expect("camadas.json tem `camadas`"),
         pipeline["vetores"].as_array().expect("pipeline.json tem `vetores`"),
         handshake["vetores"].as_array().expect("handshake.json tem `vetores`"),
+        identidade["vetores"].as_array().expect("identidade.json tem `vetores`"),
     );
 
     let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/test_vectors.md");

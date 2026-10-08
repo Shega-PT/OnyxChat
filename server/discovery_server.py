@@ -37,8 +37,46 @@ TTL_PREDEFINIDO = 300.0
 
 #: Formato de um endereço .onion v3 (56 caracteres base32 + ".onion").
 _ONION = re.compile(r"^[a-z2-7]{56}\.onion$")
-#: Identificador aceite: caracteres de URL amigáveis, 1–64.
-_IDENTIFICADOR = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+#: Identificador aceite: 1–64 caracteres.
+#:
+#: O conjunto inclui os símbolos da cauda do identificador Onyx
+#: (``!@$%*+~=``). Não é uma distinção arbitrária: sem eles, o servidor de
+#: descoberta rejeitaria **o identificador que o próprio projecto produz**,
+#: e a cadeia ``identificador → registo na descoberta → Finding peer``
+#: partiria no primeiro passo.
+#:
+#: O que continua excluído, e é o que interessa:
+#:
+#: ``#``
+#:     Delimitador de fragmento. Numa URL, um ``#`` no meio do valor
+#:     truncá-lo-ia a partir daí. Mas o identificador Onyx **termina** em
+#:     ``#`` — é o fecho do formato, desenhado com o logótipo. Por isso o
+#:     ``#`` é aceite apenas na última posição, e a expressão regular
+#:     escreve isso em vez de confiar em validação a jusante.
+#:
+#: ``&``
+#:     Separador de parâmetros. Um ``&`` cortaria a lista no endereço
+#:     errado.
+#:
+#: ``/`` e ``\``
+#:     Separadores de caminho. Um identificador com ``/`` atravessaria-o
+#:     e sairia do mapa.
+#:
+#: espaço, ``%``, ``?``
+#:     Quebram a percentagem-codificação de qualquer jeito, mas um
+#:     identificador legível nunca deve precisar de ser escapado.
+#:
+#: A classe de corpo usa o mesmo alfabeto da cauda em
+#: ``messenger/identidade.py``, e o limite de 64 caracteres continua
+#: valendo: o identificador mais longo tem 18.
+#: As duas formas admitidas, em alternativa explícita: até 64
+#: caracteres de corpo, ou até 63 **mais um** ``#`` de fecho. Um ``{1,63}#?``
+#: seria mais curto e **errado** — rejeitaria um identificador de 64
+#: caracteres sem fecho, que é uma forma válida.
+_IDENTIFICADOR = re.compile(
+    r"^(?:[A-Za-z0-9._~!@$*+=@-]{1,64}|[A-Za-z0-9._~!@$*+=@-]{1,63}#)$"
+)
 
 
 class DescobertaInvalida(ValueError):

@@ -11,6 +11,9 @@ import OnyxAvatar from '@/components/onyx/OnyxAvatar';
 import OnyxBadge from '@/components/onyx/OnyxBadge';
 import OnyxButton from '@/components/onyx/OnyxButton';
 import OnyxContactItem from '@/components/onyx/OnyxContactItem';
+import OnyxContextMenu from '@/components/onyx/OnyxContextMenu';
+import ContactContextItems from '@/components/onyx/ContactContextItems';
+import { copyToClipboard } from '@/lib/onyx/format';
 import OnyxEmptyState from '@/components/onyx/OnyxEmptyState';
 import OnyxLoader from '@/components/onyx/OnyxLoader';
 import OnyxStatus from '@/components/onyx/OnyxStatus';
@@ -38,6 +41,20 @@ export default function Contacts() {
   }, [contacts, selectedId]);
 
   const selected = contacts.find((contact) => contact.id === selectedId) || null;
+
+  /**
+   * Copia o identificador de um contacto a partir do menu de contexto.
+   *
+   * Fica aqui, e não dentro de `ContactContextItems`, pelo mesmo motivo que
+   * a acção equivalente está em `ConversationList`: o componente de menu
+   * desenha o item, a vista decide o que ele faz.
+   */
+  const copiarIdentificador = (contact) => {
+    const valor = contact.identifier || contact.id;
+    copyToClipboard(valor)
+      .then(() => toast({ title: 'Identificador copiado', description: valor }))
+      .catch(() => toast({ title: 'Não foi possível copiar', variant: 'destructive' }));
+  };
 
   useContextLabel(selected?.name || null, [selected?.name]);
   useDetails(<IdentityDetails person={selected} kind="contact" />, [selected?.id]);
@@ -87,15 +104,48 @@ export default function Contacts() {
           ) : (
             <div className="flex flex-col gap-0.5">
               {contacts.map((contact) => (
-                <OnyxContactItem
+                <OnyxContextMenu
                   key={contact.id}
-                  contact={contact}
-                  selected={contact.id === selectedId}
-                  onSelect={() => {
-                    setSelectedId(contact.id);
-                    setMobileView('detalhe');
-                  }}
-                />
+                  itens={
+                    <ContactContextItems
+                      contact={contact}
+                      onAbrirConversa={(c) => {
+                        setSelectedId(c.id);
+                        navigate('/');
+                      }}
+                      onVerIdentidade={(c) => openModal({ type: 'identityCard', payload: { contact: c } })}
+                      onCopiarIdentificador={copiarIdentificador}
+                      onPedirVerificacao={(c) =>
+                        toast({
+                          title: 'Pedido de verificação enviado',
+                          description: `Compara a impressão digital de ${c.name} por um canal separado.`,
+                        })
+                      }
+                      onBloquear={(c) =>
+                        openModal({
+                          type: 'confirm',
+                          payload: {
+                            title: 'Bloquear contacto',
+                            description: `${c.name} deixa de poder enviar pedidos nem mensagens.`,
+                            confirmLabel: 'Bloquear',
+                            variant: 'danger',
+                            onConfirm: () =>
+                              toast({ title: 'Contacto bloqueado', description: c.name }),
+                          },
+                        })
+                      }
+                    />
+                  }
+                >
+                  <OnyxContactItem
+                    contact={contact}
+                    selected={contact.id === selectedId}
+                    onSelect={() => {
+                      setSelectedId(contact.id);
+                      setMobileView('detalhe');
+                    }}
+                  />
+                </OnyxContextMenu>
               ))}
             </div>
           )}
@@ -167,7 +217,7 @@ export default function Contacts() {
                   ]}
                 />
                 <div className="mt-3 border-t border-onyx-line pt-1">
-                  <OnyxRow label="Impressão digital" value={shortFingerprint(selected.id)} mono />
+                  <OnyxRow label="Impressão digital" value={shortFingerprint(selected.fingerprint)} mono />
                   <OnyxRow label="Nota" value={selected.note || '—'} />
                 </div>
               </section>

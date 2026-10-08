@@ -22,6 +22,7 @@
 #   ./scripts/testar.sh              # matriz completa (1–5)
 #   ./scripts/testar.sh --cobertura  # acrescenta as coberturas (6–7)
 #   ./scripts/testar.sh --rapido     # só Rust + Python, sem C/E2E
+#   ./scripts/testar.sh --fuzz       # acrescenta os 6 alvos de fuzzing
 #
 # Referência: `docs/DEV_GUIDE.md` §3 e `docs/testing.md` §Como correr.
 # =====================================================================
@@ -89,6 +90,10 @@ MEMORIA="$RAIZ/scripts/memoria.sh"
 # um único teste Rust. O que durante semanas pareceu «a suite passa» era
 # uma suite que nunca correu.
 cargo_tectado() {
+    # A saída de CI entra **antes** da verificação do gate: num runner
+    # não há editor a proteger, e o gate — que existe para proteger o
+    # editor — não tem o que proteger.
+    sem_tecado && { "$@"; return $?; }
     if [[ ! -x "$MEMORIA" ]]; then
         printf '%s %s\n' "$(cor '1;31' 'erro:')" \
             "scripts/memoria.sh não encontrado ou não executável" >&2
@@ -126,6 +131,122 @@ cargo_tectado() {
     return "$codigo"
 }
 
+# O Python também vai com tecto, pelo mesmo motivo.
+#
+# O gate de `memoria.sh` tem dois perfis medidos e os dois são de `cargo`
+# (103 crates, 547 MB; a arti, 931 MB). Aplicá-los ao `pytest` seria
+# inventar: o `pytest` mede-se — pico de **71 MB** para a suite completa
+# com cobertura, em `docs/testing.md` §Gate de hardware.
+#
+# Sem tecto, o passo 3 era o único da matriz fora do `MemoryMax`. É o que
+# aconteceu em 2026-10-07: a suite Python completa foi lançada de uma vez
+# sem confinamento, e o editor foi junto. Não era o `pytest` a estourar —
+# medido, pede 71 MB — era não haver `MemoryMax` à volta.
+PICO_PYTEST_MB=71
+
+python_tectado() {
+    sem_tecado && { "$@"; return $?; }
+    if [[ ! -x "$MEMORIA" ]]; then
+        printf '%s %s\n' "$(cor '1;31m' 'erro:')" \
+            "scripts/memoria.sh não encontrado ou não executável" >&2
+        return 2
+    fi
+
+    local tecto=$(( PICO_PYTEST_MB + 300 ))
+    local ficheiro_pico
+    ficheiro_pico="$(mktemp -t onyxchat-pico-pytest.XXXXXX)"
+
+    # A mesma verificação que `memoria.sh` faz, e com a mesma regra: sem
+    # cgroup v2 não há onde pôr o tecto, e dizer que o passo está
+    # protegido sem o estar é pior do que não o proteger.
+    local stat
+    stat="$(stat -fc %T /sys/fs/cgroup 2>/dev/null || true)"
+    if [[ "$stat" != "cgroup2fs" ]] || ! command -v systemd-run >/dev/null 2>&1; then
+        rm -f "$ficheiro_pico"
+        printf '%s %s\n' "$(cor '1;31' 'erro:')" \
+            "sem cgroup v2 ou sem systemd-run — o pytest fica por medir" >&2
+        printf '%s\n' \
+            "  este passo corre a suite Python inteira; sem tecto, um" >&2
+        printf '%s\n' \
+            "  pico inesperado leva o editor com ele, que foi o que aconteceu." >&2
+        return 2
+    fi
+
+    printf '→ pytest com tecto de %d MB (pico medido %d MB)\n' "$tecto" "$PICO_PYTEST_MB"
+
+    local codigo=0
+    ONYXCHAT_PICO="$ficheiro_pico" ONYXCHAT_TECTO="$tecto" \
+        systemd-run --user --scope \
+        -p MemoryHigh=$(( tecto * 80 / 100 ))M \
+        -p MemoryMax="${tecto}M" \
+        -p MemorySwapMax=0 \
+        -p OOMPolicy=kill \
+        -- env ONYXCHAT_PICO="$ficheiro_pico" ONYXCHAT_TECTO="$tecto" \
+        "$RAIZ/scripts/memoria-envolver.sh" "$@" || codigo=$?
+
+    local pico
+    pico="$(head -n1 "$ficheiro_pico" 2>/dev/null || printf '0')"
+    rm -f "$ficheiro_pico"
+    printf '→ pico do pytest: %s MB de %d MB\n' "$pico" "$tecto"
+    return "$codigo"
+}
+
+# O fuzzing vai com tecto, e o tecto é **medido**.
+#
+# Medido em 2026-10-07 no perfil de referência descrito em
+# `docs/DEV_GUIDE.md` §1.2 (2 núcleos, 3,8 GB de RAM, `MemAvailable`
+# de ~1350 MB com um editor aberto):
+#
+#   cargo +nightly fuzz build <alvo>      pico 770 MB   (uma vez, partilhado
+#                                                        pelos seis alvos)
+#   cargo +nightly fuzz run   <alvo>      pico  33–117 MB
+#
+# O build é o passo caro: compila o harness em release com debuginfo, e
+# `crypto_core` e `mlua` por baixo. Os seis alvos partilham esse build,
+# por isso são **um de cada vez** — o libFuzzer é multi-threaded por
+# defeito (`-workers`/`-jobs`), e seis motores concorrentes a hundred MB
+# cada um é a receita para repetir o que a arti fez.
+#
+# `cargo fuzz` sai ≠ 0 quando encontra um crash, e escreve o input em
+# `fuzz/artifacts/`. O `-max_total_time` limita a wall-clock de cada
+# alvo para que a matriz não fique presa; um smoke não é uma sessão de
+# fuzzing, e `docs/testing.md` §Fuzzing diz o que uma sessão é.
+PICO_FUZZ_BUILD_MB=770
+PICO_FUZZ_RUN_MB=117
+FUZZ_RUNS=2000
+FUZZ_SEGUNDOS=120
+FUZZ_ALVOS=(envelope_parser handshake_parser ipc_parser k4_decoder k7_decoder relay_parser)
+
+# `nightly_tectado <tecto_mb> CMD…`
+#
+# O gate de `memoria.sh` injecta `-j` e escolhe o perfil pelas features do
+# comando; o `cargo fuzz` não tem features nem `-j` que interessem, e o
+# alvo não faz parte do workspace. Confinar à mão é o que dá, e o
+# tecto é o que `medir` mediu acima.
+nightly_tectado() {
+    sem_tecado && { "$@"; return $?; }
+    local tecto="$1"; shift
+    local ficheiro_pico
+    ficheiro_pico="$(mktemp -t onyxchat-pico-fuzz.XXXXXX)"
+    local codigo=0
+    systemd-run --user --scope --quiet \
+        -p "MemoryHigh=$((tecto * 80 / 100))M" \
+        -p "MemoryMax=${tecto}M" \
+        -p "MemorySwapMax=${tecto}M" \
+        -p OOMPolicy=kill \
+        -- env ONYXCHAT_PICO="$ficheiro_pico" ONYXCHAT_TECTO="$tecto" \
+            "$RAIZ/scripts/memoria-envolver.sh" "$@" || codigo=$?
+    local pico
+    pico="$(head -n1 "$ficheiro_pico" 2>/dev/null || printf '0')"
+    rm -f "$ficheiro_pico"
+    if (( codigo != 0 )); then
+        printf '  %s\n' "$(cor '1;33' "pico ${pico} MB de ${tecto} — o comando devolveu ${codigo}")"
+    else
+        printf '  %s\n' "$(cor '1;32' "pico ${pico} MB de ${tecto}")"
+    fi
+    return "$codigo"
+}
+
 # --- Instrumentação ---------------------------------------------------------
 
 PASSOU=0
@@ -134,6 +255,31 @@ FALHOU=0
 #: falhas — são trabalho adiado, e o sumário diz quantos.
 SALTADOS=0
 AVISOS=()
+
+# ## Porque é que existe uma saída, e porque é que ela é barulhenta
+#
+# O tecto de cgroup existe para uma coisa: proteger o editor de quem
+# está a correr os testes com ele aberto. Numa máquina de 4 GB isso é a
+# diferença entre um pico de RAM e um OOM que mata a sessão de trabalho.
+#
+# Num runner do GitHub Actions não há editor ao lado, e a máquina é uma
+# VM só para aquele job — o tecto não protege nada e só introduz uma
+# dependência de `systemd-run --user` que falha de formas difíceis de
+# diagnosticar. Por isso `ONYXCHAT_SEM_CGROUP=1` corre o mesmo comando
+# **sem** tecto.
+#
+# E diz isso, em cada passo, com o número do que deixou de estar
+# medido. Um portão que deixa de medir em silêncio diria «✓» e quem lesse
+# o relatório pensaria que a medição continua a acontecer. É
+# exactamente o que `ONYXCHAT_TECTO` evita.
+sem_tecado() {
+    if [[ "${ONYXCHAT_SEM_CGROUP:-0}" != "1" ]]; then
+        return 1
+    fi
+    printf '%s %s\n' "$(cor '1;33' '!')" \
+        'sem tecto de memória (ONYXCHAT_SEM_CGROUP=1) — este passo não é medido'
+    return 0
+}
 
 cor() {
     # Só cor se a saída for um terminal: em log de CI, os códigos ANSI
@@ -189,15 +335,16 @@ require cargo "Instale Rust: https://rustup.rs"
 
 MODO="${1:-completo}"
 case "$MODO" in
-    --cobertura) COM_COBERTURA=1; RAPIDO=0 ;;
-    --rapido)    COM_COBERTURA=0; RAPIDO=1 ;;
-    completo|"") COM_COBERTURA=0; RAPIDO=0 ;;
+    --cobertura) COM_COBERTURA=1; RAPIDO=0; FUZZ=0 ;;
+    --fuzz)      COM_COBERTURA=0; RAPIDO=0; FUZZ=1 ;;
+    --rapido)    COM_COBERTURA=0; RAPIDO=1; FUZZ=0 ;;
+    completo|"") COM_COBERTURA=0; RAPIDO=0; FUZZ=0 ;;
     -h|--help)
         sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
-        printf 'opção desconhecida: %s (use --cobertura, --rapido ou --help)\n' "$MODO"
+        printf 'opção desconhecida: %s (use --cobertura, --fuzz, --rapido ou --help)\n' "$MODO"
         exit 2
         ;;
 esac
@@ -237,13 +384,40 @@ if [[ ! -x "$PYTEST" ]]; then
     saltar "Python" "sem virtualenv em .venv (correr: python3 -m venv .venv && .venv/bin/pip install -e '.[dev]')"
 else
     if [[ "$RAPIDO" -eq 1 ]]; then
-        passo "pytest" "$PYTEST" -q
+        passo "pytest" python_tectado "$PYTEST" -q
     else
         # `fail_under = 100` está em pyproject.toml: o pytest sai != 0
         # se a cobertura descer abaixo de 100%.
-        passo "pytest --cov" "$PYTEST" --cov
+        passo "pytest --cov" python_tectado "$PYTEST" --cov
     fi
 fi
+
+# --- 3b. O mapa da estrutura bate com a árvore? ----------------------------
+
+# `Estrutura.txt` vive **fora** do repositório, e por isso nada no
+# `pytest` o confirmava: um mapa desatualizado/listava sete ficheiros que
+# não existiam durante meses sem que nada desse sinal. Este passo é o
+# que dá o sinal.
+#
+# Vai antes dos testes Python porque é instantâneo e não precisa de
+# virtualenv — se o mapa estiver errado, é bom sabê-lo antes de gastar
+# RAM a correr a matriz.
+titulo "3b. Estrutura — o mapa bate com a árvore?"
+passo "verificar_estrutura.py" \
+    "$RAIZ/scripts/verificar_estrutura.py"
+
+# Os rótulos do roadmap não custam RAM, e um `PLANEADO` sem
+# especificação é uma promessa que o código não pode cumprir. Vai
+# depois da estrutura porque as duas coisas são sobre documentos que
+# descrevem o código, e antes do `pytest` porque é instantâneo.
+passo "verificar_roadmap.py" \
+    "$RAIZ/scripts/verificar_roadmap.py"
+
+# A documentação não pode falar da máquina de quem a escreve: um pico de
+# RAM é propriedade do build, e a máquina só decide se cabe. Este passo
+# lê cerca de 240 ficheiros e não compila nada.
+passo "verificar_ambiente.py" \
+    "$RAIZ/scripts/verificar_ambiente.py"
 
 # --- 4. Binário real: subprocess -------------------------------------------
 
@@ -261,8 +435,12 @@ if [[ "$RAPIDO" -eq 0 ]] && [[ -x "$PYTEST" ]]; then
     # trocado um verde falso por um vermelho falso.
     passo "cargo build (binário para o E2E)" \
         cargo_tectado cargo build "${CARGO_FLAGS[@]}"
-    passo "pytest test_e2e_daemon.py test_e2e_rede.py" \
-        "$PYTEST" tests/test_e2e_daemon.py tests/test_e2e_rede.py -q
+    # `test_e2e_sidecar.py` entra aqui desde 2026-10-07: é o único
+    # ficheiro que arranca os três (sidecar, loja e daemon) ao mesmo
+    # tempo, e portanto o único que apanha o desacordo entre eles.
+    passo "pytest E2E (daemon, rede, sidecar)" \
+        python_tectado "$PYTEST" tests/test_e2e_daemon.py \
+        tests/test_e2e_rede.py tests/test_e2e_sidecar.py -q
 else
     saltar "E2E" "modo rápido ou sem virtualenv"
 fi
@@ -274,13 +452,33 @@ fi
 # real** continua a compilar — sem pagar a árvore completa da arti a cada
 # execução.
 
-# Este é o passo que provocou os OOM kills: 498 fingerprints da arti
-# foram escritos às 16:43 e o OOM ocorreu às 16:44. A verificação
+# O passo que provocou os OOM kills: 498 fingerprints da arti
+# foram escritos e, no minuto seguinte, o OOM ocorreu. A verificação
 # continua no modo por omissão, mas dentro de uma scope com tecto — o
 # `rustc` morre, o editor não.
-titulo "5. Tor — verificação de compilação de tor_arti.rs (458 crates, com tecto)"
-passo "cargo check --features tor-real" \
-    cargo_tectado cargo check -p onyxchatd --features tor-real
+#
+# O que mudou em 2026-10-07: o passo deixou de ser recusado em máquinas
+# de 3,8 GB com o editor aberto. O pico medido desceu de 1156 MB para
+# 931 MB (`CARGO_PROFILE_DEV_DEBUG=none`, que o gate põe a todos os
+# comandos `cargo`), e o gate passou a contar RAM e swap em tectos
+# separados. Medições em `docs/testing.md` §Gate de hardware.
+#
+# `ONYXCHAT_PULAR_TOR=1` salta-o, e **diz que saltou**. É o que o job
+# de pull request usa: o passo compila 458 crates da arti e é o mais
+# lento da matriz, e a única coisa que apanha é uma regressão num
+# ficheiro. O mesmo passo corre no job agendado, e em `workflow_dispatch`,
+# onde o tempo se paga.
+#
+# Saltar em silêncio seria o oposto do que este script faz em todo o
+# resto: `saltar()` imprime sempre a razão.
+if [[ "${ONYXCHAT_PULAR_TOR:-0}" == "1" ]]; then
+    saltar "5. Tor (tor_arti.rs)" \
+        "ONYXCHAT_PULAR_TOR=1 — corre no job agendado e no manual"
+else
+    titulo "5. Tor — verificação de compilação de tor_arti.rs (458 crates, com tecto)"
+    passo "cargo check --features tor-real" \
+        cargo_tectado cargo check -p onyxchatd --features tor-real
+fi
 
 # --- 6–7. Coberturas (opcional) --------------------------------------------
 
@@ -308,6 +506,66 @@ if [[ "$COM_COBERTURA" -eq 1 ]]; then
                 --exclude 'tests/' --exclude 'build/' "$BUILD_CPP"
     else
         saltar "Cobertura C/C++" "gcovr ou cmake em falta"
+    fi
+fi
+
+# --- Fuzzing (opcional) ----------------------------------------------------
+#
+# Os seis alvos de `docs/testing.md` §Fuzzing, um de cada vez. Fora do
+# modo por omissão porque precisa de **nightly** e porque um smoke de
+# 2000 execuções por alvo não substitui uma sessão: é uma verificação de
+# que o alvo ainda compila e ainda corre, não uma procura de bugs.
+#
+# O que esta etapa apanha de verdade não são os crashes que um smoke
+# encontra — 2000 execuções não chegam para isso. É o facto de o alvo
+# deixar de compilar, ou de o `cargo fuzz` deixar de correr, que
+# acontece quando uma API muda e ninguém repara porque ninguém o
+# constrói.
+if [[ "$FUZZ" -eq 1 ]]; then
+    titulo "Fuzzing — 6 alvos, um de cada vez (${FUZZ_RUNS} execuções cada)"
+    if ! rustup toolchain list 2>/dev/null | grep -q '^nightly'; then
+        saltar "Fuzzing" "nightly não instalada (rustup toolchain install nightly)"
+    else
+        # `cargo fuzz build` aceita **um** alvo por invocação — passar a
+        # lista inteira dá `Usage: cargo-fuzz build` e código 2, que foi
+        # o que a primeira versão deste passo fez.
+        #
+        # O build de cada alvo compila o harness e as dependências
+        # (`crypto_core`, `mlua`), e o cargo cacheia entre invocações: só
+        # o primeiro paga o pico de 770 MB, os seguintes são quase
+        # incrementais. É por isso que compilar todos não «desperdiça»
+        # 6×770 MB.
+        for alvo in "${FUZZ_ALVOS[@]}"; do
+            passo "build ${alvo} (nightly, tecto de ${PICO_FUZZ_BUILD_MB} MB)" \
+                nightly_tectado "$PICO_FUZZ_BUILD_MB" \
+                    env CARGO_BUILD_JOBS=1 cargo +nightly fuzz build "$alvo"
+        done
+
+        # Os runs só começam se todos os alvos compilarem. Um alvo que
+        # deixou de compilar é um alvo que não está a ser testado, e
+        # continuar a correr os outros daria um verde que esconde o
+        # buraco.
+        if (( FALHOU == 0 )); then
+            for alvo in "${FUZZ_ALVOS[@]}"; do
+                passo "fuzz ${alvo} (${FUZZ_RUNS} execuções)" \
+                    nightly_tectado "$PICO_FUZZ_RUN_MB" \
+                        cargo +nightly fuzz run "$alvo" -- \
+                            "-runs=${FUZZ_RUNS}" "-max_total_time=${FUZZ_SEGUNDOS}"
+            done
+        else
+            saltar "runs de fuzzing" "um alvo não compilou — nenhum run foi feito"
+        fi
+
+        # Um crash escreve um ficheiro em `fuzz/artifacts/`. Um
+        # artefacto deixado por uma sessão antiga é um bug já corrigido, e
+        # o `libFuzzer` passaria a reprocessá-lo para sempre — por isso o
+        # aviso diz onde estão, em vez de os apagar em silêncio.
+        if [[ -d fuzz/artifacts/onyxchat-fuzz ]] \
+           && compgen -G "fuzz/artifacts/onyxchat-fuzz/*" >/dev/null; then
+            printf '\n%s\n' "$(cor '1;33' 'artefactos de fuzzing por tratar:')"
+            ls -1 fuzz/artifacts/onyxchat-fuzz/ | sed 's/^/  /'
+            printf '  %s\n' "cada um é um input que provocou um crash — ver docs/testing.md §Fuzzing"
+        fi
     fi
 fi
 

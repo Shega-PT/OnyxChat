@@ -76,8 +76,8 @@ output:    89cc0c0e
 
 ```text
 parametros: deslocamento=7
-input:     73756273746974756963616f204b38202b37
-output:    7a7c697a7b707b7c706a687627523f27323e
+input:     6465736c6f63616d656e746f204b38202b37
+output:    6b6c7a73766a68746c757b7627523f27323e
 ```
 
 ### K9 — ChaCha20-Poly1305 (chave do receptor) — C (crypto/c_cpp/k9_chacha.c, libsodium)
@@ -203,5 +203,103 @@ FRIEND_ACCEPT (177 B):
 
 FRIEND_REJECT (81 B):
 01404142434445464748494a4b4c4d4e4fc7288e6192ec276f9bf4201b83a2606cbb713c77d22c5b30f0391fd515be67a58f32786c6e911270457e8dd0824d5c8b79b36d27002e6c0937b42ef896a8d103
+```
+
+---
+
+## Identidade (`messenger/identidade.py`)
+
+Gerados em Python e lidos aqui. Não são regerados: a fórmula é de `messenger/identidade.py`, e um gerador em Rust seria uma segunda implementação — que é o que os vectores existem para evitar.
+
+Consumidores: `tests/test_identidade.py` e `tests/test_identidade_interface.py`, que reconfere cada valor contra o que a interface mostra.
+
+### Vector 001 — o caso de referência: nome minúsculo, sal sequencial
+
+```text
+utilizador: ana
+sal:        000102030405060708090a0b0c0d0e0f
+identificador: ONYX-UCHL4L-~Z*5#
+impressao:  39:DB:82:56:56:1A:07:21:FD:3F:83:4C:A9:08:80:43
+```
+
+### Vector 002 — o mesmo nome, com maiúsculas e um nome composto — o resultado tem de diferir de 001, porque o sal entra no resumo
+
+```text
+utilizador: Marta Vasconcelos
+sal:        000102030405060708090a0b0c0d0e0f
+identificador: ONYX-F2Y2SZ-@T$3#
+impressao:  B4:0A:98:39:71:2C:37:26:A2:42:70:F8:9E:7B:47:D9
+```
+
+### Vector 003 — o mesmo nome de 001 com outro sal: mesmo utilizador, outra identidade. É a propriedade que o sal compra
+
+```text
+utilizador: ANA
+sal:        000102030405060708090a0b0c0d0e0f
+identificador: ONYX-UCHL4L-~Z*5#
+impressao:  39:DB:82:56:56:1A:07:21:FD:3F:83:4C:A9:08:80:43
+```
+
+### Vector 004 — espaços à volta: normaliza-se para a mesma forma de 001 com o mesmo sal, e por isso dá o mesmo identificador
+
+```text
+utilizador:   ana  
+sal:        000102030405060708090a0b0c0d0e0f
+identificador: ONYX-UCHL4L-~Z*5#
+impressao:  39:DB:82:56:56:1A:07:21:FD:3F:83:4C:A9:08:80:43
+```
+
+### Vector 005 — vários espaços, não só um
+
+```text
+utilizador: ana
+sal:        a0a1a2a3a4a5a6a7a8a9aaabacadaeaf
+identificador: ONYX-GL7ZY7-*V~M#
+impressao:  8F:83:98:75:76:CC:38:C2:14:EB:8A:4E:D8:28:DD:05
+```
+
+### Vector 006 — acento português: a forma canónica mantém o acento; o que se compara é o byte UTF-8
+
+```text
+utilizador: José
+sal:        404142434445464748494a4b4c4d4e4f
+identificador: ONYX-F4LH97-%4@X#
+impressao:  07:C6:0E:D6:A7:E8:27:AF:5B:ED:DD:95:99:FC:7E:0C
+```
+
+### Vector 007 — o A com anel (U+00C5) escrito de duas maneiras. As duas normalizam para a mesma coisa e dão o mesmo identificador — se não dessem, um acento que o teclado decomponha criaria duas contas
+
+```text
+utilizador: Ångström
+sal:        505152535455565758595a5b5c5d5e5f
+identificador: ONYX-WUEPQQ-+3!G#
+impressao:  05:94:CE:A4:83:7B:4C:76:D3:86:F6:C3:D7:97:BF:04
+```
+
+### Vector 008 — o sharp-s (U+00DF) tem de virar «ss» em casefold. Com lower ficava essa letra isolada, e quem escreve «strasse» e quem escreve «strasse» com ela seriam pessoas diferentes
+
+```text
+utilizador: ana
+sal:        ffffffffffffffffffffffffffffffff
+identificador: ONYX-UQYX5X-~V=Q#
+impressao:  F3:D9:4F:8F:16:DE:BB:EA:DC:50:99:7E:8C:DA:D1:F9
+```
+
+### Vector 009 — normalização e casefold juntos: caixa toda alta, com acento
+
+```text
+utilizador: Straße
+sal:        1f1e1d1c1b1a19181716151413121110
+identificador: ONYX-PJFK9T-=9$2#
+impressao:  4F:0C:F6:99:1E:91:50:1A:97:E5:B8:D8:E8:52:32:63
+```
+
+### Vector 010 — sal de todos os bytes iguais: confirma que o sal entra mesmo no resumo, e que a fórmula não depende de nada além dele e do nome
+
+```text
+utilizador: a
+sal:        00000000000000000000000000000000
+identificador: ONYX-YATK3X-*G~M#
+impressao:  D2:02:05:1D:3F:9F:77:C0:95:F2:30:B3:58:3F:F9:05
 ```
 

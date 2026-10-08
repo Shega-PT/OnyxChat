@@ -67,7 +67,10 @@ def _ler_pedido(ligacao: socket.socket) -> bytes | None:
 
 @contextmanager
 def servidor_falso(
-    caminho: Path, resposta: bytes | Callable[[bytes], bytes | None]
+    caminho: Path,
+    resposta: bytes | Callable[[bytes], bytes | None],
+    *,
+    anunciar: int | None = None,
 ) -> Iterator[str]:
     """Servidor UDS num *thread* com resposta fixa ou por pedido.
 
@@ -78,6 +81,15 @@ def servidor_falso(
     Como o daemon real, o servidor **exige o ``HELLO``** como primeiro
     pedido (``docs/ipc_spec.md`` §Protocolo de versão): responde-o
     internamente e só depois aplica ``resposta`` ao comando do teste.
+
+    ``anunciar`` escreve um cabeçalho a declarar este comprimento e
+    **não envia corpo nenhum**. Existe porque a validação do
+    enquadramento acontece sobre o cabeçalho, e um teste que mandasse o
+    corpo para ter um comprimento grande alocaria esse comprimento
+    inteiro — meio gigabyte, para ``MAX_PAYLOAD`` — numa máquina que
+    tem 3,8 GB e o editor aberto. Anunciar sem enviar prova a mesma
+    coisa e prova mais: um cliente que lesse o corpo antes de recusar
+    ficaria à espera dos 512 MiB que nunca chegam.
     """
     ligacao_servidor = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     ligacao_servidor.bind(str(caminho))
@@ -85,10 +97,21 @@ def servidor_falso(
     ligacao_servidor.settimeout(0.2)
     parado = threading.Event()
 
-    def atuar(ligacao: socket.socket, pedido: bytes) -> None:
+    def enviar_resposta(ligacao: socket.socket, pedido: bytes) -> None:
+        """Resolve e envia a resposta ao ``pedido``.
+
+        Com ``anunciar``posto, escreve só o cabeçalho e nenhum corpo.
+        """
         corpo = resposta(pedido) if callable(resposta) else resposta
-        if corpo is not None:
-            _enviar(ligacao, corpo)
+        if corpo is None:
+            return
+        try:
+            if anunciar is None:
+                ligacao.sendall(struct.pack("<I", len(corpo)) + corpo)
+            else:
+                ligacao.sendall(struct.pack("<I", anunciar))
+        except OSError:
+            pass
 
     def ciclo() -> None:
         while not parado.is_set():
@@ -111,7 +134,7 @@ def servidor_falso(
                     continue
                 pedido = _ler_pedido(ligacao)
                 if pedido is not None:
-                    atuar(ligacao, pedido)
+                    enviar_resposta(ligacao, pedido)
 
     thread = threading.Thread(target=ciclo, daemon=True)
     thread.start()

@@ -2100,3 +2100,158 @@ fn pedido_pendente_zeroiza_corpo() {
             std::env::remove_var("ONYXCHAT_ESTADO");
         }
     }
+
+    /// A cadeia de precedência do caminho de estado, um degrau de cada vez.
+    ///
+    /// O teste acima fixa o primeiro degrau (`ONYXCHAT_ESTADO`) e pára
+    /// aí. Os dois seguintes — `$XDG_STATE_HOME/onyxchat` e
+    /// `$HOME/.local/state/onyxchat` — eram linhas que nenhum teste
+    /// executava, e são a parte da cadeia que decide **onde o ficheiro
+    /// de anti-replay é criado** numa máquina normal, em que ninguém
+    /// põe `ONYXCHAT_ESTADO`.
+    ///
+    /// Um degrau que não funciona tem uma consequência silenciosa: o
+    /// registo vai parar ao sítio errado, e o anti-replay parece não
+    /// funcionar porque cada arranque lê um ficheiro diferente.
+    #[test]
+    fn o_caminho_de_estado_desce_a_cadeia_de_precedencia() {
+        #[allow(unused_unsafe)]
+        unsafe {
+            let guardar = |nome: &str| std::env::var(nome).ok();
+
+            let estado_anterior = guardar("ONYXCHAT_ESTADO");
+            let xdg_anterior = guardar("XDG_STATE_HOME");
+            let home_anterior = guardar("HOME");
+
+            // (a) `ONYXCHAT_ESTADO` ganha a tudo.
+            std::env::set_var("ONYXCHAT_ESTADO", "/tmp/onyxchat-estado-prioritario");
+            std::env::set_var("XDG_STATE_HOME", "/tmp/xdg-secundario");
+            assert_eq!(
+                caminho_estado(),
+                std::path::PathBuf::from("/tmp/onyxchat-estado-prioritario")
+            );
+
+            // (b) sem o primeiro, o XDG decide — e `onyxchat` é acrescentado.
+            std::env::remove_var("ONYXCHAT_ESTADO");
+            assert_eq!(
+                caminho_estado(),
+                std::path::PathBuf::from("/tmp/xdg-secundario").join("onyxchat")
+            );
+
+            // (c) uma variável presente mas **vazia** não decide.
+            //
+            // `ONYXCHAT_ESTADO=""` é o caso que o primeiro `if !c.is_empty()`
+            // trata, e sem ele o caminho seria `""` — que o registo
+            // abriria como ficheiro sem directório, na raiz do
+            // sistema de ficheiros. `EACCES` para quem não é root, e uma
+            // falha que não menciona a variável que a causou.
+            std::env::remove_var("XDG_STATE_HOME");
+            std::env::set_var("ONYXCHAT_ESTADO", "");
+            std::env::set_var("HOME", "/home/testador");
+            assert_eq!(
+                caminho_estado(),
+                std::path::PathBuf::from("/home/testador")
+                    .join(".local")
+                    .join("state")
+                    .join("onyxchat"),
+                "ONYXCHAT_ESTADO vazia não pode decidir o caminho"
+            );
+
+            // (d) `XDG_STATE_HOME` vazia também não decide.
+            //
+            // `XDG_STATE_HOME=""` é o degrau intermédio da mesma cadeia,
+            // e a especificação XDG diz que uma variável definida como
+            // vazia conta como não definida. Sem este `if`, o caminho
+            // seria `onyxchat` relativo ao directório de trabalho — que
+            // muda de sítio conforme quem lançou o daemon.
+            std::env::set_var("ONYXCHAT_ESTADO", "");
+            std::env::set_var("XDG_STATE_HOME", "");
+            assert_eq!(
+                caminho_estado(),
+                std::path::PathBuf::from("/home/testador")
+                    .join(".local")
+                    .join("state")
+                    .join("onyxchat"),
+                "XDG_STATE_HOME vazia não pode decidir o caminho"
+            );
+            assert_ne!(
+                caminho_estado(),
+                std::path::PathBuf::from("onyxchat"),
+                "uma variável vazia não pode produzir um caminho relativo"
+            );
+
+            // (e) sem nenhum dos dois, o HOME decide.
+            std::env::remove_var("XDG_STATE_HOME");
+            std::env::remove_var("ONYXCHAT_ESTADO");
+            std::env::set_var("HOME", "/home/testador");
+            assert_eq!(
+                caminho_estado(),
+                std::path::PathBuf::from("/home/testador")
+                    .join(".local")
+                    .join("state")
+                    .join("onyxchat")
+            );
+
+            // Restaurar o ambiente: um teste que muda `HOME` e não o
+            // devolve muda a máquina de quem vem a seguir.
+            for (nome, valor) in [
+                ("ONYXCHAT_ESTADO", estado_anterior),
+                ("XDG_STATE_HOME", xdg_anterior),
+                ("HOME", home_anterior),
+            ] {
+                match valor {
+                    Some(v) => std::env::set_var(nome, v),
+                    None => std::env::remove_var(nome),
+                }
+            }
+        }
+    }
+
+    /// `ONYXCHAT_LIGACOES_MAX` é lido, validado e recusado sem crashar.
+    ///
+    /// O valor é uma protecção — o tecto de atendimentos em curso — e
+    /// não uma pré-condição. Um valor mal formado tem de cair no
+    /// omissão e deixar o daemon arrancar, porque o alternativa é não
+    /// arrancar por causa de uma variável de ambiente, que é uma falha
+    /// pior do que a limitação que ela queria ajustar.
+    #[test]
+    fn o_limite_de_ligacoes_segue_o_ambiente() {
+        #[allow(unused_unsafe)]
+        unsafe {
+            let anterior = std::env::var("ONYXCHAT_LIGACOES_MAX").ok();
+
+            // Sem variável: o omissão.
+            std::env::remove_var("ONYXCHAT_LIGACOES_MAX");
+            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+
+            // Valor válido — e com espaços à volta, que o `trim` trata.
+            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "  7  ");
+            assert_eq!(limite_ligacoes(), 7);
+
+            // Valor mal formado: o omissão, não um panic.
+            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "muitos");
+            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+
+            // Zero: recusado pelo `.filter(|n| *n > 0)`.
+            //
+            // Um tecto de zero seria um daemon que não atende ninguém,
+            // e é o valor que um utilizador obtém de uma variável que
+            // ficou a zero por engano. Cai no omissão.
+            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "0");
+            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+
+            // Negativo não é `usize`: o parse falha, e o omissão fica.
+            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "-1");
+            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+
+            // Variável vazia: o `Some(v) if !v.is_empty()` não casa, e o
+            // omissão fica.
+            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "");
+            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+
+            match anterior {
+                Some(v) => std::env::set_var("ONYXCHAT_LIGACOES_MAX", v),
+                None => std::env::remove_var("ONYXCHAT_LIGACOES_MAX"),
+            }
+        }
+    }

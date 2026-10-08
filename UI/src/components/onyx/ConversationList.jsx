@@ -1,10 +1,16 @@
 import React from 'react';
 import { Plus, Search } from 'lucide-react';
+import { usarToast as useToast } from '@/lib/shadcn';
 import { cn } from '@/lib/utils';
 import OnyxButton, { OnyxIconButton } from '@/components/onyx/OnyxButton';
 import OnyxLoader from '@/components/onyx/OnyxLoader';
 import OnyxEmptyState from '@/components/onyx/OnyxEmptyState';
 import OnyxConversationItem from '@/components/onyx/OnyxConversationItem';
+import OnyxContextMenu from '@/components/onyx/OnyxContextMenu';
+import ConversationContextItems from '@/components/onyx/ConversationContextItems';
+import { copyToClipboard } from '@/lib/onyx/format';
+
+// Ver a nota sobre valores por omissão explícitos em `OnyxBadge.jsx`.
 
 const FILTERS = [
   { id: 'todas', label: 'Todas' },
@@ -12,6 +18,23 @@ const FILTERS = [
   { id: 'verificadas', label: 'Verificadas' },
 ];
 
+/** Nada a fazer — usado enquanto as acções do menu ainda não escrevem. */
+const semAccao = () => {};
+
+/**
+ * Painel lateral da lista de conversas.
+ *
+ * Os itens do menu de contexto são montados **aqui** e não dentro de
+ * `OnyxConversationItem`: o item desenha-se, o menu decide-se. Assim a
+ * linha continua sem saber nada sobre o que é uma conversa, e a vista
+ * continua a ser a dona das suas acções.
+ *
+ * A maioria das acções ainda não escreve em lado nenhum — pertencem ao
+ * adaptador, que ganha implementação real na Etapa 5 e na demonstração
+ * altera só o estado local. Estão isoladas em props opcionais com
+ * alternativa inerte, para que a lista não dependa de a vista saber quais
+ * estão implementadas.
+ */
 export default function ConversationList({
   conversations = [],
   loading = false,
@@ -22,8 +45,29 @@ export default function ConversationList({
   filter = 'todas',
   onFilterChange,
   onNew = undefined,
+  onMarcarLida = semAccao,
+  onSilenciar = semAccao,
+  onFixar = semAccao,
+  onVerIdentidade = semAccao,
+  onLimparHistorico = semAccao,
+  onBloquear = semAccao,
   className = undefined,
 }) {
+  const { toast } = useToast();
+
+  /**
+   * Copia o identificador da conversa, anunciando o resultado nos dois
+   * sentidos. Esta é a única acção do menu que **está** implementada: não
+   * precisa de backend, e serve de referência para o que as outras vão
+   * precisar de fazer.
+   */
+  const copiarIdentificador = (conversation) => {
+    const valor = conversation.contact?.identifier || conversation.id;
+    copyToClipboard(valor)
+      .then(() => toast({ title: 'Identificador copiado', description: valor }))
+      .catch(() => toast({ title: 'Não foi possível copiar', variant: 'destructive' }));
+  };
+
   return (
     <div className={cn('flex min-h-0 flex-col border-onyx-line bg-onyx-surface', className)}>
       <div className="shrink-0 space-y-2.5 border-b border-onyx-line px-3 py-3">
@@ -79,12 +123,28 @@ export default function ConversationList({
         ) : (
           <div className="flex flex-col gap-0.5">
             {conversations.map((conversation) => (
-              <OnyxConversationItem
+              <OnyxContextMenu
                 key={conversation.id}
-                conversation={conversation}
-                selected={conversation.id === selectedId}
-                onSelect={() => onSelect(conversation.id)}
-              />
+                itens={
+                  <ConversationContextItems
+                    conversation={conversation}
+                    onMarcarLida={onMarcarLida}
+                    onSilenciar={onSilenciar}
+                    onFixar={onFixar}
+                    onVerIdentidade={onVerIdentidade}
+                    onCopiarIdentificador={copiarIdentificador}
+                    onLimparHistorico={onLimparHistorico}
+                    onBloquear={onBloquear}
+                  />
+                }
+              >
+                <OnyxConversationItem
+                  conversation={conversation}
+                  selected={conversation.id === selectedId}
+                  onSelect={() => onSelect(conversation.id)}
+                  indisponivel={Boolean(conversation.indisponivel)}
+                />
+              </OnyxContextMenu>
             ))}
           </div>
         )}

@@ -73,7 +73,8 @@ _MOTIVOS: dict[str, str] = {
     "►◄▶◀▲▼◊○●": "setas e marcadores nos diagramas de fluxo",
     "✓✔✗✘×⚠": "marcas de resultado em tabelas e testes",
     "‖": "operador de concatenação da notação do protocolo",
-    "≡≈≠≤≥±÷": "operadores matemáticos nas tabelas de equivalência",
+    "≡≈≠≤≥±÷×∑": "operadores matemáticos nas tabelas de equivalência",
+    "ᵢ": "índice em subscrito, na fórmula da entropia de `messenger/conta.py`",
     "∈∉∌∅∀∃": "conjuntos, na especificação criptográfica",
     "√∫∂": "matemática elementar nas fórmulas de custo",
     "⌊⌋⌈⌉": "tectos e Festas em medidas de memória",
@@ -84,6 +85,18 @@ _MOTIVOS: dict[str, str] = {
     "−": "sinal menos tipográfico, em fórmulas e intervalos",
     "⇒": "seta de implicação, nas tabelas de derivação",
     "∘": "composição de matrizes (multiplicação na K7)",
+    "⌘": "símbolo da tecla de comando nos atalhos da interface (⌘K, ⌘N)",
+    "Åß": (
+        "nomes de utilizador de teste em `tests/vectors/identidade.json`, "
+        "renderizados por `docs/test_vectors.md`. São os vectores que "
+        "provam que NFKC e casefold fazem o que devem: o A com anel "
+        "escrito de duas maneiras tem de dar o mesmo identificador, e o "
+        "sharp-s tem de virar «ss». Escrever «Angra», «strasse» ou "
+        "«strasse» com outra letra provaria menos e não provaria nada. "
+        "O repositório é português; estes dois caracteres aparecem aqui "
+        "porque o que se está a testar é precisamente o caso em que o "
+        "português não dá"
+    ),
 }
 
 # Expande para uma chave por carácter: `classificar` consulta o

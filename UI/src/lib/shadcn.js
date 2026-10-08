@@ -60,7 +60,14 @@
 // não um hábito disperso por dezenas de ficheiros.
 // =====================================================================
 
-import { Button as BotaoRadix } from '@/components/ui/button';
+import {
+  ContextMenu as MenuContextualRadix,
+  ContextMenuContent as MenuContextualConteudoRadix,
+  ContextMenuItem as MenuContextualItemRadix,
+  ContextMenuLabel as MenuContextualEtiquetaRadix,
+  ContextMenuSeparator as MenuContextualSeparadorRadix,
+  ContextMenuTrigger as MenuContextualGatilhoRadix,
+} from '@/components/ui/context-menu';
 import {
   Dialog as DialogoRadix,
   DialogContent as DialogoConteudoRadix,
@@ -76,14 +83,6 @@ import {
   DropdownMenuSeparator as MenuSeparadorRadix,
   DropdownMenuTrigger as MenuGatilhoRadix,
 } from '@/components/ui/dropdown-menu';
-import { Input as EntradaRadix } from '@/components/ui/input';
-import {
-  InputOTP as CampoOTPRadix,
-  InputOTPGroup as GrupoOTPRadix,
-  InputOTPSlot as CasaOTPRadix,
-} from '@/components/ui/input-otp';
-import { Label as RotuloRadix } from '@/components/ui/label';
-import { Separator as SeparadorRadix } from '@/components/ui/separator';
 import { Switch as InterruptorRadix } from '@/components/ui/switch';
 import {
   Tooltip as DicaRadix,
@@ -110,14 +109,6 @@ const semTipos = (Componente) =>
 // Reexportações com o tipo corrigido.
 // ---------------------------------------------------------------------
 
-/** Botão genérico. Só a autenticação da Base44 o usa; sai na Etapa 2. */
-export const Botao = semTipos(BotaoRadix);
-/** Campo de texto simples. */
-export const Entrada = semTipos(EntradaRadix);
-/** Rótulo de campo. */
-export const Rotulo = semTipos(RotuloRadix);
-/** Divisória horizontal. */
-export const Separador = semTipos(SeparadorRadix);
 /** Interruptor binário, por baixo de `OnyxSwitch`. */
 export const Interruptor = semTipos(InterruptorRadix);
 
@@ -145,6 +136,27 @@ export const MenuSeparador = semTipos(MenuSeparadorRadix);
 /** Elemento que abre o menu. */
 export const MenuGatilho = semTipos(MenuGatilhoRadix);
 
+/**
+ * Menu de contexto (botão direito).
+ *
+ * Não é o mesmo que `Menu`: aquele abre-se por um botão, este abre-se por
+ * um clique com o botão direito sobre a linha. A distinção importa para a
+ * acessibilidade — o menu de contexto do Radix só é alcançável por teclado
+ * através de uma tecla de menu ou de Shift+F10, pelo que **cada acção
+ * importante continua disponível no menu suspenso visível**.
+ */
+export const MenuContextual = semTipos(MenuContextualRadix);
+/** Elemento que abre o menu de contexto. */
+export const MenuContextualGatilho = semTipos(MenuContextualGatilhoRadix);
+/** Superfície do menu de contexto. */
+export const MenuContextualConteudo = semTipos(MenuContextualConteudoRadix);
+/** Item do menu de contexto. */
+export const MenuContextualItem = semTipos(MenuContextualItemRadix);
+/** Rótulo de secção dentro do menu de contexto. */
+export const MenuContextualEtiqueta = semTipos(MenuContextualEtiquetaRadix);
+/** Divisória dentro do menu de contexto. */
+export const MenuContextualSeparador = semTipos(MenuContextualSeparadorRadix);
+
 /** Dica flutuante. */
 export const Dica = semTipos(DicaRadix);
 /** Superfície da dica. */
@@ -156,18 +168,6 @@ export const DicaGatilho = semTipos(DicaGatilhoRadix);
 
 /** Fila de notificações efémeras. */
 export const Notificador = semTipos(NotificadorRadix);
-
-/**
- * Campo de entrada de código, um algarismo por casa.
- *
- * Só a autenticação da Base44 o usa (o passo de verificação por OTP do
- * registo); sai na Etapa 2, com o resto desse fluxo.
- */
-export const CampoOTP = semTipos(CampoOTPRadix);
-/** Agrupa as casas do campo OTP. */
-export const GrupoOTP = semTipos(GrupoOTPRadix);
-/** Uma casa do campo OTP. */
-export const CasaOTP = semTipos(CasaOTPRadix);
 
 /**
  * Notificações efémeras — gancho e função directa.

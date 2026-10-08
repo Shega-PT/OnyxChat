@@ -49,6 +49,41 @@
 jobs = 1
 
 # ---------------------------------------------------------------------------
+# Testes sequenciais.
+# ---------------------------------------------------------------------------
+# `RUST_TEST_THREADS = 1` obriga a libtest a correr **um teste de cada vez**,
+# em vez de um por thread lógica.
+#
+# Não é por causa do tempo: a suite do `onyxchatd` corre em menos de dois
+# segundos em paralelo. É por causa do estado global do processo.
+#
+# A variável de ambiente `ONYXCHAT_ESTADO` decide onde vive o ficheiro de
+# anti-replay, e dois testes mexem nela:
+#
+#   * `ipc::testes::o_caminho_de_estado_segue_o_ambiente` — aponta-a para
+#     `/tmp/onyxchat-teste-estado` e **remove-a** no fim;
+#   * `ipc::testes::o_registo_anti_replay_sobrevive_a_um_reinicio_do_daemon`
+#     — aponta-a para um directório temporário indexado pelo PID e também
+#     a remove no fim.
+#
+# Em paralelo, um teste pode trocar o caminho debaixo dos pés do outro entre
+# o momento de escrever o registo e o momento de o ler. E o directório
+# indexado pelo PID não isola nada: os dois testes correm no **mesmo**
+# processo, logo têm o mesmo PID e escrevem no mesmo ficheiro. O sintoma
+# observado era `quantidade() == 3` quando se esperava `1` — e o mesmo
+# código passava a correr isolado, que é a assinatura de uma falha de
+# isolamento e não de um defeito na anti-replay.
+#
+# Corrigi-lo aqui, em vez de pôr um trinco nos dois testes, custa dois
+# segundos e compra a garantia de que **qualquer vermelho futuro é um erro a
+# sério**. Com testes paralelos, um vermelho era uma lotaria — verde num dia,
+# vermelho no seguinte, sem que nada tivesse mudado. Um portão que às vezes
+# mente é pior do que um portão que não existe, porque se perde o hábito de o
+# levar a sério.
+[env]
+RUST_TEST_THREADS = "1"
+
+# ---------------------------------------------------------------------------
 # Um alvo de depuração opcional que aponta para o binário de release,
 # para não recompilar tudo quando se faz medição de desempenho.
 # ---------------------------------------------------------------------------

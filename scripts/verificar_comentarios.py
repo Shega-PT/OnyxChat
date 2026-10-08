@@ -48,27 +48,74 @@ REGRAS = [
     # NOTA: "computacional", "comportamento" e "baixar o limite" são
     # português correcto e foram removidos da lista depois de a regra dar
     # falso positivo. Deixá-los levar a correcção seria pior do que o
-    # erro: passavam a parecer erro a quem viesse estender a lista.        # não `codigo:` (identificador)
+    # erro: passavam a parecer erro a quem viesse estender a lista.
+    #
+    # `codigo` com lookahead, e não `codigo`: sem ele, `codigo:`
+    # — que é um dicionário, não um erro de ortografia — era reportado
+    # como se fosse.
     (r"\bproprio\b", "próprio"),
     (r"\bproprietario\b", "proprietário"),
 ]
 
 IGNORADOS = {".git", "target", ".venv", "build", "__pycache__",
-             ".hypothesis", ".pytest_cache", "vendor"}
+             ".hypothesis", ".pytest_cache", "vendor", "node_modules",
+             "UI/dist"}
 FORA = {"scripts/verificar_portugues.py", "scripts/verificar_frases.py",
-        "scripts/verificar_comentarios.py"}
+        "scripts/verificar_comentarios.py",
+        # Os testes do verificador de português guardam os americanismos
+        # como dados de entrada. Reportá-los aqui seria reportar o
+        # próprio teste — e o mesmo ficheiro já está fora da busca do
+        # `verificar_portugues.py`, pelo mesmo motivo.
+        "tests/test_verificar_portugues.py",
+        # O ficheiro de testes do auditor de comentários guarda os
+        # americanismos como dados de entrada, para provar que a extracção
+        # de prosa os alcança. Reportá-los seria reportar o próprio teste.
+        "tests/test_verificar_comentarios.py"}
 
 
 def prosa_de(f: Path) -> list[tuple[int, str]]:
-    """Devolve [(linha, texto)] com o que é comentários e docstrings."""
-    texto = f.read_text(encoding="utf-8", errors="replace").split("\n")
+    """Devolve [(linha, texto)] com o que é comentários e docstrings.
+
+    Um ficheiro ilegível devolve lista vazia em vez de rebentar. Os
+    outros dois auditores já faziam isto, e a assimetria custou uma
+    excepção em 2026-10-07 ao varrer a interface: `git ls-files` lista
+    ficheiros **indexados**, e um ficheiro apagado na árvore de trabalho
+    continua indexado durante o `git rm` — ou de um `git add` antigo. Um
+    auditor que rebenta não audita.
+    """
+    try:
+        texto = f.read_text(encoding="utf-8", errors="replace").split("\n")
+    except OSError:
+        return []
     ext = f.suffix
     saida: list[tuple[int, str]] = []
 
-    if ext in {".rs", ".c", ".cpp", ".h"}:
+    if ext in {".rs", ".c", ".cpp", ".h", ".js", ".jsx", ".mjs", ".cjs"}:
+        # ## A limitação declarada
+        #
+        # Isto lê a linha **começada** pela marca de comentário. Uma
+        # cadeia de caracteres que comece por `//` — um URL inteiro, por
+        # exemplo — conta como comentário e é reportada. É a mesma
+        # limitação que os ramos de Rust e C já tinham, e é o preço de
+        # não escrever um analisador de JavaScript.
+        #
+        # O custo é um falso positivo ocasional num URL; o benefício é
+        # que o verificador não fica em silêncio sobre a interface. Um
+        # verificador que devolve vazio porque não sabe é pior do que um
+        # que se engana uma vez — porque o silêncio não se corrige.
+        #
+        # ## Porque JSX precisa de tratamento à parte
+        #
+        # Em JSX o comentário é `{/* … */}`: o `{` não é comentário, e
+        # sem o desembrulho a linha não começaria por nenhuma marca.
         dentro = None
+        jsx = ext in {".js", ".jsx", ".mjs", ".cjs"}
         for n, linha in enumerate(texto, 1):
             limpa = linha.strip()
+            if jsx and limpa.startswith("{"):
+                limpa = limpa[1:].strip()
+                if limpa.endswith("}"):
+                    limpa = limpa[:-1].strip()
             if dentro is not None:
                 saida.append((n, limpa))
                 if dentro in limpa:
@@ -106,6 +153,24 @@ def prosa_de(f: Path) -> list[tuple[int, str]]:
                 dentro_doc = True
                 continue
 
+    elif ext in {".yml", ".yaml"}:
+        # ## A prosa de um workflow são os comentários
+        #
+        # Não há mais texto a ler: os nomes dos passos e dos jobs são
+        # identificadores. O conteúdo de `run:` é shell, e os comandos
+        # não são prosa — mas o **comentário** dentro do bloco é, e é
+        # auditado, porque é onde se explica porque é que o passo
+        # existe.
+        #
+        # Este ramo **tem de existir**. Sem ele, `.yml` caía no `else`
+        # final, devolvia lista vazia, e o auditor passava em silêncio
+        # sobre a única configuração que decide se o projecto é
+        # verificado. É o mesmo buraco que o JavaScript tinha.
+        for n, linha in enumerate(texto, 1):
+            limpa = linha.strip()
+            if limpa.startswith("#"):
+                saida.append((n, limpa.lstrip("#").strip()))
+
     elif ext in {".md", ".lua", ".toml"}:
         for n, linha in enumerate(texto, 1):
             saida.append((n, linha.strip()))
@@ -124,7 +189,10 @@ def ficheiros() -> list[Path]:
             continue
         if str(p.relative_to(RAIZ)) in FORA:
             continue
+        # `.js`, `.jsx`, `.mjs` e `.cjs` desde 2026-10-07.
         if p.suffix in {".rs", ".py", ".md", ".c", ".cpp", ".h", ".lua",
+                        ".js", ".jsx", ".mjs", ".cjs",
+                        ".yml", ".yaml",
                         ".sh", ".toml"}:
             saida.append(p)
     return saida

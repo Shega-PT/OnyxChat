@@ -64,12 +64,19 @@ LIXO = [
 ]
 
 IGNORADOS = {".git", "target", ".venv", "build", "__pycache__",
-             ".hypothesis", ".pytest_cache", "vendor"}
+             ".hypothesis", ".pytest_cache", "vendor", "node_modules",
+             "UI/dist"}
 
 # Este ficheiro contém os padrões de busca de todos os outros, incluindo
 # as sequências que ele próprio caça. Reportá-lo a si mesmo seria ruído
 # garantido.
-FORA_DA_BUSCA = {"scripts/verificar_frases.py"}
+FORA_DA_BUSCA = {
+    "scripts/verificar_frases.py",
+    # Os ficheiros de testes dos auditores guardam americanismos e
+    # sequências-que-não-existem como dados de entrada.
+    "tests/test_verificar_portugues.py",
+    "tests/test_verificar_comentarios.py",
+}
 
 # Documentos de terceiro vendorizado: o inglês é a língua original.
 DOCUMENTOS_ESTRANGEIROS = {"README", "LICENSE", "LICENSE.txt", "CHANGELOG",
@@ -87,8 +94,12 @@ def ficheiros() -> list[Path]:
             continue
         if str(p.relative_to(RAIZ)) in FORA_DA_BUSCA:
             continue
+        # `.js`, `.jsx`, `.mjs` e `.cjs` desde 2026-10-07: sem eles, a
+        # interface — 79 ficheiros versionados — ficava por verificar, e
+        # era o mesmo buraco que `verificar_comentarios.py` tinha.
         if p.suffix in {".rs", ".py", ".md", ".c", ".cpp", ".h", ".lua",
-                        ".toml", ".sh", ".json"}:
+                        ".toml", ".sh", ".json", ".js", ".jsx", ".mjs",
+                        ".cjs", ".yml", ".yaml"}:
             saida.append(p)
     return saida
 

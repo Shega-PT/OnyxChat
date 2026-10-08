@@ -309,3 +309,64 @@ def test_consultar_servidor_em_baixo() -> None:
     reserva.close()
     with pytest.raises(DescobertaInvalida, match="inacessível"):
         consultar_descoberta(f"http://127.0.0.1:{porta}", ID)
+
+
+# ---------------------------------------------------------------------
+# Identificadores Onyx
+# ---------------------------------------------------------------------
+# O servidor de descoberta tem de aceitar o identificador que o próprio
+# projecto produz. Antes da Etapa 3 a expressão regular aceitava apenas
+# `[A-Za-z0-9._-]`, e o identificador Onyx — que termina em `#` e tem
+# símbolos na cauda — era **rejeitado** no primeiro passo da cadeia
+# `identificador → registo → encontrar o par`.
+#
+# Estes testes fixam as duas formas admitidas e, sobretudo, o que
+# continua de fora: um identificador aceito tem de poder viajar num
+# endereço sem ser truncado.
+
+
+@pytest.mark.parametrize(
+    "identificador",
+    [
+        "ONYX-K2AC69-+B!E#",
+        "ONYX-WJQVAS-=K*2#",
+        "ONYX-6LR75E-+J*V#",
+        "ONYX-8F3Q5S-!B@7*",
+        "ONYX-8F3Q5S",
+        "abcdef",
+        "A.B_C-D",
+        "x" * 64,
+        "x" * 63 + "#",
+    ],
+)
+def test_identificadores_onyx_sao_aceites(identificador: str) -> None:
+    """O registo tem de aceitar o identificador e devolvê-lo intacto.
+
+    Não basta a validação passar: o valor tem de chegar ao mapa sem ser
+    normalizado, porque a pesquisa mais tarde usa a mesma cadeia de
+    forma oposta.
+    """
+    d = Descoberta()
+    d.registar(identificador, ONION)
+    assert d.consultar(identificador) == ONION
+
+
+@pytest.mark.parametrize(
+    "identificador",
+    [
+        "",
+        "a#b",           # `#` no meio truncaria o endereço
+        "a&b",           # separador de parâmetros
+        "a/b",           # separador de caminho
+        "a\\b",
+        "com espaco",
+        "a;b",
+        "<script>",
+        "' OR 1=1",
+        "x" * 65,        # acima do limite
+        "x" * 64 + "#",   # 65 com fecho
+    ],
+)
+def test_identificadores_perigosos_sao_recusados(identificador: str) -> None:
+    with pytest.raises(DescobertaInvalida):
+        Descoberta().registar(identificador, ONION)

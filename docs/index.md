@@ -45,6 +45,15 @@ as especificações. Cada nível é autónomo e remete para o seguinte.
 | [`SYS_GUIDE.md`](SYS_GUIDE.md) | aprofundado | «porquê que é assim?» | quem avalia ou estuda |
 | [`USER_GUIDE.md`](USER_GUIDE.md) | prático | «como uso?» | utilizador final |
 | [`DEV_GUIDE.md`](DEV_GUIDE.md) | prático | «como desenvolvo?» | quem contribui |
+| [`../UI/README.md`](../UI/README.md) | prático | «como é a interface e o que falta?» | quem trabalha na interface |
+
+> A pasta [`../UI/`](../UI/) é uma aplicação à parte e **não tem
+> especificações normativas próprias**: não define bytes, e por isso não
+> entra na secção de especificações. O seu README é a fonte de verdade
+> sobre o estado da interface, e [`../UI/README.md`](../UI/README.md)
+> §Etapas e §O que a interface mostra e o que o backend sabe são as
+> partes que interessam a quem avalia o projecto — a segunda porque
+> documenta, linha a linha, o que a interface **ainda não** sabe.
 
 A regra que mantém a escada honesta: **cada nível só repete o anterior
 para dar contexto, e remete para a spec em vez de a reescrever.** Um
@@ -118,6 +127,7 @@ consome apenas esta secção e nada mais.
 | [`relay.md`](relay.md) | transporte opcional: mailbox, mensagens, retenção | Rust, Python |
 | [`discovery.md`](discovery.md) | bootstrap `ID → .onion`: rotas, validação, TTL | Python |
 | [`key_management.md`](key_management.md) | ciclo de vida das chaves, keystore, zeroização, exposição a swap | Rust, Python |
+| [`conta.md`](conta.md) | conta local: registo, frase de segurança, porquê é que não há recuperação | Python |
 | [`test_vectors.md`](test_vectors.md) | **gerado** — os vectors oficiais | Rust, Python, C/C++ |
 | [`testing.md`](testing.md) | estratégia de testes, matriz de corrupção, interop, fuzzing, cobertura | — |
 

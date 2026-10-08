@@ -24,7 +24,18 @@ use serde_json::Value;
 
 use crate::handshake;
 
-pub fn gerar_markdown(camadas: &[Value], vetores: &[Value], hs: &[Value]) -> String {
+/// `identidade` são os vectores de identidade (`tests/vectors/identidade.json`).
+///
+/// São lidos, não gerados, por esta função: a fórmula é de
+/// `messenger/identidade.py`, e um gerador em Rust que os produzisse
+/// seria uma segunda implementação da fórmula — exactamente o que os
+/// vectores existem para evitar.
+pub fn gerar_markdown(
+    camadas: &[Value],
+    vetores: &[Value],
+    hs: &[Value],
+    identidade: &[Value],
+) -> String {
     let mut md = String::new();
     md.push_str(
         "# Test vectors\n\n\
@@ -104,6 +115,36 @@ pub fn gerar_markdown(camadas: &[Value], vetores: &[Value], hs: &[Value]) -> Str
             h["accept_hex"].as_str().unwrap_or("?"),
             handshake::TAM_CORPO_RECUSA,
             h["reject_hex"].as_str().unwrap_or("?"),
+        ));
+    }
+    md.push_str("---\n\n## Identidade (`messenger/identidade.py`)\n\n");
+    md.push_str(
+        "Gerados em Python e lidos aqui. Não são regerados: a fórmula é de \
+         `messenger/identidade.py`, e um gerador em Rust seria uma segunda \
+         implementação — que é o que os vectores existem para evitar.\n\n\
+         Consumidores: `tests/test_identidade.py` e \
+         `tests/test_identidade_interface.py`, que reconfere cada valor contra \
+         o que a interface mostra.\n\n",
+    );
+    for v in identidade {
+        // A nota é o que torna o vector legível. Sem ela, o cabeçalho
+        // ficaria `### Vector 001 — ` com um travessão a nada, que parece
+        // um ficheiro truncado em vez de um vector sem comentário.
+        let cabecalho = match v["nota"].as_str() {
+            Some(nota) if !nota.is_empty() => {
+                format!("### Vector {} — {nota}", v["id"].as_str().unwrap_or("?"))
+            }
+            _ => format!("### Vector {}", v["id"].as_str().unwrap_or("?")),
+        };
+        md.push_str(&format!(
+            "{}\n\n```text\n\
+             utilizador: {}\nsal:        {}\n\
+             identificador: {}\nimpressao:  {}\n```\n\n",
+            cabecalho,
+            v["utilizador"].as_str().unwrap_or("?"),
+            v["sal_hex"].as_str().unwrap_or("?"),
+            v["identificador"].as_str().unwrap_or("?"),
+            v["impressao"].as_str().unwrap_or("?"),
         ));
     }
     md

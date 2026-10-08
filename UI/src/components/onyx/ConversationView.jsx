@@ -17,7 +17,7 @@ import OnyxEmptyState from '@/components/onyx/OnyxEmptyState';
 import MessageList from '@/components/onyx/MessageList';
 import MessageComposer from '@/components/onyx/MessageComposer';
 import { useOnyxUI } from '@/lib/onyx/onyx-context';
-import { fingerprintFor, truncate } from '@/lib/onyx/format';
+import { truncate } from '@/lib/onyx/format';
 import { cn } from '@/lib/utils';
 
 export default function ConversationView({
@@ -56,7 +56,7 @@ export default function ConversationView({
           { label: 'Latência', value: `${conversation.latency} ms` },
           { label: 'Transporte', value: 'QUIC · UDP' },
           { label: 'Cifra', value: 'X25519 · AES-256-GCM' },
-          { label: 'Impressão digital', value: fingerprintFor(contact ? contact.id : conversation.id), mono: true },
+          { label: 'Impressão digital', value: contact?.fingerprint || '—', mono: true },
         ],
         note: 'Compara a impressão digital por um canal separado antes de confiar nesta sessão.',
       },

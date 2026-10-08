@@ -8,7 +8,7 @@ import OnyxButton from '@/components/onyx/OnyxButton';
 import OnyxEmptyState from '@/components/onyx/OnyxEmptyState';
 import OnyxPanel, { OnyxRow } from '@/components/onyx/OnyxPanel';
 import { useOnyxUI } from '@/lib/onyx/onyx-context';
-import { fingerprintFor, formatRelative, shortFingerprint } from '@/lib/onyx/format';
+import { formatRelative, shortFingerprint } from '@/lib/onyx/format';
 
 /** Detalhes da conversa selecionada: identidade, sessão, verificação. */
 export default function ConversationDetails({ conversation, contact }) {
@@ -89,7 +89,7 @@ export default function ConversationDetails({ conversation, contact }) {
             </span>
           </div>
           <p className="mt-2 break-all font-mono text-[10.5px] leading-relaxed text-onyx-text3">
-            {contact ? shortFingerprint(contact.id) : fingerprintFor(conversation.id)}
+            {contact ? shortFingerprint(contact.fingerprint) : '—'}
           </p>
         </div>
         <OnyxButton
@@ -104,7 +104,7 @@ export default function ConversationDetails({ conversation, contact }) {
                 description: 'Confirma a impressão digital por um canal separado (chamada, encontro presencial ou outro dispositivo).',
                 rows: [
                   { label: 'Contacto', value: title },
-                  { label: 'Impressão digital', value: contact ? fingerprintFor(contact.id) : '—', mono: true },
+                  { label: 'Impressão digital', value: contact?.fingerprint || '—', mono: true },
                   { label: 'Estado atual', value: conversation.verified ? 'Verificada' : 'Não verificada' },
                 ],
                 note: 'Se a impressão digital não coincidir, encerra a sessão e bloqueia o contacto.',

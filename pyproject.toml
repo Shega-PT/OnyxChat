@@ -56,6 +56,11 @@ include = ["user*", "messenger*", "server*"]
 # ---------------------------------------------------------------------
 [tool.pytest.ini_options]
 pythonpath = ["."]
+# `scripts/` **não** entra aqui, apesar de os auditadores vivem lá. Os
+# testes desses auditadores estão em `tests/test_verificar_*.py`: um
+# `test_*.py` dentro de `scripts/` não era descoberto por esta
+# configuração, e um teste que a matriz não executa é um teste que não
+# existe — mesmo que passe quando alguém o corre à mão.
 testpaths = ["tests"]
 addopts = "-q"
 

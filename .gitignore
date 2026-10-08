@@ -89,11 +89,28 @@ lcov.info
 # existe.
 /vendor/
 
-# Corpora e artefactos do `cargo fuzz`. Os *seeds* versionados vivem
-# noutro sítio; estes são o que o fuzzing descobre e vai reconstruindo.
+# Artefactos do `cargo fuzz`: crashes e cobertura. São evidência de um
+# bug já corrigido, não seeds, e versioná-las transformava um ficheiro
+# morto num input que o libFuzzer reprocessaria para sempre.
 fuzz/artifacts/
-fuzz/corpus/
+fuzz/coverage/
 **/*.rs.bk
+
+# `fuzz/corpus/` **não** é ignorado aqui, e a omissão é deliberada.
+#
+# A primeira versão deste ficheiro tinha `fuzz/corpus/` — a intenção era
+# não versionar o que o fuzzing vai acrescentando. O efeito foi o
+# oposto do pretendido: `fuzz/.gitignore` re-inclui
+# `corpus/*/[0-9][0-9]-*.bin`, e **um `.gitignore` filho não pode
+# re-incluir o que o pai ignora**. A regra daqui ganhou, as 57 seeds
+# ficaram fora do índice, e um clone continuava a começar com os seis
+# alvos sem uma única seed — que era exactamente o buraco que
+# `docs/testing.md` §Fuzzing dizia ter sido fechado.
+#
+# As regras que filtram o que entra estão todas em `fuzz/.gitignore`,
+# ao pé dos ficheiros a que pertencem: os artefactos de crash vão para
+# `artifacts/`, e o que o libFuzzer vai acrescentando ao corpus não
+# entra porque não segue o padrão `NN-<hex>.bin`.
 
 # ---------------------------------------------------------------------
 # C / C++
@@ -192,6 +209,3 @@ desktop.ini
 # gerados pelo Rust e consumidos por Python, C e pelos documentos. Não
 # são artefactos — são especificação.
 !tests/vectors/*.json
-
-
-GUIA-REPOSITORIO.md

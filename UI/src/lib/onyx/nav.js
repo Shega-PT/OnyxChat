@@ -22,12 +22,16 @@ export const NAV_ITEMS = [
 
 export const FOOTER_ITEMS = [{ to: '/definicoes', label: 'Definições', icon: Settings2 }];
 
-// «Arquivadas» e não «Arquivo»: o verificador de português do
-// repositório (`scripts/verificar_portugues.py`) trata `arquivo` como
-// americanismo e exige `ficheiro`, o que aqui seria falso — a palavra
-// é um substantivo comum, não o calão do ficheiro. Preferi um
-// adjectivo que evita a colisão sem distorcer o rótulo da barra
-// lateral, onde convive com «Conversas», «Contactos» e «Pedidos».
+// «Arquivadas» e não um substantivo: o verificador de português do
+// repositório (`scripts/verificar_portugues.py`) trata o calão do
+// ficheiro como americanismo, e um adjectivo não é esse calão — o que
+// evita a colisão sem distorcer o rótulo da barra lateral, onde convive
+// com «Conversas», «Contactos» e «Pedidos».
+//
+// O adjectivo também evita o falso positivo inverso: o verificador
+// reporta a forma substantiva mesmo em português correcto, e a
+// decisão está escrita em `tests/test_verificar_portugues.py`
+// (`test_falsos_positivos_conhecidos`).
 export const DISABLED_ITEMS = [{ label: 'Arquivadas', icon: Archive, tag: 'breve' }];
 
 export function sectionLabelFor(pathname) {

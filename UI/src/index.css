@@ -4,6 +4,71 @@
 
 /* OnyxChat — sistema de design escuro, técnico e sóbrio. */
 
+/* =====================================================================
+   Tipografia Auto-contenida
+   ---------------------------------------------------------------------
+   As duas famílias são servidas de `public/fonts/`, e não de uma CDN.
+
+   A versão anterior ligava a `fonts.googleapis.com` e a
+   `fonts.gstatic.com` a cada arranque. Num produto cuja proposta de valor
+   é o anonimato, isso é uma contradição que não passa despercebida: cada
+   lançamento da aplicação dizia a duas empresas, terceiroas, que IP e que
+   momento tinha, e a aplicação não funcionava offline. Um messenger de
+   privacidade que precisa de rede para desenhar texto é um messenger que
+   não é privado.
+
+   As fontes são as mesmas — Inter e JetBrains Mono, ambas sob SIL Open Font
+   License — e os ficheiros ficam versionados: 203 KB por cinco ficheiros,
+   comparados com uma dependência de rede para sempre.
+
+   `font-display: swap` mostra a fonte do sistema até à da aplicação estar
+   pronta. É preferível a `block`, que deixa a página invisível durante o
+   carregamento: o texto da interface é denso e monoespaçado, e uma
+   espera em branco piora a experiência mais do que um instante com a
+   fonte do sistema no lugar da pretendida.
+
+   Só o subconjunto latino é incluído. A interface está em português.
+   ===================================================================== */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/inter-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/inter-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/inter-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-500.woff2') format('woff2');
+}
+
 @layer base {
   :root {
     --background: 195 46% 5%;      /* #071013 */

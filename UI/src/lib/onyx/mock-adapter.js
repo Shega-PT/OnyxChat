@@ -1,18 +1,74 @@
-// Adaptador de dados do OnyxChat.
+// =====================================================================
+// mock-adapter.js — implementação de demonstração do adaptador
+// ---------------------------------------------------------------------
+// Serve dados fictícios, com atrasos simulados que imitam uma rede.
 //
-// Ponto único de integração:
-//   UI  →  dataAdapter  →  dados reais
+// ## O que é fictício, e é preciso dizê-lo
 //
-// Enquanto os dados forem fictícios, este módulo lê mock-data.js.
-// Para ligar dados reais, substitui apenas o corpo destas funções
-// (mantendo as assinaturas) — nenhuma vista precisa de ser alterada.
+// Estes dados **não correspondem ao backend**. Não são uma versão
+// simplificada: são coisas que o OnyxChat não tem.
+//
+// * Latência, jitter, throughput e uptime: o daemon `onyxchatd` não mede
+//   nenhum deles. O `IPC` que o Python fala com ele tem treze comandos e
+//   nenhum devolve uma medição de desempenho.
+// * Um grupo de conversa (`c3`, seis membros): o protocolo é estritamente
+//   1:1, com **uma** ligação activa por daemon. Não há salas.
+// * Dispositivos, score de segurança, datas de rotação de chave, cópias
+//   de segurança: nada disto existe no modelo de chaves, que é uma
+//   `Identidade` com uma `seed` Ed25519 e duas chaves simétricas.
+// * `ONYX-SP 4.2`, `QUIC · UDP`, `X25519`, `DHT + relays autorizados`:
+//   nenhum destes existe. O transporte é TCP sobre Tor; a cifra é
+//   Ed25519 com ChaCha20-Poly1305 e AES-256-GCM; e a "descoberta" é um
+//   mapa HTTP com tempo de vida, não uma DHT.
+//
+// Existe porque a interface precisa de ser mostrada e desenhada sem o
+// backend ligado, e porque desenhar contra dados inventados é mais rápido
+// do que desenhar contra o backend real — que ainda nem existe como
+// superfície HTTP (Etapa 5).
+//
+// Enquanto isto estiver ligado, a barra de aviso da casca está no ecrã.
+//
+// ## Contrato
+//
+// As assinaturas são o contrato com as vistas. Este ficheiro e
+// `bridge-adapter.js` têm de as cumprir exactamente igual: é isso que
+// permite trocar de implementação sem tocar numa única vista.
+// =====================================================================
 
-import { identifierFor } from './format';
+import { identificadoresCoincidem } from './format';
 import * as mock from './mock-data';
+import * as contaDemo from './conta-demo';
 
+/**
+ * Atraso simulado, para que os estados de carregamento sejam vistos.
+ *
+ * Não é um enfeite: sem ele, `OnyxLoader` e `OnyxEmptyState` apareceriam
+ * durante menos de um fotograma e não haveria forma de os avaliar numa
+ * demonstração, nem de os testar.
+ *
+ * @param {number} [ms]
+ * @returns {Promise<void>}
+ */
 const delay = (ms = 280) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const decoratePerson = (person) => ({ ...person, identifier: identifierFor(person.id) });
+/**
+ * Devolve a pessoa tal como está, porque a identidade já lá vem.
+ *
+ * Antes, este passo calculava o identificador a partir de `id`. Agora
+ * `identifier` e `fingerprint` são **dados**: vêm calculados uma vez — em
+ * `messenger/identidade.py`, com SHA-256 e um sal — e guardados. Uma
+ * demonstração que inventa o valor a cada leitura não demonstraria o
+ * sistema real, e o valor inventado seria um resumo de 32 bits, que é
+ * exactamente o que a Etapa 3 veio substituir.
+ *
+ * A função mantém-se porque o `contact` aninhado dentro de uma conversa
+ * continua a precisar de vir montado, e porque o contrato com as vistas
+ * não mudou.
+ *
+ * @param {object} person
+ * @returns {object}
+ */
+const decoratePerson = (person) => ({ ...person });
 
 const lastMessageOf = (conversation) => conversation.messages[conversation.messages.length - 1];
 
@@ -32,10 +88,11 @@ function buildConversation(conversation) {
   };
 }
 
-export const dataAdapter = {
+/** @type {import('./data-adapter').AdaptadorDados} */
+export const mockAdapter = {
   async getIdentity() {
     await delay(240);
-    return { ...mock.identity, identifier: identifierFor(mock.identity.id) };
+    return { ...mock.identity };
   },
 
   async getCounts() {
@@ -98,7 +155,6 @@ export const dataAdapter = {
     await delay(280);
     return mock.requests.map((request) => ({
       ...request,
-      identifier: identifierFor(request.personId),
       blocked: false,
       handled: includeBlocked ? undefined : undefined,
     }));
@@ -133,7 +189,7 @@ export const dataAdapter = {
   async getDiscoverySuggestion() {
     await delay(80);
     const first = mock.contacts[0];
-    return { identifier: identifierFor(first.id), name: first.name };
+    return { identifier: first.identifier, name: first.name };
   },
 
   async discover(rawIdentifier) {
@@ -142,9 +198,14 @@ export const dataAdapter = {
     if (value.length < 6) {
       return { status: 'invalid', message: 'O identificador tem de ter pelo menos 6 caracteres.' };
     }
+    // A pesquisa aceita o identificador completo e o bloco de
+    // identidade isolado. Aceitar só o completo faria a pessoa ter de
+    // escrever os dezoito caracteres para escrever seis.
+    const bloco = value.replace(/^ONYX-/, '').split('-')[0];
     const found = mock.contacts.find((c) => {
-      const identifier = identifierFor(c.id).toUpperCase();
-      return value === identifier || value === c.id.toUpperCase() || identifier.includes(value);
+      if (identificadoresCoincidem(value, c.identifier)) return true;
+      if (value === c.id.toUpperCase()) return true;
+      return c.identifier.includes(bloco);
     });
     if (found) return { status: 'found', contact: decoratePerson(found) };
     return { status: 'not_found' };
@@ -159,6 +220,59 @@ export const dataAdapter = {
       at: new Date().toISOString(),
       state: 'sent',
     };
+  },
+
+  /**
+   * O estado da conta, para a interface decidir entre registo e entrada.
+   *
+   * Devolve sempre `{ estado: 'registada' }` assim que existe conta: a
+   * demonstração não tem uma barreira entre o registo e a casca, porque
+   * não há chave nenhuma para desbloquear. Dizer «bloqueada» aqui seria
+   * obrigar a interface a mostrar um ecrã de entrada para o qual não há
+   * segredo — e quem lesse esse ecrã ficaria à espera de uma palavra que
+   * não existe em lado nenhum.
+   */
+  async getAccountState() {
+    await delay(120);
+    const conta = contaDemo.lerConta();
+    return { estado: conta ? 'registada' : 'sem-conta', demonstracao: true };
+  },
+
+  /** Cria a conta de demonstração. */
+  async registerAccount(dados) {
+    await delay(520);
+    return contaDemo.criarConta(dados);
+  },
+
+  /** Abre a conta de demonstração. */
+  async unlockAccount(dados) {
+    await delay(420);
+    return contaDemo.entrarConta(dados);
+  },
+
+  /**
+   * Tranca a sessão.
+   *
+   * A conta continua escrita — quem recarregar a página volta a entrar.
+   * Trancar sem apagar é o que a palavra «sair» quer dizer.
+   */
+  async lockAccount() {
+    await delay(160);
+  },
+
+  /** Devolve a cópia de segurança, como texto para descarregar. */
+  async exportAccount() {
+    await delay(300);
+    const conta = contaDemo.lerConta();
+    if (!conta) throw new Error('Ainda não existe conta para exportar.');
+    return { conteudo: conta, nomeFicheiro: 'conta-demo.json' };
+  },
+
+  /** Repõe uma conta a partir de uma cópia. */
+  async restoreAccount({ conteudo }) {
+    await delay(420);
+    if (!contaDemo.lerConta()) throw new Error('Ainda não existe conta para substituir.');
+    return contaDemo.entrarConta({ frase: conteudo.frase });
   },
 
   async sendContactRequest(identifier, message) {

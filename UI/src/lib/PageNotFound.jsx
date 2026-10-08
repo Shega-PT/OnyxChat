@@ -1,75 +1,80 @@
-import { useLocation } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import OnyxRings from '@/components/onyx/OnyxRings';
 
+/**
+ * Página de caminho não encontrado.
+ *
+ * ## Porque foi reescrita
+ *
+ * A versão anterior vinha de um esqueleto gerado automaticamente: texto em
+ * inglês, cores `slate-*` — que não existem na paleta do projecto —, um
+ * botão com um SVG desenhado à mão e uma nota que só aparecia a
+ * administradores, a dizer «a IA pode ainda não ter implementado esta
+ * página».
+ *
+ * Nenhuma dessas coisas sobrevive. A nota do administrador dependia de
+ * uma chamada de autenticação remota e do campo `role` de uma entidade
+ * que já não existe;
+ * e uma página de erro que fala inglês, num produto cujo público é
+ * português, é um defeito por si só.
+ *
+ * O desenho segue o mesmo caminho dos estados vazios — anéis concêntricos
+ * ao fundo — para que o utilizador não sinta que saiu da aplicação.
+ */
+export default function PageNotFound() {
+  return (
+    <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-onyx-bg text-onyx-text">
+      {/*
+        Os anéis são posicionados para transbordarem: um círculo com o
+        mesmo diâmetro que o ecrã pareceria um alvo. Saem do ecrã para
+        parecerem parte de algo maior, que é a leitura que a linguagem
+        gráfica do logótipo pretende.
+      */}
+      <OnyxRings
+        size={720}
+        opacity={0.35}
+        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+      />
 
-export default function PageNotFound({}) {
-    const location = useLocation();
-    const pageName = location.pathname.substring(1);
+      <div className="relative flex max-w-[420px] flex-col items-center px-5 text-center">
+        <p
+          className="font-mono text-[11px] uppercase tracking-[0.36em] text-onyx-text3"
+          aria-hidden="true"
+        >
+          Erro
+        </p>
+        <p className="mt-4 font-mono text-[64px] leading-none tracking-wide text-onyx-metallic/50">
+          404
+        </p>
 
-    const { data: authData, isFetched } = useQuery({
-        queryKey: ['user'],
-        queryFn: async () => {
-            try {
-                const user = await base44.auth.me();
-                return { user, isAuthenticated: true };
-            } catch {
-                return { user: null, isAuthenticated: false };
-            }
-        }
-    });
-    
-    return (
-        <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-            <div className="max-w-md w-full">
-                <div className="text-center space-y-6">
-                    {/* 404 Error Code */}
-                    <div className="space-y-2">
-                        <h1 className="text-7xl font-light text-slate-300">404</h1>
-                        <div className="h-0.5 w-16 bg-slate-200 mx-auto"></div>
-                    </div>
-                    
-                    {/* Main Message */}
-                    <div className="space-y-3">
-                        <h2 className="text-2xl font-medium text-slate-800">
-                            Page Not Found
-                        </h2>
-                        <p className="text-slate-600 leading-relaxed">
-                            The page <span className="font-medium text-slate-700">"{pageName}"</span> could not be found in this application.
-                        </p>
-                    </div>
-                    
-                    {/* Admin Note */}
-                    {isFetched && authData.isAuthenticated && authData.user?.role === 'admin' && (
-                        <div className="mt-8 p-4 bg-slate-100 rounded-lg border border-slate-200">
-                            <div className="flex items-start space-x-3">
-                                <div className="flex-shrink-0 w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center mt-0.5">
-                                    <div className="w-2 h-2 rounded-full bg-orange-400"></div>
-                                </div>
-                                <div className="text-left space-y-1">
-                                    <p className="text-sm font-medium text-slate-700">Admin Note</p>
-                                    <p className="text-sm text-slate-600 leading-relaxed">
-                                        This could mean that the AI hasn't implemented this page yet. Ask it to implement it in the chat.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* Action Button */}
-                    <div className="pt-6">
-                        <button 
-                            onClick={() => window.location.href = '/'} 
-                            className="inline-flex items-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500"
-                        >
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                            </svg>
-                            Go Home
-                        </button>
-                    </div>
-                </div>
-            </div>
+        <h1 className="mt-6 text-[15px] font-medium text-onyx-text">
+          Esta página não existe
+        </h1>
+        <p className="mt-2.5 text-[12.5px] leading-relaxed text-onyx-text2">
+          O endereço não corresponde a nenhuma vista da aplicação. Se seguiste um
+          ligação para aqui, ele aponta para uma página que mudou ou que nunca
+          chegou a existir.
+        </p>
+
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
+          <Link
+            to="/"
+            className="inline-flex h-8 items-center rounded-md border border-onyx-metallic/30 bg-onyx-elevated2 px-3 text-[12.5px] text-onyx-text transition-colors duration-150 hover:border-onyx-metallic/45"
+          >
+            Voltar às conversas
+          </Link>
+          <Link
+            to="/definicoes"
+            className="inline-flex h-8 items-center rounded-md border border-onyx-line bg-onyx-surface2 px-3 text-[12.5px] text-onyx-text2 transition-colors duration-150 hover:bg-onyx-surface3 hover:text-onyx-text"
+          >
+            Definições
+          </Link>
         </div>
-    )
+
+        <p className="mt-8 font-mono text-[10px] tracking-wide text-onyx-text3">
+          OnyxChat
+        </p>
+      </div>
+    </div>
+  );
 }

@@ -457,7 +457,20 @@ fn main() {
         "vetores": hs,
     }))
     .expect("JSON handshake");
-    let md = onyxchatd::docs_vec::gerar_markdown(&camadas, &vetores, &hs);
+    // Os vectores de identidade são **lidos**, não gerados: a fórmula vive
+    // em `messenger/identidade.py`. Se este exemplo os produzisse, seria uma
+    // segunda implementação da fórmula, a competir com a primeira — e os
+    // vectores deixavam de provar o que existem para provar.
+    let identidade_json = fs::read_to_string(raiz_projeto.join("tests/vectors/identidade.json"))
+        .expect("tests/vectors/identidade.json presente");
+    let identidade_doc: serde_json::Value =
+        serde_json::from_str(&identidade_json).expect("identidade.json é JSON válido");
+    let identidade: Vec<serde_json::Value> = identidade_doc["vetores"]
+        .as_array()
+        .expect("identidade.json tem `vetores`")
+        .clone();
+
+    let md = onyxchatd::docs_vec::gerar_markdown(&camadas, &vetores, &hs, &identidade);
 
     let dir = raiz_projeto.join("tests/vectors");
     fs::create_dir_all(&dir).expect("mkdir tests/vectors");
@@ -474,6 +487,9 @@ fn main() {
     );
     println!(
         "escrito: tests/vectors/camadas.json, pipeline.json, handshake.json, docs/test_vectors.md"
+    );
+    println!(
+        "        identidade.json foi lido, não gerado — a fórmula é de Python"
     );
 
     // ---- Corpora de fuzz (F3.1) ---------------------------------------

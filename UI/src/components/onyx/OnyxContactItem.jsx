@@ -15,6 +15,12 @@ import { truncate } from '@/lib/onyx/format';
  * sem comportamento seria um alvo falso para o teclado e para os leitores
  * de ecrã.
  *
+ * `disabled` é o estado **indisponível** desta linha: o contacto existe e
+ * está guardado, mas não pode ser contactado agora. Descreve-o como
+ * inatingível e não como ausência — a diferença entre "não há contacto"
+ * e "há contacto, mas está inacessível" é a informação que o utilizador
+ * precisa, e é a que o `aria-disabled` preserva para quem não vê a cor.
+ *
  * `meta` e `actions` são slots de conteúdo. Passados eles, a nota do
  * contacto e o indicador de estado deixam de ser desenhados — são as três
  * formas alternativas da mesma linha, não camadas empilhadas.
@@ -40,10 +46,17 @@ export default function OnyxContactItem({
         disabled && 'cursor-not-allowed opacity-45'
       )}
     >
-      <OnyxAvatar seed={contact.id} name={contact.name} size={34} status={contact.status} />
+      <OnyxAvatar
+        seed={contact.id}
+        name={contact.name}
+        size={34}
+        status={disabled ? undefined : contact.status}
+        flat={disabled}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-[12.5px] font-medium text-onyx-text">{contact.name}</span>
+          {disabled && <span className="font-mono text-[10px] text-onyx-warning">indisponível</span>}
           {contact.service && <Server className="h-3 w-3 shrink-0 text-onyx-text3" aria-label="Nó de serviço" />}
           {contact.verified && <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-onyx-info/80" aria-label="Verificado" />}
         </div>

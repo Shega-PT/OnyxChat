@@ -40,11 +40,13 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 > **RAM.** Todos os comandos Rust vão através de
 > [`scripts/memoria.sh`](scripts/memoria.sh), que põe o build dentro de
 > uma *scope* de cgroup com tecto de memória. Sem esse tecto, o kernel
-> escolhe a vítima do OOM pelo `oom_score`, e o que morreu três vezes
-> nesta máquina foi o editor, não o build.
+> escolhe a vítima do OOM pelo `oom_score` — e o processo escolhido é o
+> de maior `oom_score`, não o que usa mais memória. Num registo de três
+> execuções sem tecto, a vítima foi sempre um editor de linguagem com
+> ~1 GB, com o `cargo` a 26 MB e o `rustc` a 39 MB ao lado.
 >
 > Picos medidos: **547 MB** para o workspace leve (103 crates) e
-> **1156 MB** para a árvore da arti (458 crates). Os limites de payload
+> **931 MB** para a árvore da arti (458 crates). Os limites de payload
 > são derivados de um orçamento de 1 GB e sobrescrevíveis com
 > `ONYXCHAT_MAX_PAYLOAD`. Detalhes e a tabela de OOM em
 > [`docs/DEV_GUIDE.md`](docs/DEV_GUIDE.md) §1.2.
@@ -84,13 +86,15 @@ Rust, Tor embutido, P2P directo, relay opcional, discovery
 cifrado, test vectors multi-linguagem, property tests, fuzzing,
 especificações e modelos.
 
-`PLANEADO`: routing nodes, discovery descentralizado, IDs de algoritmo
-por camada. `CONCEITO`: Fake-IP, multimédia, mitigação de metadados.
+`PLANEADO`: routing nodes, rede de transporte descentralizada, discovery
+descentralizado. `CONCEITO`: Fake-IP, multimédia, mitigação de metadados,
+identificadores de algoritmo por camada.
 
-> **Cobertura de linhas não é 100% em Rust — é 99,79%, e as 12 linhas
-> em falta estão declaradas uma a uma em
-> [`docs/testing.md`](docs/testing.md) §Cobertura.** A cobertura mostra
-> execução, não correcção. Ver
+> **Cobertura de linhas não é 100% em Rust — é 99,38%** (medido em
+> 2026-10-07). Das 45 linhas em falta, 6 são alcançáveis e estão por
+> testar; as outras 39 estão declaradas uma a uma, com a razão, em
+> [`docs/testing.md`](docs/testing.md) §Cobertura. Python e C/C++ estão
+> a 100%. A cobertura mostra execução, não correcção. Ver
 > [`docs/security_model.md`](docs/security_model.md).
 
 ---

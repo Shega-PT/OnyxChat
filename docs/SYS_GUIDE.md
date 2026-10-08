@@ -1,8 +1,9 @@
 # Guia do Sistema — OnyxChat
 
-> **Nível APROFUNDADO.** Este documento é o ponto de entrada para
-> *compreender* o OnyxChat: o que é, porque é assim, e o que
-> deliberadamente não faz.
+> **Nível APROFUNDADO.** Este documento é o ponto de entrada para *compreender* o OnyxChat:
+> - o que é
+> - porque é assim
+> - o que deliberadamente não faz.
 >
 > Absorve e funde o conteúdo histórico do `README.md` (filosofia,
 > pipeline, tabela de arquitectura) com o de `docs/architecture.md`
@@ -315,11 +316,18 @@ interoperabilidade (`testing.md`).
 A documentação evita frases como «Python-Lua faz a criptografia». A
 formulação correcta:
 
-> O subsistema Python/Lua integra o cliente Python com as
-> implementações criptográficas Lua (produção) e Python (referência).
+> O subsistema Python/Lua integra o cliente Python com as camadas
+> criptográficas em Lua, que correm dentro do daemon.
 
 Da mesma forma, «Rust» não é apenas uma linguagem: é o componente
 responsável pelas primitivas digitais e pelo daemon.
+
+**Não existe implementação de referência em Python.** A formulação
+«Lua (produção) e Python (referência)» esteve em
+`docs/architecture.md` e na `Estrutura.txt` até 2026-10-07, e era falsa:
+`crypto/python_lua/python/` nunca existiu. A referência está nos
+vectores em `tests/vectors/`, lidos por `tests/test_vectors.py` — que é
+uma referência melhor, porque falha quando alguém se engana.
 
 ---
 
@@ -542,7 +550,7 @@ custo declarado não é uma decisão, é um preference.
 
 | Decisão | Ganho | Custo |
 | --- | --- | --- |
-| Tor embutido (arti) | sem dependência de instalação; hidden services eféméricos | 458 das 548 crates do build; pico medido de 1156 MB |
+| Tor embutido (arti) | sem dependência de instalação; hidden services eféméricos | 458 das 548 crates do build; pico medido de 931 MB |
 | `tor-real` **não** em `default` | ciclo de build/teste leve (103 vs 548 crates; pico de 547 MB) | exige `--features tor-real` explícito em produção |
 | Lua para as camadas analógicas | algoritmo legível no formato original | 1 dependência embutida (`mlua`, `vendored`) |
 | C para K4 e K9 | transposição em bloco; libsodium auditado fora | superfície de `unsafe`/FFI, mitigada por wrappers testados |
@@ -554,28 +562,39 @@ custo declarado não é uma decisão, é um preference.
 
 ### 11.1 A janela de hardware
 
-O build completo com arti precisa de **1156 MB de RAM medidos** (pico
-real, `cargo check -p onyxchatd --features tor-real`, 458 crates), e o
-workspace leve de **547 MB** (103 crates). Ambos cabem nesta máquina de
-3,8 GB — mas o da arti só por uma margem que desaparece se o editor
-consumir a máquina ao mesmo tempo, que é o que aconteceu.
+O build completo com arti pede **931 MB de RAM** (pico medido,
+`cargo check -p onyxchatd --features tor-real`, 458 crates), e o
+workspace leve pede **547 MB** (103 crates). São valores do **build**:
+dependem do grafo de crates e dos perfis de `Cargo.toml`, não da
+máquina onde correm. O que a máquina decide é se cabe — e 931 MB cabem
+em 3,8 GB **com um editor aberto**, o que era precisamente o que não
+cabia e obrigava a fechar o editor para verificar.
 
-Duas mitigações, e a segunda é a que resolve:
+Quatro mitigações, e a última é a que fecha:
 
 1. `tor-real` é **opt-in**, e o ciclo de testes corre com
    `--no-default-features` (103 crates em vez de 548);
 
 2. **todo o build corre dentro de uma scope de cgroup com tecto de
    memória** (`scripts/memoria.sh --pico`). Sem tecto, o kernel escolhe a
-   vítima do OOM pelo `oom_score`, e nesta máquina essa vítima foi o
-   `rust-analyzer` em três OOM kills registados — o editor fechou três
-   vezes, com o `rustc` a 39 MB e o `cargo` a 26 MB no momento do
-   último.
+   vítima do OOM pelo `oom_score` — o processo **maior**, não o que está
+   a ser construído. Em três OOM kills registados em 2026-10-05 a vítima
+   foi um editor de linguagem com ~1 GB, com o `rustc` a 39 MB e o
+   `cargo` a 26 MB ao lado;
+
+3. **o `cargo check` não escreve debuginfo** (`CARGO_PROFILE_DEV_DEBUG=none`).
+   Não há link nem binário, por isso a tabela de símbolos não serve para
+   nada: desceu o pico da arti de 1089 MB para 931 MB;
+
+4. **o gate conta RAM e swap em tectos separados.** O `MemoryMax` não
+   sobe — é ele que protege o editor — e o `MemorySwapMax` absorve a
+   diferença. A margem passou a ser por perfil: 300 MB onde há link e
+   fixtures, 120 MB num `cargo check` que não tem as duas coisas.
 
 Uma afirmação anterior deste documento dizia que `cargo check` da arti
 é «muito mais barato do que compilar». É verdade em tempo, e falso em
 memória: 458 crates são 458 processos `rustc`, e 498 fingerprints foram
-escritos às 16:43, um minuto antes do OOM das 16:44. A verificação
+escritos num minuto em que, logo a seguir, houve OOM. A verificação
 continua a ser `cargo check`, mas dentro de um tecto.
 
 Detalhe operacional e medições em [`DEV_GUIDE.md`](DEV_GUIDE.md) §1.2.
@@ -600,12 +619,13 @@ gestão de chaves e zeroização.
 ### PLANEADO
 
 Routing nodes · rede de transporte descentralizada · discovery
-descentralizado · IDs de algoritmo por camada.
+descentralizado.
 
 ### CONCEITO
 
-Fake-IP · pipelines multimédia (áudio, imagem, vídeo) · suporte a
-ficheiros arbitrários · mitigação activa de tráfego.
+Identificadores de algoritmo por camada · Fake-IP · pipelines multimédia
+(áudio, imagem, vídeo) · suporte a ficheiros arbitrários ·
+mitigação activa de tráfego.
 
 ---
 
@@ -637,15 +657,16 @@ Os dois últimos pontos são as limitações mais consequentes e estão em
 
 Comandos essenciais, para não repetir aqui o que está nos guias:
 
-Todos os comandos Rust levam o gate de memória. Sem ele, o build não
-tem tecto e o kernel pode matar o editor em vez do build.
+Todos os comandos Rust levam o gate de memória, e o `pytest` também.
+Sem tecto, o build não tem `MemoryMax` e o kernel pode matar o editor
+em vez do build.
 
 ```bash
 # testes — leve (103 crates, sem arti); atalho:
 ./scripts/testar.sh
 ./scripts/memoria.sh --pico -- cargo test --workspace --no-default-features
 
-# produção — inclui Tor embutido (458 crates, pico medido 1156 MB)
+# produção — inclui Tor embutido (458 crates, pico medido 931 MB)
 ./scripts/memoria.sh --pico -- cargo build --release --features tor-real
 
 # vectors: gerar (nunca editar à mão)
