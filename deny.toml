@@ -1,0 +1,167 @@
+# =====================================================================
+# deny.toml — as licenças que este projecto não pode ter
+# ---------------------------------------------------------------------
+# O `cargo deny` transforma uma auditoria manual numa regra permanente.
+#
+# ## Porque é que esta camada é a mais específica do projecto
+#
+# A licença do OnyxChat é **PolyForm Noncommercial**, e a compatibilidade
+# com as dependências não é uma formalidade: um único crate sob GPL,
+# AGPL, SSPL, OSL, EUPL, CDDL ou CC-BY-SA obriga a abrir o código
+# derivado — comercial ou não — e torna a licença do projecto impossível
+# de cumprir. Numa dependência copyleft, quem herda a obrigação não é o
+# projecto, é quem o usa.
+#
+# `THIRD-PARTY.md` confirma que hoje não há nenhum. Isto é o que impede
+# que um `cargo add` daqui a seis meses estrague isso sem ninguém dar por
+# isso.
+#
+# ## E fecha uma lacuna que o próprio THIRD-PARTY.md declara
+#
+# A auditoria manual usou `cargo metadata`, e o ficheiro diz — com
+# honestidade — que isso tem duas limitações: não lê o texto da licença,
+# só o campo declarado; e **não avalia expressões SPDX compostas**, ou
+# seja, trata `MIT OR Apache-2.0` como texto livre. Oito pacotes do
+# `Cargo.lock` declalam `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR
+# MIT`, e outros vinte declalam `MIT/Apache-2.0` com barra, que não é
+# SPDX nenhum.
+#
+# O `cargo deny` avalia expressões SPDX de verdade. Passamos de «o
+# campo declarado diz MIT» para «a expressão é válida e é MIT ou
+# Apache-2.0».
+# =====================================================================
+
+[graph]
+# Todos os alvos e features. Uma licença copylate só entra na
+# dependência de outra quando alguém activa uma feature — e a feature
+# que ninguém activa localmente é exactamente a que entra no binário
+# de outro.
+all-features = true
+
+# `cargo deny` não segue dependências apenas de desenvolvimento por
+# omissão em alguns contextos. Aqui interessam todas: um crate de
+# desenvolvimento com licença copyleft ainda obriga a quem distribution.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+
+# ---------------------------------------------------------------------
+# Licenças
+# ---------------------------------------------------------------------
+
+[licenses]
+# O que é aceite, com a forma exacta que o registry declara.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unlicense",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+]
+
+# O que é recusado, mesmo que venha mascarado por um `OR` permissivo.
+#
+# `deny` tem precedência sobre `allow`, e é por isso que a lista existe
+# separada: `MIT OR GPL-3.0` é uma licença copyleft com uma saída
+# permissiva, e sem esta lista passaria. Não é uma hipótese — é a forma
+# mais comum de umbrella licence.
+deny = [
+    "GPL-1.0", "GPL-2.0", "GPL-3.0",
+    "AGPL-1.0", "AGPL-3.0",
+    "LGPL-2.0", "LGPL-2.1", "LGPL-3.0",
+    "SSPL-1.0",
+    "OSL-1.0", "OSL-1.1", "OSL-2.0", "OSL-2.1", "OSL-3.0",
+    "EUPL-1.0", "EUPL-1.1", "EUPL-1.2",
+    "CDDL-1.0", "CDDL-1.1",
+    "CECILL-2.1",
+    "CC-BY-SA-3.0", "CC-BY-SA-4.0",
+    # Licenças de fonte que proíbem a modificação ou o uso comercial
+    # sem permissão — incompatíveis com um projecto que é justamente
+    # de código fechado com licença própria.
+    "BUSL-1.1",
+    "Elastic-2.0",
+    "Commons-Clause",
+]
+
+# Uma licença sem SPDX não se pode avaliar. Deixá-la passar é assumir
+# que é permissiva, e assumir o permissivo é a forma mais cara de errar
+# numa auditoria de licenças.
+unlicensed = "deny"
+
+allow-osi-fsf-free = true
+allow-git-fork = true
+
+[[licenses.exceptions]]
+# A libsodium é **vendorizada** em `crypto/c_cpp/vendor/libsodium` e o
+# `build.rs` liga a estática. Não entra pelo grafo do Cargo — o Rust
+# chama-a por FFI e o empacotamento é do CMake — mas a licença dela
+# (ISC) tem de estar aqui porque o `cargo deny` lê o `Cargo.lock` e o
+# `LICENSE` do projecto, e o que é verdade tem de estar escrito.
+allow = ["ISC"]
+name = "libsodium"
+
+# ---------------------------------------------------------------------------
+
+[licenses.private]
+# O projecto não publica crates. Se um aparecer, é alguém a publicar
+# por acidente, e o primeiro aviso tem de ser esse.
+ignore = true
+
+
+# ---------------------------------------------------------------------
+# Advisories
+# ---------------------------------------------------------------------
+
+[advisories]
+# As excepções do RustSec vivem em `.cargo/audit.toml`, que é o ficheiro
+# que a ferramenta lê. Deixá-las aqui seria um segundo inventário, e dois
+# inventários divergem.
+version = 2
+yanked = "deny"
+# Uma dependência sem manter é um risco que cresce com o tempo, mas
+# corrigi-lo hoje exige substitui-la hoje. Fica registado e revisto.
+unmaintained = "warn"
+# `cargo audit` é a autoridade sobre o que é um advisory. Duplicar a
+# base de dados aqui seria ter duas verdades.
+ignore = []
+
+
+# ---------------------------------------------------------------------
+# Duplicados
+# ---------------------------------------------------------------------
+
+[bans]
+# Duplicados **não** bloqueiam. Com 548 pacotes — quase todos puxados
+# pela arti, que é uma árvore enorme — há duplicados legítimos, e cada
+# «o build não deve ter duas versões do mesmo crate» seria uma guerra
+# perdida contra a aritmética das versões.
+
+# E uma regra que nunca passa é pior do que nenhuma regra: a resposta
+# a um portão sempre vermelho é desligá-lo.
+multiple-versions = "warn"
+wildcards = "allow"
+
+[wildcards]
+# `wildcards = "allow"` acima, e aqui as dependências que acceptam
+# qualquer versão. `mlua` e `tokio` usam `*` em contextos de feature.
+allow-private = false
+deny = [
+    { name = "mlua", reason = "usa features opcionais; a versão é fixada no Cargo.lock" },
+]
+
+[sources]
+# Só crates.io e o próprio repositório. Um registry privado numa
+# dependência de criptografia é uma fronteira que ninguém mapeou.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

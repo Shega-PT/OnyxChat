@@ -1,0 +1,101 @@
+# =====================================================================
+# Dependabot — encontrar e corrigir, que é mais do que o auditor faz
+# ---------------------------------------------------------------------
+# A auditoria de segurança **encontra**. Isto **corrige**, e é a outra
+# metade do trabalho: um advisory que ninguém tem tempo de corrigir é um
+# advisory que fica bloqueado até alguém ter tempo de corrigir.
+#
+# ## Porque é que os `actions` também estão aqui
+#
+# Porque os `uses:` dos workflows são fixados por SHA, e um SHA não se
+# actualiza sozinho. Sem isto, `actions/checkout` ficava na versão em
+# que foi fixada até alguém ir trocar à mão — o que, num projecto que
+# declara esta regra, seria a mesma hipocrisia que a regra evita.
+#
+# A actualização continua a ser uma alteração visível: um bump de
+# SHA é um diff, com a tag nova escrita no comentário ao lado, e passa
+# pela revisão. O Dependabot propõe; quem decide é a pessoa.
+#
+# ## Porque é que `cargo` e não `rust-toolchain`
+#
+# Porque o `Cargo.lock` é versionado e o Dependabot actualiza-o sem tocar
+# no `Cargo.toml`. Uma actualização que altera a gama de versões de uma
+# dependência é uma decisão, e fica para decisão; uma que só resolve
+# versões dentro da gama já decidida é manutenção.
+# =====================================================================
+
+version: 2
+
+updates:
+  # -------------------------------------------------------------------
+  # Rust — 548 pacotes, quase todos puxados pela arti.
+  # -------------------------------------------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      # Segunda de manhã. À hora do lunch todo o mundo pede Actualização
+      # ao mesmo tempo e o GitHub devolve 429 ao último.
+      day: "monday"
+      time: "07:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    labels:
+      - "dependencias"
+      - "rust"
+    groups:
+      # Uma Actualização que sobe 548 crates ao mesmo tempo é ilegível e
+      # por isso não se revê. As actualizações que partilham manifesto
+      # têm de ser lidas juntas, porque uma pode resolver a outra.
+      cargo-actix:
+        patterns:
+          - "actix*"
+          - "tokio"
+      cargo-tor:
+        patterns:
+          - "arti*"
+          - "tor*"
+          - "tor-*"
+      # O resto é pequena em cada Actualização.
+      default:
+        dependency-type: "direct"
+
+  # -------------------------------------------------------------------
+  # Node — 14 dependências de execução e 18 de construção.
+  # -------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/UI"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:15"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    labels:
+      - "dependencias"
+      - "interface"
+    groups:
+      # Uma major de Vite ou de Tailwind muda o resultado da construção
+      # — e o `vite build` é o que produz o `dist/` que a interface
+      # serve. Vale a pena que cheguem juntas e sejam vistas juntas.
+      cadeia-de-construcao:
+        patterns:
+          - "vite"
+          - "tailwindcss"
+          - "postcss"
+          - "autoprefixer"
+
+  # -------------------------------------------------------------------
+  # Os próprios workflows.
+  # -------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+    labels:
+      - "dependencias"
+      - "ci"

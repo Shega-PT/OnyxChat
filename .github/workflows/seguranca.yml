@@ -1,0 +1,130 @@
+# =====================================================================
+# OnyxChat — segurança
+# ---------------------------------------------------------------------
+# Corre `scripts/verificar_seguranca.sh`, o **mesmo** script que a
+# máquina de quem desenvolve corre. Não há uma segunda versão da
+# auditoria escrita em YAML: se houvesse, haveria duas verdades, e a
+# segunda nunca seria testada.
+#
+# Os `uses:` são fixados por SHA de commit. A regra e a razão estão em
+# §Porque é que, se `UI/tools/versoes.txt` recusa uma tag mutável, no
+# cabeçalho de `portoes.yml`.
+#
+# Documentação: `docs/security_model.md` §4.
+# =====================================================================
+
+name: segurança
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  # ## Porque é que isto corre agendado, e não só em push
+  #
+  # Porque um advisory novo **afecta um repositório inalterado**. Se a
+  # única coisa que fizesse fosse publicar um advisory novo para uma
+  # crate que já estava no `Cargo.lock`, não haveria diff, não haveria
+  # push, e o aviso apareceria meses depois — quando já não há ninguém
+  # a olhar para aquele ficheiro.
+  #
+  # O mesmo vale para a camada de licenças: um crate pode publicar a
+  # sua licença três anos depois de estar no grafo.
+  #
+  # 04:23 UTC — não à hora redonda, porque à hora redonda todos os
+  # repositórios do mundo tentam ao mesmo tempo e o runner fica à
+  # espera na fila.
+  schedule:
+    - cron: "23 4 * * 1"   # Segundas, 04:23 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: seguranca-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  # `contents: read` e nada mais. Um workflow de auditoria que lesse
+  #Packages, `Actions` ou `security-events` por hábito teria mais
+  # permissões do que precisa para dizer se há um advisory.
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  seguranca:
+    name: segredos, advisories, licenças e workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # O `gitleaks` precisa do **histórico**, não da árvore: um
+          # segredo que foi introduzido e apagado numa segunda
+          # utilização continua no `git clone`.
+          fetch-depth: 0
+
+      - name: Rust com `rustup`
+        # Nomeada, não a do runner: o relatório diz com que versão
+        # corheu, e `cargo audit` precisa de uma `cargo` que saiba ler
+        # o `Cargo.lock`.
+        run: |
+            rustup toolchain install stable --profile minimal
+            rustup default stable
+            rustc --version
+
+      - name: Ferramentas de auditoria
+        # As três que não vêm no runner. `cargo install` compila, o que
+        # é lento — daí a acção do cache abaixo, que faz a diferença
+        # entre um workflow de seis minutos e um de vinte.
+        run: |
+            cargo install cargo-audit --locked
+            cargo install cargo-deny --locked
+            curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz \
+              | tar xz gitleaks
+            sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+            curl -sSfL https://github.com/woodruffw/zizmor/releases/download/v1.11.0/zizmor-x86_64-unknown-linux-musl.tar.gz \
+              | tar xz zizmor
+            sudo install -m 0755 zizmor /usr/local/bin/zizmor
+            gitleaks version
+            cargo audit --version
+            cargo deny --version
+            zizmor --version
+
+      - name: cache do cargo
+        # v4.2.2
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: seguranca-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Node pelo instalador do projecto
+        # Pelo mesmo motivo de sempre: o SHA-256 está escrito em
+        # `UI/tools/versoes.txt`, versionado, e um `setup-node`
+        # verificaria o pacote contra quem o entrega.
+        run: UI/tools/onyxchat instalar
+
+      - name: a auditoria
+        # `--exigir` é o que faz disto ser CI e não uma sugestão: sem
+        # uma ferramenta instalada, falha. Uma auditoria que salta em
+        # silêncio é a forma mais cara de não ter auditoria — ninguém
+        # repara nela a falhar, porque ninguém a lê a passar.
+        run: ./scripts/verificar_seguranca.sh --exigir
+
+      - name: as acções usadas estão fixadas por SHA
+        # `zizmor` vê isto, mas vê **depois** de as ter executado. Este
+        # passo é antes, e é o que impede o primeiro caso — uma tag
+        # mutável que execute código antes de haver ideia.
+        run: |
+            # O padrão é ancorado ao início da linha **de propósito**: um
+            # `grep` que se encontra a si próprio falha sempre, e um
+            # portão que falha sempre é um portão desligado.
+            if grep -rnE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+[^@[:space:]]+@[^0-9a-f]' .github/workflows/; then
+              echo "acções fixadas por tag mutável — usa o SHA de commit"
+              exit 1
+            fi
+            echo "todas as acções fixadas por SHA"

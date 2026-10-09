@@ -233,6 +233,92 @@ def test_o_mapa_real_nao_tem_nada_a_lembrar() -> None:
     assert not problemas, problemas
 
 
+# ---------------------------------------------------------------------
+# As contagens
+# ---------------------------------------------------------------------
+
+def test_a_unidade_de_indentacao_e_medida() -> None:
+    """A árvore do `UI/README.md` indenta com 3 colunas; a do mapa, com 4.
+
+    Uma constante embutida dava `3 // 4 = 0`, e `src/`, `lib/`,
+    `components/` e `pages/` ficavam ao mesmo nível. O caminho passava a
+    ser `components/onyx` — que não existe — e a contagem devolvia zero
+    **sem dar erro nenhum**, que é a forma mais cara de um verificador
+    falhar.
+    """
+    assert ve.unidade_de_indentacao(ve.ler("Estrutura.txt")) == 4
+    assert ve.unidade_de_indentacao(ve.ler("UI/README.md")) == 3
+
+
+def test_as_contagens_das_duas_arvores_conferem() -> None:
+    """Cada contagem que um documento afirma tem de bater com o disco.
+
+    Foram quatro números errados numa só auditoria — 19 documentos, 8
+    ecrãs, 24 componentes, e um ficheiro a menos — e nenhum era
+    verificável a olho.
+    """
+    for documento, raiz in ve.RAIZES_DAS_ARVORES.items():
+        achados = ve.contagens(documento, raiz)
+        assert achados, f"{documento} não tem contagens para conferir"
+        for descricao, afirmado, medido in achados:
+            assert afirmado == medido, f"{documento}: {descricao}"
+
+
+def test_as_contagens_versionadas_conferem() -> None:
+    """As sementes e os ficheiros JavaScript são contados no **índice**.
+
+    A diferença entre o disco e o índice é a lição inteira de B6: as
+    sementes estavam todas no disco e nenhuma no índice — 173 ficheiros,
+    50 versionados — e o portão dizia «ok» porque contava o que estava
+    à vista. É por isso que estas duas contagens usam `git ls-files`.
+    """
+    assert ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes") == 50
+    js = ve._conta(ve.RAIZ / "UI", "ficheiros JavaScript versionados")
+    assert js == 91, js
+    # E não são o mesmo que o disco, que tem mais por gerar.
+    em_disco = len([p for p in (ve.RAIZ / "fuzz" / "corpus").rglob("*") if p.is_file()])
+    assert em_disco > ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes")
+
+
+def test_a_palavra_composta_vence_a_simples() -> None:
+    """«ficheiros JavaScript versionados» conta JavaScript, não tudo.
+
+    Numa alternância o Python devolve a primeira que casa. Se `ficheiros`
+    vier antes da forma composta, o número sai errado **sem erro** — e
+    era o que aconteceria com a lista por ordem alfabética.
+    """
+    # A tupla é ``(descrição, afirmado, medido)``; o substantivo está
+    # dentro da descrição, entre aspas angulares.
+    substantivos = {c[0].split("«")[1].split("»")[0] for c in ve.contagens()
+                    if "«" in c[0]}
+    assert "ficheiros JavaScript versionados" in substantivos, substantivos
+    assert "sementes" in substantivos, substantivos
+    m = ve._CONTAGEM.search("91 ficheiros JavaScript versionados")
+    assert m and m.group(2) == "ficheiros JavaScript versionados"
+
+
+def test_uma_contagem_errada_e_lida_como_errada(com_mapa, monkeypatch) -> None:
+    """Um número que não bate tem de ser lido, não aceite.
+
+    Sem esta prova, o verificador das contagens podia estar a devolver
+    sempre o que o disco tem e nunca o que o documento diz — e passar
+    em todos os testes.
+    """
+    original = ve.ler()
+    try:
+        ve.MAPA.write_text(
+            "# docs/ — 3 documentos\n"
+            "docs/\n"
+            "├─ index.md\n",
+            encoding="utf-8",
+        )
+        lidos = ve.contagens()
+        assert lidos, "a contagem errada não foi lida"
+        assert lidos[0][1] == 3, lidos
+    finally:
+        ve.MAPA.write_text("\n".join(original), encoding="utf-8")
+
+
 def test_o_mapa_e_lido_como_uma_arvore_com_pilha() -> None:
     """Sanidade do leitor: o número de afirmações não é irrealmente baixo.
 

@@ -5,12 +5,12 @@
 # Existe porque os comandos correctos **não são os óbvios**:
 #
 #   * sem `--no-default-features`, compila-se a árvore da arti — 458 das
-#     548 crates. É a razão de o build travar em máquinas com 4 GB;
+#     548 crs. É a razão de o build travar em máquinas com 4 GB;
 #   * sem `--features docs`, os testes que leem os vectores oficiais não
 #     compilam de todo;
 #   * e nenhum passo `cargo` corre sem passar por `scripts/memoria.sh`,
 #     que o confine numa scope de cgroup com tecto de memória;
-#   * `-j` não é preciso: o gate de `scripts/memoria.sh` calcula-o a
+#   * `-j` não é preciso: o g de `scripts/memoria.sh` calcula-o a
 #     partir da memória disponível, e `.cargo/config.toml` põe
 #     `jobs = 1` como piso para quem chamar o cargo directamente.
 #
@@ -53,7 +53,7 @@ COVERAGE="$VENV/bin/coverage"
 # Directório de build do C/C++.
 BUILD_CPP="$RAIZ/crypto/c_cpp/build"
 
-# --- Gate de memória --------------------------------------------------------
+# --- G de memória --------------------------------------------------------
 #
 # Nenhum passo `cargo` corre directamente: corre por `memoria.sh
 # --pico`, que o põe dentro de uma scope de cgroup v2 com `MemoryMax` e
@@ -73,7 +73,7 @@ MEMORIA="$RAIZ/scripts/memoria.sh"
 
 # `cargo` com tecto de memória e medição do pico.
 #
-# A recusa do gate **não** é uma falha da matriz. Um build que não cabe
+# A recusa do g **não** é uma falha da matriz. Um build que não cabe
 # é uma decisão informada, e contá-la como falha mistura duas coisas:
 # «o código está errado» e «a máquina não tem memória». O que interessa
 # ao utilizador é a diferença.
@@ -85,23 +85,23 @@ MEMORIA="$RAIZ/scripts/memoria.sh"
 #
 # Foi o que acontecia nas três chamadas antes desta correcção: a matriz
 # corria `/usr/bin/test --workspace`, `/usr/bin/build` e `/usr/bin/check`,
-# os três saíam mal, e o gate reportava «✓ passou» porque não propagava o
+# os três saíam mal, e o g reportava «✓ passou» porque não propagava o
 # código de saída. Ou seja: a matriz vinha a dar verde sem executar
 # um único teste Rust. O que durante semanas pareceu «a suite passa» era
 # uma suite que nunca correu.
 cargo_tectado() {
-    # A saída de CI entra **antes** da verificação do gate: num runner
-    # não há editor a proteger, e o gate — que existe para proteger o
+    # A saída de CI entra **antes** da verificação do g: num runner
+    # não há editor a proteger, e o g — que existe para proteger o
     # editor — não tem o que proteger.
     sem_tecado && { "$@"; return $?; }
     if [[ ! -x "$MEMORIA" ]]; then
         printf '%s %s\n' "$(cor '1;31' 'erro:')" \
             "scripts/memoria.sh não encontrado ou não executável" >&2
         printf '  %s\n' \
-            "sem o gate, o build corre sem tecto e o kernel pode matar o editor" >&2
+            "sem o g, o build corre sem tecto e o kernel pode matar o editor" >&2
         printf '  %s\n' "regenerar com: chmod +x scripts/memoria.sh" >&2
         FALHOU=$((FALHOU + 1))
-        AVISOS+=("gate de memória indisponível")
+        AVISOS+=("g de memória indisponível")
         return 2
     fi
 
@@ -115,8 +115,8 @@ cargo_tectado() {
         return 0
     fi
 
-    # O gate recusa (código 1) sem sequer começar o build. Distingue-se
-    # por mensagem: `recusando correr o build` é o gate, qualquer outra
+    # O g recusa (código 1) sem sequer começar o build. Distingue-se
+    # por mensagem: `recusando correr o build` é o g, qualquer outra
     # coisa é uma falha a sério do comando.
     if printf '%s' "$saida" | grep -q 'recusando correr o build'; then
         SALTADOS=$((SALTADOS + 1))
@@ -133,16 +133,28 @@ cargo_tectado() {
 
 # O Python também vai com tecto, pelo mesmo motivo.
 #
-# O gate de `memoria.sh` tem dois perfis medidos e os dois são de `cargo`
-# (103 crates, 547 MB; a arti, 931 MB). Aplicá-los ao `pytest` seria
+# O g de `memoria.sh` tem dois perfis medidos e os dois são de `cargo`
+# (103 crs, 547 MB; a arti, 931 MB). Aplicá-los ao `pytest` seria
 # inventar: o `pytest` mede-se — pico de **71 MB** para a suite completa
-# com cobertura, em `docs/testing.md` §Gate de hardware.
+# com cobertura, em `docs/testing.md` §G de hardware.
 #
 # Sem tecto, o passo 3 era o único da matriz fora do `MemoryMax`. É o que
 # aconteceu em 2026-10-07: a suite Python completa foi lançada de uma vez
 # sem confinamento, e o editor foi junto. Não era o `pytest` a estourar —
-# medido, pede 71 MB — era não haver `MemoryMax` à volta.
-PICO_PYTEST_MB=71
+# medido, pede 89 MB — era não haver `MemoryMax` à volta.
+#
+# O pico **de referência** da suite Python. É o pior observado, não uma
+# média nem um número redondo — ver `docs/testing.md` §Execuções
+# registadas, onde estão os cinco valores medidos em 2026-10-07 (71, 74,
+# 75, 78 e 89 MB; os últimos, com os testes de auditores a correr cada
+# um o seu auditor num subprocesso).
+#
+# O tecto é este número + 300 de margem. Uma referência **abaixo** do
+# que a máquina pede é um tecto calculado às cegas: o `pytest` pedia
+# 89 MB com o cgroup posto para 71 + 300, e quando acrescentar dois
+# auditores levou o pico acima dos 100 MB, o tecto deixou de ser folga
+# e passou a ser o limite. É a razão pela qual se mede e não se estima.
+PICO_PYTEST_MB=89
 
 python_tectado() {
     sem_tecado && { "$@"; return $?; }
@@ -219,7 +231,7 @@ FUZZ_ALVOS=(envelope_parser handshake_parser ipc_parser k4_decoder k7_decoder re
 
 # `nightly_tectado <tecto_mb> CMD…`
 #
-# O gate de `memoria.sh` injecta `-j` e escolhe o perfil pelas features do
+# O g de `memoria.sh` injecta `-j` e escolhe o perfil pelas features do
 # comando; o `cargo fuzz` não tem features nem `-j` que interessem, e o
 # alvo não faz parte do workspace. Confinar à mão é o que dá, e o
 # tecto é o que `medir` mediu acima.
@@ -251,7 +263,7 @@ nightly_tectado() {
 
 PASSOU=0
 FALHOU=0
-#: Passos que o gate não deixou começar por falta de memória. Não são
+#: Passos que o g não deixou começar por falta de memória. Não são
 #: falhas — são trabalho adiado, e o sumário diz quantos.
 SALTADOS=0
 AVISOS=()
@@ -355,7 +367,7 @@ printf 'modo:  %s\n' "$MODO"
 
 # --- 1. Rust: unit + integração + property tests ---------------------------
 
-titulo "1. Rust — workspace (103 crates, sem arti)"
+titulo "1. Rust — workspace (103 crs, sem arti)"
 passo "cargo test --workspace ${CARGO_FLAGS[*]}" \
     cargo_tectado cargo test --workspace "${CARGO_FLAGS[@]}"
 
@@ -392,7 +404,7 @@ else
     fi
 fi
 
-# --- 3b. O mapa da estrutura bate com a árvore? ----------------------------
+# --- 3b. O mapa da estrutura b com a árvore? ----------------------------
 
 # `Estrutura.txt` vive **fora** do repositório, e por isso nada no
 # `pytest` o confirmava: um mapa desatualizado/listava sete ficheiros que
@@ -402,7 +414,7 @@ fi
 # Vai antes dos testes Python porque é instantâneo e não precisa de
 # virtualenv — se o mapa estiver errado, é bom sabê-lo antes de gastar
 # RAM a correr a matriz.
-titulo "3b. Estrutura — o mapa bate com a árvore?"
+titulo "3b. Estrutura — o mapa b com a árvore?"
 passo "verificar_estrutura.py" \
     "$RAIZ/scripts/verificar_estrutura.py"
 
@@ -419,6 +431,13 @@ passo "verificar_roadmap.py" \
 passo "verificar_ambiente.py" \
     "$RAIZ/scripts/verificar_ambiente.py"
 
+# A superfície de ataque que não é código. Vai depois dos portões de
+# texto porque é a única que precisa de rede e de ferramentas externas,
+# e vai sem `--exigir`: localmente, uma ferramenta ausente é um skip
+# anunciado. No CI, com `--exigir`, é falha.
+passo "verificar_seguranca.sh" \
+    "$RAIZ/scripts/verificar_seguranca.sh"
+
 # --- 4. Binário real: subprocess -------------------------------------------
 
 if [[ "$RAPIDO" -eq 0 ]] && [[ -x "$PYTEST" ]]; then
@@ -430,7 +449,7 @@ if [[ "$RAPIDO" -eq 0 ]] && [[ -x "$PYTEST" ]]; then
     #
     # Este bug esteve lá desde sempre e nunca se viu, porque
     # `memoria.sh` não propagava o código de saída e reportava «✓ passou»
-    # a tudo. Duas falhas empilhadas: o gate mentia, e por baixo do gate
+    # a tudo. Duas falhas empilhadas: o g mentia, e por baixo do g
     # havia um passo partido. Corrigir uma sem ver a outra teria
     # trocado um verde falso por um vermelho falso.
     passo "cargo build (binário para o E2E)" \
@@ -459,12 +478,12 @@ fi
 #
 # O que mudou em 2026-10-07: o passo deixou de ser recusado em máquinas
 # de 3,8 GB com o editor aberto. O pico medido desceu de 1156 MB para
-# 931 MB (`CARGO_PROFILE_DEV_DEBUG=none`, que o gate põe a todos os
-# comandos `cargo`), e o gate passou a contar RAM e swap em tectos
-# separados. Medições em `docs/testing.md` §Gate de hardware.
+# 931 MB (`CARGO_PROFILE_DEV_DEBUG=none`, que o g põe a todos os
+# comandos `cargo`), e o g passou a contar RAM e swap em tectos
+# separados. Medições em `docs/testing.md` §G de hardware.
 #
 # `ONYXCHAT_PULAR_TOR=1` salta-o, e **diz que saltou**. É o que o job
-# de pull request usa: o passo compila 458 crates da arti e é o mais
+# de pull request usa: o passo compila 458 crs da arti e é o mais
 # lento da matriz, e a única coisa que apanha é uma regressão num
 # ficheiro. O mesmo passo corre no job agendado, e em `workflow_dispatch`,
 # onde o tempo se paga.
@@ -475,7 +494,7 @@ if [[ "${ONYXCHAT_PULAR_TOR:-0}" == "1" ]]; then
     saltar "5. Tor (tor_arti.rs)" \
         "ONYXCHAT_PULAR_TOR=1 — corre no job agendado e no manual"
 else
-    titulo "5. Tor — verificação de compilação de tor_arti.rs (458 crates, com tecto)"
+    titulo "5. Tor — verificação de compilação de tor_arti.rs (458 crs, com tecto)"
     passo "cargo check --features tor-real" \
         cargo_tectado cargo check -p onyxchatd --features tor-real
 fi
@@ -579,9 +598,9 @@ fi
 printf '\n'
 
 if (( SALTADOS > 0 )); then
-    printf '\n%s\n' "$(cor '1;33' 'passos que o gate não deixou começar:')"
+    printf '\n%s\n' "$(cor '1;33' 'passos que o g não deixou começar:')"
     printf '  %s\n' "sem memória suficiente para um build com tecto."
-    printf '  %s\n' "Fecha o editor e repete — o gate não arrisca o teu sistema."
+    printf '  %s\n' "Fecha o editor e repete — o g não arrisca o teu sistema."
 fi
 
 if [[ "$FALHOU" -gt 0 ]]; then

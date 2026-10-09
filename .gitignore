@@ -209,3 +209,19 @@ desktop.ini
 # gerados pelo Rust e consumidos por Python, C e pelos documentos. Não
 # são artefactos — são especificação.
 !tests/vectors/*.json
+# ---------------------------------------------------------------------
+# `node_modules` na raiz
+# ---------------------------------------------------------------------
+# O `UI/node_modules/` já está ignorado por `UI/.gitignore`, e é a
+# excepção à regra de que esta lista não repete o que um `.gitignore`
+# aninhado já resolve: a interface é uma aplicação à parte, com o seu
+# `package.json` e as suas ferramentas.
+#
+# Este padrão é **defesa**, não descrição. Um `npm install` feito por
+# engano no directório errado da raiz criaria aqui um `node_modules/` com
+# 14 000 ficheiros que ninguém pediu para versionar, e o `.gitignore`
+# aninhado não os apanharia — porque não estão dentro de `UI/`.
+#
+# Medido em 2026-10-07 num clone de prova: sem esta linha, o ficheiro
+# entrava no índice sem o `git status` mostrar um único aviso.
+node_modules/

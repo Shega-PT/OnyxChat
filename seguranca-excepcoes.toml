@@ -1,0 +1,149 @@
+# =====================================================================
+# Excepções de auditoria de segurança
+# ---------------------------------------------------------------------
+# Cada aviso que o `scripts/verificar_seguranca.sh` aceita tem de estar
+# aqui, com uma **razão verificável** e uma **data de revisão**. Um
+# aviso que não esteja na lista falha o portão.
+#
+# ## Porquê este ficheiro existe
+#
+# Porque a alternativa é pior do que um sem auditoria. `npm audit` e
+# `cargo audit` bloqueiam; o primeiro advisory novo do RustSec deixaria
+# o CI vermelho em todos os pull requests; a resposta previsível a um CI
+# sempre vermelho é desligá-lo — e desligado, não protege nada.
+#
+# A excepção datada é o meio-termo: o aviso continua a ser **mostrado**
+# em cada execução, com a razão e a data ao lado, e a data é o que
+# obriga a voltar a olhar. Um ficheiro de excepções sem datas é uma
+# lista de Subtens e não uma decisão.
+#
+# ## A regra para escrever uma excepção
+#
+# A razão tem de ser **verificável no código**. «Não é explorável» não
+# é uma razão; «a função vulnerável não é importada em lado nenhum, e a
+# aplicação não faz SSR» é. Cada entrada aponta para o ficheiro que
+# prova.
+#
+# ## O que NÃO é razão aceitável
+#
+# * «É transitivo» — não. Tudo o que é transitivo acaba por ser
+#   responsabilidade de quem o inclui.
+# * «Não temos tempo» — aceitação temporária sem fim não é decisão.
+# * «Upstream não corrigiu» — pode ser verdade e ser irrelevante; o que
+#   interessa é se o caminho é alcançável.
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# JavaScript — `npm audit`
+# ---------------------------------------------------------------------
+[npm]
+  # `npm audit` não tem ficheiro de excepções próprio — o `--omit=dev`
+  # esconderia advisories de ferramentas que escrevem o código que o
+  # projecto distribui. Por isso o `verificar_seguranca.sh` compara o
+  # relatório com esta lista, e falha no que não estiver nela.
+
+  # -------------------------------------------------------------------
+  # GHSA-wrjc-x8rr-h8h6 — Open redirect em <Link> e useNavigate
+  # `react-router` 6.x · CVSS 0 · alta só porque o registry a classifica
+  # assim · a correcção só existe em 7.18.0+, que é uma major.
+  #
+  # RAZÃO VERIFICÁVEL: o alvo de **todos** os `<Link to=…>` e
+  # `navigate(…)` da interface é uma constante de `UI/src/lib/onyx/nav.js`
+  # — nenhum vem de input de utilizador, de URL, nem de resposta do
+  # backend. E o único ponto onde um caminho externo entra
+  # (`authReturnTo.js`, no pós- login) rejeita explicitamente `\`, `//`
+  # e o que não começa por `/` (linha 24).
+  #
+  # Sem isso, um `\evil.com` num alvo de redireccionamento punha o
+  # browser a sair da aplicação. Com o alvo a ser constante, não há
+  # caminho.
+  #
+  # REVISAR: quando o `react-router` 7.x entrar. É uma major com
+  # mudanças na API de rotas, e não é assunto de uma auditoria de
+  # segurança — é uma migração, com os seus próprios testes.
+[[npm.aceites]]
+advisory = "GHSA-wrjc-x8rr-h8h6"
+pacote   = "react-router"
+revisao  = "2027-01-07"
+razao    = "aberto apenas se o alvo de <Link>/navigate vier de input; todos vem de nav.js"
+
+  # -------------------------------------------------------------------
+  # GHSA-337j-9hxr-rhxg —injecção de construtor em deserializeErrors()
+  # `react-router` 6.x · CVSS 6.1 · só em SSR Hydration.
+  #
+  # RAZÃO VERIFICÁVEL: a função não é alcançável porque **não há SSR**.
+  # `hydrateRoot`, `renderToString`, `StaticRouter` e `deserializeErrors`
+  # não aparecem em nenhum ficheiro de `UI/src/` — a aplicação é uma SPA
+  # montada com `createRoot`. O ficheiro onde o advisory tem Reporting:
+  # Hydration Inicial.
+  #
+  # REVISAR: se alguma vez houver SSR, esta excepção morre com ela.
+[[npm.aceites]]
+advisory = "GHSA-337j-9hxr-rhxg"
+pacote   = "react-router"
+revisao  = "2027-01-07"
+razao    = "so alcanca deserializeErrors(), de SSR Hydration; a UI nao tem SSR"
+
+  # -------------------------------------------------------------------
+  # GHSA-vfj7-8cjw-p6xm — DoS por exaustão de pilha em padrões aninhados
+  # `braces` ≤3.0.3 · CVSS 7.5 · **sem correcção disponível**
+  #
+  # RAZÃO VERIFICÁVEL: chega aqui só por `tailwindcss` → `chokidar` →
+  # `braces`, ou seja, **durante a construção**, a correr os padrões glob
+  # do próprio repositório. Não há input de utilizador em nenhum ponto do
+  # caminho, e o pacote vulnerable não entra no que é servido.
+  #
+  # `braces` está em 3.0.3 desde 2021 e não é mantido; o registry diz
+  # «no fix available». A alternativa a aceitar o advisory seria remover
+  # o Tailwind, o que é uma decisão de âmbito, não de segurança.
+  #
+  # REVISAR: quando o Tailwind subir de major, ou se o `braces` for
+  # substituído. Não há previsão, e por isso a data é a dezoito meses.
+[[npm.aceites]]
+advisory = "GHSA-vfj7-8cjw-p6xm"
+pacote   = "braces"
+revisao  = "2027-04-07"
+razao    = "so corre na construcao, sobre os padroes glob do repositorio; sem correcao upstream"
+
+  # -------------------------------------------------------------------
+  # GHSA-rj75-hqrm-r3gf — complexidade quadrática em selectores PostCSS
+  # `postcss-selector-parser` <7.1.6 · CVSS 5.9
+  #
+  # RAZÃO VERIFICÁVEL: vem pela mesma cadeia de construção
+  # (`tailwindcss` → `postcss`), a correr sobre o CSS deste projecto
+  # durante o `vite build`. Sem input externo, e sem correr no que é
+  # servido ao browser.
+  #
+  # REVISAR: com o Tailwind.
+[[npm.aceites]]
+advisory = "GHSA-rj75-hqrm-r3gf"
+pacote   = "postcss-selector-parser"
+revisao  = "2027-04-07"
+razao    = "so corre na construcao, sobre o CSS do projecto; sem input externo"
+
+# ---------------------------------------------------------------------
+# Rust — `cargo audit`
+# ---------------------------------------------------------------------
+#
+# As excepções do `cargo audit` vivem em `.cargo/audit.toml`, que é o
+# ficheiro que a própria ferramenta lê, e não num inventário paralelo
+# que poderia divergir do que ela está a ignorar. As razões estão lá,
+# em comentários TOML, que é o único sítio onde ficam ao lado do que
+# explicam.
+[cargo]
+#: `RUSTSEC-…` — ver `.cargo/audit.toml`.
+ficheiro = ".cargo/audit.toml"
+
+# ---------------------------------------------------------------------
+# Licenças — `cargo deny`
+# ---------------------------------------------------------------------
+#
+# A lista de licenças **proibidas** está em `deny.toml`, que é a
+# configuração da ferramenta. Aqui fica a razão de proibir cada grupo,
+# que é a mesma em todas as entradas e não vale a pena repetir:
+# um único crate sob copyleft forte obriga a abrir o código derivado,
+# comercial ou não, e torna a PolyForm Noncommercial impossível de
+# cumprir. Ver `THIRD-PARTY.md` e `docs/security_model.md` §4.
+[licencas]
+proibidas = ["GPL", "AGPL", "SSPL", "OSL", "EUPL", "CDDL", "CC-BY-SA", "OSL-3.0"]

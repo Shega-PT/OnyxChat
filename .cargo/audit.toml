@@ -1,0 +1,59 @@
+# =====================================================================
+# .cargo/audit.toml — excepções do RustSec
+# ---------------------------------------------------------------------
+# Este é o ficheiro que o `cargo audit` lê. As razões estão em comentários
+# TOML, que é o único sítio onde ficam **ao lado** do que explicam: um
+# inventário paralelo em `docs/` divergiria, e divergiria em silêncio.
+#
+# ## Como se escreve uma excepção
+#
+# Três coisas, e as três são obrigatórias:
+#
+#   1. o identificador `RUSTSEC-AAAA-CCCC`;
+#   2. o que o bug faz, em português, sem eufemismo;
+#   3. **por que não nos atinge** — com o ficheiro que o prova.
+#
+# «Não nos afecta» sem proof é uma opinião. «O caminho só é alcançável
+# se X for activado, e o `Cargo.toml` não o activa» é uma verificação que
+# se pode repetir.
+#
+# ## Quando a lista estiver vazia, está a funcionar
+#
+# 2026-10-07: vazia. As 548 crates do `Cargo.lock` não têm advisories
+# abertos. Este ficheiro existe para que, quando um aparecer, a decisão
+# de o aceitar ou corrigir seja escrita com a razão ao lado — e não
+# tomada em silêncio dentro de um `CI` a dar vermelho.
+#
+# ## Datas de revisão
+#
+# Uma excepção sem data é um ficheiro de excepções que ninguém reevalua.
+# A data não é um prazo que o calendário cobra: é o momento em que se
+# volta a olhar porque o prazo passou.
+# =====================================================================
+
+[advisories]
+# Lista de `RUSTSEC-…` aceites. Vazia de propósito, e com o motivo
+# escrito: um ficheiro de excepções vazio diz «não há nada a aceitar»,
+# que é informação. Um ficheiro de excepções ausente diz «ninguém pensou
+# nisto», que não é a mesma coisa.
+ignore = []
+
+# Crates sem manutenção não são um advisory — são dívida. Avisam-se em
+# vez de falhar, e a distinção importa: falhar por dependência abandonada
+# é falhar por coisas que ninguém pode corrigir a não ser substituindo o
+# crate, e um portão que não se pode satisfazer acaba desligado.
+#
+# `warn` e não `deny` é uma decisão explícita, escrita num sítio que se
+# lê ao lado de `unmaintained = "deny"` a dizer o contrário. Ver
+# `deny.toml` §advisories.
+unmaintained = "warn"
+
+# Sem isto, um `cargo update` pode trazer um advisory para a árvore sem
+# que nenhum comando o diga em voz alta.
+# Uma crate *retirada* (`yanked`) é o pior dos casos: o autor/publicador
+# pediu que ninguém a usasse, e alguém está a usá-la. Falha.
+yanked = "deny"
+
+# Sem isto, um `cargo update` pode trazer um advisory para a árvore sem
+# que nenhum comando o diga em voz alta.
+informational = "warn"

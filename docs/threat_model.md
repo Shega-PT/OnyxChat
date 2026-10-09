@@ -217,10 +217,46 @@ garantia.
 | disco → keystore       | leitura por outro utilizador       | `0600` + cifra com PBKDF2                 |
 | RAM → swap             | page-out de material sensível       | `mlockall` (`PLANEADO` F0c) + swapfile `0600` |
 | relay/discovery → nós  | envenenamento de mapeamento        | autenticação fim-a-fim (Ed25519)          |
+| cadeia de fornecimentos | dependência comprometida         | auditoria contínua, excepções datadas    |
 
 Detalhe da fronteira de rede (enquadramento, limites, rate-limit,
 timeouts e comportamento perante dados inválidos) em
 [`p2p.md`](p2p.md).
+
+### A sétima fronteira: a cadeia de fornecimentos
+
+As outras seis são superfícies de **execução**. Esta é de **construção**,
+e num projecto com 548 crates em `Cargo.lock`, 32 pacotes npm e uma
+libsodium vendorizada, é a maior das sete: ninguém revê o código de que
+depende, e uma alteração happen no lugar errado muda o binário de todas
+as formas que continuam a passar os testes.
+
+O risco não é abstrato. Um crate com advisory de exaustão de memória
+ataca o `build`. Uma licença copyleft num crate novo, depois de
+publicado, torna a PolyForm Noncommercial impossível de cumprir. Um
+`package-lock.json` com um `to=` de redireccionamento controlado por
+input transforma a navegação da interface num redireccionamento aberto.
+
+Os controlos, e o que cada um **não** cobre:
+
+| Ameaça | Controlo | O que não cobre |
+| --- | --- | --- |
+| Advisory de segurança | `cargo audit`, `npm audit` | Não avalia a correcção, só a existência do aviso |
+| Licença copyleft | `cargo deny` com [`deny.toml`](../deny.toml) | Avalia o campo e a expressão SPDX declarados, não o texto da licença |
+| Segredo no histórico | `gitleaks` | Vê padrões conhecidos; um segredo com outro formato passa |
+| Acção maliciosa no CI | `uses:` por SHA de commit | Fixa **quem** executa, não **o que** o código faz depois de correr |
+| Dependência abandonada | Dependabot semanal | Actualiza; não decide se a actualização é segura |
+
+A licença tem uma excepção declarada e é a que mais dói: `cargo deny`
+confirma que hoje **nenhum** crate é GPL, AGPL, SSPL, OSL, EUPL, CDDL ou
+CC-BY-SA, mas confirma-o lendo o que o crate **declara**. Um crate que
+declare `MIT` e distribua GPL é exactamente o furo que nenhum scanner
+fecha. Por isso [`THIRD-PARTY.md`](../THIRD-PARTY.md) existe e declara
+esse limite por escrito.
+
+E o mesmo vale para o resto: um verificador que passa é uma medição, não
+uma promessa. O que está medido está em
+[`security_model.md`](security_model.md) §4.
 
 ---
 

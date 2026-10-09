@@ -32,7 +32,7 @@ Ed25519, conteúdo cifrado fim-a-fim.
 
 ---
 
-## As quatro áreas de segurança
+## As cinco áreas de segurança
 
 O OnyxChat distingue explicitamente quatro áreas diferentes — confundir
 umas com outras é a origem dos erros mais comuns em avaliação:
@@ -79,6 +79,70 @@ armazenamento de chaves    PBKDF2-HMAC-SHA256 + ChaCha20-Poly1305
 isolamento de processo     daemon separado do cliente
 swap                       /swapfile 0600 root:root; mlockall quando disponível
 ```
+
+### 5. Segurança da cadeia de fornecimentos
+
+Esta é a única das cinco cujas ameaças não chegam ao runtime: entram
+**antes** de haver binário.
+
+| Medida | Ferramenta | Bloqueia |
+| --- | --- | --- |
+| Segredos no histórico | `gitleaks` | padrões conhecidos |
+| Advisories de Rust | `cargo audit` | `RUSTSEC` de `Cargo.lock` |
+| Advisories de JavaScript | `npm audit` vs [`seguranca-excepcoes.toml`](../seguranca-excepcoes.toml) | advisories sem excepção declarada |
+| Licenças | `cargo deny` com [`deny.toml`](../deny.toml) | GPL, AGPL, SSPL, OSL, EUPL, CDDL, CC-BY-SA e busl alike |
+| Workflows | `zizmor` + `uses:` por SHA | injecção e acções mutáveis |
+
+`scripts/verificar_seguranca.sh` corre as cinco, **igual** localmente e
+no CI. Localmente uma ferramenta ausente é um skip anunciado; no CI, com
+`--exigir`, é falha.
+
+#### As quatro excepções que existem, e porque
+
+`npm audit` não tem ficheiro de excepções, e as duas saídas que oferece
+não servem: `--omit=dev` esconderia advisories das ferramentas que
+escrevem o bundle, e `--audit-level=critical` trocaria cobertura por
+silêncio. Por isso o relatório é comparado com uma lista, e cada entrada
+tem uma razão verificável no código e uma data de revisão.
+
+| Advisory | Porquê é aceite |
+| --- | --- |
+| `GHSA-vfj7-8cjw-p6xm` — `braces`, DoS | Só corre na **construção**, sobre os padrões glob do repositório. Sem correcção upstream. CVSS 7.5, e build-time |
+| `GHSA-rj75-hqrm-r3gf` — `postcss-selector-parser` | Mesma cadeia de construção, sobre o CSS do projecto. Sem input externo |
+| `GHSA-wrjc-x8rr-h8h6` — `react-router`, open redirect | O alvo de **todos** os `<Link to>` e `navigate()` é uma constante de `UI/src/lib/onyx/nav.js`; e `authReturnTo.js` rejeita `\`, `//` e o que não começa por `/` |
+| `GHSA-337j-9hxr-rhxg` — `react-router`, injecção de construtor | Só `deserializeErrors()`, de SSR Hydration. A aplicação é uma SPA: `hydrateRoot` e `renderToString` não aparecem em `UI/src/` |
+
+As duas do `react-router` desaparecem quando o 7.x entrar, que é uma
+major com mudanças na API de rotas. A excepção tem data de revisão para
+que essa migração não fique esquecida.
+
+#### O que estas cinco medidas **não** fazem
+
+Escrito aqui para não haver dúvida:
+
+* **Não** leem o texto da licença de um crate. Leem o campo declarado e
+  a expressão SPDX. Um crate que declare `MIT` e distribua GPL não é
+  apanhado por nenhum scanner.
+* **Não** avaliam se a correcção de um advisory é boa. Dizem que existe
+  um advisory e que se decidiu o que fazer com ele.
+* **Não** protectem o que o código faz depois de arrancar. Isso é fuzzing
+  ([`testing.md`](testing.md) §Fuzzing) e são as fronteiras de rede
+  acima.
+* **Não** cobrem Python, porque não há superfície: `pyproject.toml` tem
+  `dependencies = []` e quatro pacotes de desenvolvimento. Quando a
+  houver, o passo aparece.
+
+Por cima de tudo: **não há promessa de ausência de vulnerabilidades.** O
+que há é a fronteira declarada em [`threat_model.md`](threat_model.md) §A
+sétima fronteira, a auditoria a correr, e as excepções com as razões ao
+lado. Uma promessa do contrário seria o que
+[`SECURITY.md`](../SECURITY.md) diz para não fazer.
+
+#### Onde reportar
+
+[`SECURITY.md`](../SECURITY.md). Em resumo: issue privado ou o endereço
+em `COPYRIGHT.md`, **nunca** um issue público — a janela entre a
+descrição e a correcção é a janela em que o bug é explorado.
 
 ---
 

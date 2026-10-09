@@ -27,14 +27,39 @@ e um que não corre não protege nada.
 | --- | --- |
 | [`verificar_gitignore.sh`](../scripts/verificar_gitignore.sh) | O que está e o que não está versionado; os artefactos de fuzzing |
 | [`verificar_requisitos.sh`](../scripts/verificar_requisitos.sh) | Ferramentas em falta e versões abaixo do mínimo |
-| [`verificar_estrutura.py`](../scripts/verificar_estrutura.py) | A `Estrutura.txt` a afirmar ficheiros que não existem |
+| [`verificar_estrutura.py`](../scripts/verificar_estrutura.py) | A `Estrutura.txt` e o `UI/README.md` a afirmar ficheiros que não existem, **e a afirmar contagens erradas** de ficheiros, documentos, componentes e ecrãs |
 | [`verificar_roadmap.py`](../scripts/verificar_roadmap.py) | Um `PLANEADO` sem especificação — que, pela definição, é `CONCEITO` |
 | [`verificar_ambiente.py`](../scripts/verificar_ambiente.py) | A documentação ou os comentários a falar da máquina de quem escreve, ou de um momento que já passou |
+| [`verificar_seguranca.sh`](../scripts/verificar_seguranca.sh) | Segredos no histórico, advisories de Rust e de JavaScript, licenças copyleft e a integridade dos próprios workflows |
 | [`verificar_portugues.py`](../scripts/verificar_portugues.py) | Americanismos em código e documentos, em 14 linguagens |
 | [`verificar_frases.py`](../scripts/verificar_frases.py) | Sequências que não são de português |
 | [`verificar_comentarios.py`](../scripts/verificar_comentarios.py) | Americanismos só na prosa, sem apanhar identificadores |
 | [`verificar_alfabeto.py`](../scripts/verificar_alfabeto.py) | Caracteres fora do repertório português |
 | [`verificar_imports.py`](../scripts/verificar_imports.py) | Imports nomeados que não existem no módulo de destino |
+
+### As contagens dos documentos são verificadas
+
+Um mapa pode não nomear um ficheiro que passou a existir — é um índice
+seleccionado, e isso é legítimo. Mas um documento que diz «20
+documentos» está a afirmar uma **aritmética**, e uma aritmética errada é
+pior do que nenhuma: quem a usa para saber o tamanho de uma coisa recebe
+um número, não uma dúvida.
+
+Por isso [`verificar_estrutura.py`](../scripts/verificar_estrutura.py)
+confere as contagens das duas árvores com que o projecto tem —
+`Estrutura.txt` e o `UI/README.md`. Numa auditoria apanhou quatro: 19
+documentos (são 20, e faltava `conta.md` na lista), 8 ecrãs (são 11), 24
+componentes (são 45) e um ficheiro a menos em `components/ui/`.
+
+Duas decisões que os testes fixam, porque ambas deram erro primeiro:
+
+* **A unidade de indentação é medida, não constante.** `Estrutura.txt`
+  indenta com 4 colunas e `UI/README.md` com 3. Com a constante embutida,
+  `3 // 4` dava zero, e `components/onyx/` era procurado onde não está —
+  devolvendo zero **sem erro nenhum**.
+* **O que não é contável a partir do disco fica por medir.** `crates`,
+  `alvos` e `corpora` só um `cargo metadata` ou um `ls` de um directório
+  crate os dá; preferimos não conferir a conferir mal.
 
 ### A regra que não depende da máquina
 
@@ -80,6 +105,40 @@ que escrevem o erro de volta — coluna vazia, item nas duas tabelas,
 tabela em falta — e exigem que seja apanhado. A regra aplicável está em
 `docs/roadmap.md` §Como se decide.
 
+### A superfície que não é código
+
+Um teste cobre o que se escreve. Nenhum teste cobre o que se **traz**:
+uma crate com advisory, uma tag de `actions/` que alguém move, uma
+dependência com licença copyleft.
+
+[`verificar_seguranca.sh`](../scripts/verificar_seguranca.sh) corre as
+cinco verificações, e é o **mesmo** script na máquina de quem desenvolve
+e no CI. Localmente uma ferramenta ausente é um skip anunciado com o
+comando de instalação; no CI, com `--exigir`, é **falha** — porque uma
+auditoria que salta em silêncio é a forma mais cara de não ter auditoria.
+
+| Camada | Ferramenta | Superfície |
+| --- | --- | --- |
+| Segredos | `gitleaks` | histórico completo, não só a árvore |
+| Advisories de Rust | `cargo audit` | 548 crates |
+| Advisories de JS | `npm audit` comparado com as excepções | 32 pacotes, 14 de execução |
+| Licenças | `cargo deny` | copyleft, que tornaria a licença do projecto impossível |
+| Workflows | `zizmor` + `uses:` por SHA | injecção e acções mutáveis |
+
+`npm audit` não tem ficheiro de excepções, e as duas saídas que oferece
+não servem: `--omit=dev` esconderia advisories das ferramentas que
+escrevem o bundle, e `--audit-level=critical` trocaria cobertura por
+silêncio. Por isso o relatório é comparado com
+[`seguranca-excepcoes.toml`](../seguranca-excepcoes.toml) — e cada
+advisory aceite tem uma **razão verificável no código** e uma **data de
+revisão**. As quatro excepções que existem estão escritas em
+[`security_model.md`](security_model.md) §5.
+
+Detalhe de porquê em §A regra que não depende da máquina: a fixação de
+`uses:` por SHA segue a mesma lógica de
+[`UI/tools/versoes.txt`](../UI/tools/versoes.txt), que recusa
+descarregar o sumário do Node de quem o entrega.
+
 ### Os auditores de texto têm testes, e porquê
 
 Cada auditor tem um `tests/test_verificar_*.py` que não se limita a correr
@@ -88,7 +147,7 @@ a ferramenta: **introduz a divergência e exige que ela seja apanhada**.
 Um verificador que passa porque não viu nada é indistinguível, na saída,
 de um que funciona. Em 2026-10-07, `verificar_comentarios.py` devolvia
 lista vazia para ficheiros JavaScript — porque não conhecia o sufixo, e
-não por não haver nada a reportar — e a interface, 79 ficheiros
+não por não haver nada a reportar — e a interface, 91 ficheiros
 JavaScript versionados, estava por verificar sem que a saída dissesse
 nada. Um
 `assert not findings` não teria apanhado isso; um teste que escreve um
@@ -158,17 +217,17 @@ ctest --test-dir crypto/c_cpp/build
 
 # Python (pytest + cobertura, meta 100% de linhas) — com tecto
 # O passo mais barato de correr com o gate, e o que mais vezes se
-# esquecia: `scripts/testar.sh` põe-lhe 371 MB e mede o pico.
+# esquecia: `scripts/testar.sh` põe-lhe 389 MB e mede o pico.
 ./scripts/testar.sh --rapido
 
 # Ou directamente, com o mesmo tecto à mão:
-#   systemd-run --user --scope -p MemoryMax=371M -p OOMPolicy=kill -- \
+#   systemd-run --user --scope -p MemoryMax=389M -p OOMPolicy=kill -- \
 #       .venv/bin/pytest --cov
 
 # E2E com o binário real (TorFalso — sem rede)
 ./scripts/memoria.sh --pico -- cargo build --no-default-features
-F=$(mktemp) && systemd-run --user --scope -p MemoryMax=371M -p OOMPolicy=kill \
-    -- env ONYXCHAT_PICO="$F" ONYXCHAT_TECTO=371 ./scripts/memoria-envolver.sh \
+F=$(mktemp) && systemd-run --user --scope -p MemoryMax=389M -p OOMPolicy=kill \
+    -- env ONYXCHAT_PICO="$F" ONYXCHAT_TECTO=389 ./scripts/memoria-envolver.sh \
     .venv/bin/pytest tests/test_e2e_daemon.py tests/test_e2e_rede.py -q
 rm -f "$F"
 
@@ -184,7 +243,7 @@ Ou num comando, que é o caminho recomendado: `./scripts/testar.sh`
 (matriz 1–5) e `./scripts/testar.sh --cobertura` (acrescenta as
 coberturas). O script aplica o gate a todos os passos Rust **e ao
 `pytest`**, que desde 2026-10-07 corre dentro de uma scope com
-`MemoryMax` de 371 MB.
+`MemoryMax` de 389 MB.
 
 ### A regra que a matriz impõe
 
@@ -216,7 +275,7 @@ de RAM**, `opt-level = 0`, `debug = line-tables-only`, `-j1`.
 | `cargo check --workspace --no-default-features` | 103 | 265 MB | 5 s (incremental) |
 | `cargo test --workspace --no-default-features --features docs` | 103 | **547 MB** | ~45 s (incremental) |
 | `cargo check -p onyxchatd --features tor-real` | 458 | **931 MB** | ~9 min |
-| `pytest --cov` (suite Python completa) | — | **71 MB** | ~2 min |
+| `pytest --cov` (suite Python completa) | — | **89 MB** | ~2 min |
 
 A última linha da tabela Rust desceu de **1156 MB para 931 MB**, e a
 razão está em §A verificação da arti sem fechar o editor.
@@ -228,9 +287,9 @@ de uma vez, sem confinamento, e o editor levou com ela.
 
 > **Medido em 2026-10-07**, i3-5005U, 3,8 GB, `MemAvailable` de ~1200 MB
 > com o editor aberto. O tecto que `scripts/testar.sh` põe ao `pytest`
-> é de 371 MB (71 + 300 de margem); medido dentro da scope, o pico foi
-> de **74 MB**. Os passos Rust com tecto de 847 MB mediram 677 MB
-> (suite) e 93 MB (build incremental).
+> é de **389 MB** (89 + 300 de margem), e 89 MB é o pior pico
+> observado — ver §Execuções registadas. Os passos Rust com tecto de
+> 847 MB mediram 677 MB (suite) e 93 MB (build incremental).
 
 O número que interessa é o da arti: **os 458 crates precisam de 931 MB**,
 e a máquina com o editor aberto dá cerca de 850 utilizáveis. A diferença
@@ -455,129 +514,58 @@ inteira dá `Usage: cargo-fuzz build` e código 2 — foi o que a primeira
 versão deste passo fez, e o sumário da matriz acusou a falha sem dizer
 qual dos seis era.
 
-### Execução registada
+### Execuções registadas
 
-```text
-Data:  2026-10-07
-Rust:  nightly 1.101.0 (db8f076d2 2026-10-03)
-Runs:  2000 por alvo, 12000 no total
-```
+**Um pico de memória é a observação de uma execução, não uma propriedade
+do código.** Depende da máquina, do que estava em cache, do número de
+ficheiros que o `pytest` recolhe e — neste projecto — de quantos
+auditores cada teste de auditor corre num subprocesso. Duas execuções do
+mesmo commit dão números diferentes, e ambos são verdadeiros.
 
-| alvo | execuções | pico | resultado |
-| --- | --- | --- | --- |
-| `envelope_parser` | 2000 | 35 MB | ok |
-| `handshake_parser` | 2000 | 42 MB | ok |
-| `ipc_parser` | 2000 | 95 MB | ok |
-| `k4_decoder` | 2000 | 36 MB | ok |
-| `k7_decoder` | 2000 | 35 MB | ok |
-| `relay_parser` | 2000 | 93 MB | ok |
+Por isso o registo é uma tabela datada, e não um número solto. Um número
+solto envelhece sozinho e deixa de ser verdade: em 2026-10-07 este
+documento afirmava três picos diferentes para a mesma medição — 71 MB,
+74 MB e 81 MB — e as execuções desse dia mediram 75, 78, 78 e 89 MB.
+Nenhum dos cinco estava errado; o que estava errado era **afirmar um
+número como se fosse estável**.
 
-Nenhum crash, e `fuzz/artifacts/onyxchat-fuzz/` vazio. A matriz com
-`--fuzz` deu **23 passos ok, 0 falhados**.
-
-> **O que um smoke não prova.** 2000 execuções por alvo é uma verificação
-> de que o alvo corre, não uma procura de bugs. Uma sessão que ache
-> alguma coisa é `cargo fuzz run <alvo>` sem `-runs`, deixada a correr
-> até aparecer um crash — e o que aparece vai para
-> `fuzz/artifacts/onyxchat-fuzz/`, onde a matriz o reporta por alto em
-> vez de o apagar.
-
-Cada alvo vai **além** de «não crashar» — verifica uma propriedade de
-round-trip sobre o input aceite (reenquadrar reproduz os bytes
-consumidos; cifrar(decifrar(x)) == x; um envelope aceite
-re-serializa-se byte a byte igual).
-
-### Corpora de seed
-
-Os corpora são **gerados** por `cargo vectors` a partir de
-`tests/vectors/*.json` e versionados. Sem seeds válidas, o libFuzzer não
-ganha profundidade nos ramos que interessam (envelope válido, corpo de
-handshake válido, limites exactos).
-
-```bash
-# regenerar os JSON, o documento legível e os corpora
-cargo vectors
-```
-
-São 57 seeds em 292 KB, e chegaram ao índice por uma correção de três
-`.gitignore` que nenhum teste apanhava.
-
-**Um `.gitignore` filho não pode re-incluir o que o pai ignora.** A raiz
-tinha `fuzz/corpus/`, que ganha sobre a re-inclusão de
-`fuzz/.gitignore` — as seeds estavam todas no disco e nenhuma no índice,
-e um clone continuava a começar com os 6 alvos vazios.
-
-**`corpus/*` não desce ao conteúdo.** O `*` do Git não atravessa `/`:
-`corpus/k4_decoder` casava, `corpus/k4_decoder/abcd1234.bin` ficava sem
-regra nenhuma. É o mesmo buraco pelo outro lado, e a verificação
-apanhou-o logo que se procurou.
-
-**O `cargo fuzz` grava inputs com o nome `<sha1>.bin`, sem prefixo.** O
-gerador de seeds usa `{índice:02}-{hex}.bin`. Um padrão largo
-(`[0-9][0-9]-*.bin`) aceitaria os dois, e o corpus versionado cresceria a
-cada execução. O padrão é `NN-<hex>.bin` com `NN` hexadecimal.
-
-As três regras estão agora em `fuzz/.gitignore`, ao pé dos ficheiros a
-que pertencem, e `scripts/verificar_gitignore.sh` tem casos nos dois
-sentidos: uma seed que deixe de estar versionada, e um input do fuzzing
-que entre por engano.
-
----
-
-## Cobertura
-
-| Linguagem | Ferramenta | Meta | Medido | Quando |
+| Data | Passo | Pico | Tecto | Nota |
 | --- | --- | --- | --- | --- |
-| Rust | `cargo-llvm-cov` | 100% de linhas | **99,38%** (45 de 7206) | 2026-10-07 |
-| C/C++ | `gcovr` | 100% de linhas | **100%** (74/74) | 2026-10-07 |
-| Python | `coverage.py` | 100% de linhas | **100%** (2307/2307) | 2026-10-07 |
+| 2026-10-07 | `pytest --cov` | 89 MB | 389 MB | pior observado; 46 testes de auditores |
+| 2026-10-07 | `pytest --cov` | 78 MB | 389 MB | execução intermédia |
+| 2026-10-07 | `pytest --cov` | 75 MB | 389 MB | execução mais leve |
+| 2026-10-07 | `cargo check --features tor-real` | 931 MB | 1051 MB RAM + swap | — perfil de referência |
+| 2026-10-07 | `cargo test --workspace --features docs` | 677 MB | 847 MB | 399 testes |
+| 2026-10-07 | `ctest` (C/C++) | 2 MB | sem tecto | 3/3 |
 
-> **A afirmação anterior estava errada.** Dizia «99,79%, 12 linhas, e
-> as 12 são ramos defensivos inatingíveis». Re-medido em 2026-10-07 são
-> **45 linhas**, e a maior parte é alcançável: `orcaa()` nunca testava o
-> override recusado, `limite_ligacoes()` nunca lia a variável de
-> ambiente, `caminho_estado()` nunca descia abaixo do primeiro degrau, e
-> o carregamento do anti-replay não distinguishia magic errada de lixo.
-> As 12 linhas eram uma medição de 2026-10-05 que deixou de ser verdade
-> à medida que o código cresceu.
+O tecto do `pytest` é `PICO_PYTEST_MB + 300` em `scripts/testar.sh`, e
+`PICO_PYTEST_MB` é o **pior observado** — não uma média, e não um
+número redondo. Subiu de 71 para 89 MB em 2026-10-07: a referência estava
+abaixo do que a máquina já pedia, e um tecto calculado a partir de um
+pico que não acontece é um tecto calculado às cegas.
 
-O Python passou de 1224 para 2307 linhas em 2026-10-07: a Etapa 5
-(sidecar, loja, rotas) e as chaves de amizade dentro do keystore
-acrescentaram cerca de mil. A meta voltou a bater duas vezes — de
-96,89% para 100% pelas rotas do sidecar, e de 99,74% para 100% pelas
-amizades, cujas seis linhas por cobrir eram o `SystemExit` de cancelar a
-frase e a validação do comprimento das chaves.
-
-Cada vez que a cobertura apanhou uma lacuna, a lacuna era **alcançável**
-e o teste existia em dez linhas. Nenhuma das duas vezes foi preciso
-declarar uma excepção.
-
-**A meta é 100%. O Rust não a atinge, e a diferença está declarada
-abaixo.** Uma tabela que diz «100%» sem relatório é uma afirmação, não
-uma medição.
-
-### Execução registada
+### A última execução completa
 
 ```text
 Data:     2026-10-07 (o registo anterior: 2026-10-05 12:26 UTC)
 Rust:     rustc 1.98.1 (48a229cea 2026-09-01)
 Python:   3.12.3 · pytest 9.1.1
 CMake:    3.28.3
-RAM:      3,8 GB, MemAvailable ~1080 MB com o editor aberto
+Perfil de referência: 2 núcleos, 3,8 GB de RAM, sem swap
 ```
 
 Todos os passos Rust e o `pytest` correram dentro de uma scope com
-`MemoryMax`. Os picos foram medidos de dentro, e estão em §Gate de
-hardware.
+`MemoryMax`. Os picos estão na tabela acima.
 
 | Matriz | Resultado | Pico | Tecto |
 | --- | --- | --- | --- |
 | `cargo test --workspace --no-default-features --features docs` | **399 ok**, 0 falhados | 677 MB | 847 MB |
 | `ctest --test-dir crypto/c_cpp/build` | **3/3 ok** | 2 MB | sem tecto (medido) |
-| `.venv/bin/pytest --cov` | **ok**, cobertura **100,00%** (2307/2307) | 81 MB | 371 MB |
-| `pytest tests/test_e2e_{daemon,rede,sidecar}.py` | **34 ok** | 43 MB | 371 MB |
+| `.venv/bin/pytest --cov` | **ok**, cobertura **100,00%** (2307/2307) | 89 MB | 389 MB |
+| `pytest tests/test_e2e_{daemon,rede,sidecar}.py` | **34 ok** | 43 MB | 389 MB |
 | `cargo build --no-default-features` | ok | 93 MB | 847 MB |
-| `cargo check -p onyxchatd --features tor-real` | **ok** — `Compiling onyxchatd` | 931 MB | RAM 1051 MB + 1321 MB de swap |
+| `cargo check -p onyxchatd --features tor-real` | **ok** — `Compiling onyxchatd` | 931 MB | RAM 1051 MB + swap |
+
 
 A última linha é a que era recusada antes do gate passar a contar RAM e
 swap em tectos separados. Ver §A verificação da arti sem fechar o

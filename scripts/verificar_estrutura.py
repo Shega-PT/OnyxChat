@@ -61,6 +61,7 @@ o pai dos seus próprios filhos, porque é assim que o mapa está escrito.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -154,15 +155,57 @@ _TABELA = re.compile(r"\|\s*`?~?([\w./+-]+\.[a-z]+)`?\s*\|")
 
 
 #: «20 documentos», «45 componentes», «Os 11 ecrãs».
+#: As palavras compostas vêm **primeiro** na alternativa. Numa alternância
+#: o Python devolve a primeira que casa, e `ficheiros` casa antes de
+#: `ficheiros JavaScript versionados` — o que faria o número ser
+#: contado por todos os ficheiros em vez dos de JavaScript, sem erro
+#: nenhum. A ordem não é um detalhe de estilo: é o que decide o que a
+#: frase quer dizer.
 _CONTAGEM = re.compile(
     r"\b(?:Os\s+|As\s+|os\s+|as\s+)?(\d+)\s+"
-    r"(documentos|componentes|ecrãs|vistas|páginas|ficheiros|testes|"
-    r"crates|alvos|corpora)\b"
+    r"(ficheiros JavaScript versionados|sementes"
+    r"|documentos|componentes|ecrãs|vistas|páginas|ficheiros|testes"
+    r"|crates|alvos|corpora)\b"
 )
 
 #: O que conta, por substantivo. Um substantivo sem lista conta tudo o que
 #: não é directório, o que é a leitura que uma pessoa faz e a que um
 #: verificador tem de fazer igual.
+#: Extensões que o projecto chama «ficheiros JavaScript». A lista é
+#: escrita uma vez e usada pelas contagens, para que acrescentar
+#: ``.mjs`` ao comando do interface não obrigue a mudar também a prosa.
+EXTENSOES_JAVASCRIPT = (".js", ".jsx", ".mjs", ".cjs")
+
+
+def indexados(directorio: Path) -> set[str]:
+    """Os caminhos **versionados** sob um directório.
+
+    ## Porque é que isto é uma função, e não `git ls-files | wc -l`
+
+    Porque a diferença entre o disco e o índice é a lição inteira de
+    B6. As sementes de fuzzing estavam todas no disco e **nenhuma** no
+    índice: 173 ficheiros, 50 versionados. Um portão que conta o disco
+    diz que o corpus tem 173 sementes, e quem lê acredita — porque o
+    ficheiro está ali, à vista.
+
+    E `git ls-files` inclui o que está indexado **e** o que foi apagado
+    na árvore de trabalho. Para esta contagem isso é o certo: o que
+    interessa é o que um `clone` recebe, e um ficheiro indexado que foi
+    apagado localmente ainda lá vai para quem clonar. Sem o filtro
+    `is_file()`, um `git rm` sem `--cached` contaria como versionado.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "ls-files", "--", str(directorio)],
+            capture_output=True, text=True, cwd=RAIZ, check=False,
+        )
+    except OSError:
+        return set()
+    if r.returncode != 0:
+        return set()
+    return {linha for linha in r.stdout.split("\n") if linha}
+
+
 def _conta(directorio: Path | None, substantivo: str) -> int | None:
     """Quantos ficheiros há, contados à maneira de quem escreve.
 
@@ -171,10 +214,13 @@ def _conta(directorio: Path | None, substantivo: str) -> int | None:
     ``testes`` contam ficheiros a qualquer profundidade — que é o que se
     vê numa árvore com sub-directórios.
 
-    Devolve ``None`` quando o substantivo não é contável a partir do
-    disco — ``crates``, ``alvos`` e ``corpora`` só um ``cargo metadata``
-    ou um ``ls`` de um directório crate os dá. Deixar por medir é
-    honesto; medir mal não é.
+    ``sementes`` e ``ficheiros JavaScript versionados`` contam no
+    **índice**, e não no disco, porque é isso que a palavra «versionado»
+    quer dizer. Ver `indexados`.
+
+    Devolve ``None`` quando o substantivo não é contável — ``crates``,
+    ``alvos`` e ``corpora`` só um `cargo metadata` ou um `ls` de um
+    directório crate os dá. Deixar por medir é honesto; medir mal não é.
     """
     if directorio is None or not directorio.is_dir():
         return None
@@ -184,6 +230,13 @@ def _conta(directorio: Path | None, substantivo: str) -> int | None:
         return len([p for p in directorio.rglob("*") if p.is_file()])
     if substantivo == "ficheiros":
         return len([p for p in directorio.rglob("*") if p.is_file()])
+    if substantivo == "sementes":
+        return len(indexados(directorio))
+    if substantivo == "ficheiros JavaScript versionados":
+        return len({
+            c for c in indexados(directorio)
+            if c.endswith(EXTENSOES_JAVASCRIPT)
+        })
     return None
 
 
@@ -339,15 +392,20 @@ def ficheiros_reais() -> set[str]:
 #: Onde cada documento com árvore tem a raiz da sua árvore. `UI/README.md`
 #: desenha a árvore a partir de `src/`, e não da raiz do repositório —
 #: por isso cada documento declara a sua.
-# Cada documento com árvore declara a sua raiz. A do `UI/README.md` é
-# `UI/`, e não `UI/src/`, porque a árvore **inclui** `src/` como entrada
-# — o mesmo que acontece no `Estrutura.txt`, onde `crypto/` é uma linha
-# da árvore e não um contexto. Declarar mal isto faz `src/components/onyx`
-# ser procurado em `UI/src/src/components/onyx`, que não existe, e a
-# contagem devolve zero sem erro nenhum.
+# Onde cada documento com árvore tem a sua raiz.
+#
+# Ambas as árvores começam pelo nome do projecto ou do directório de topo
+# (`onyxchat/` na `Estrutura.txt`, `UI/` no `UI/README.md`), por isso os
+# caminhos que saem da pilha **já trazem o prefixo** e a raiz é a mesma
+# nos dois: a raiz do repositório.
+#
+# Declarar `UI/` como raiz aqui era o erro natural a cometer — e o
+# resultado era `UI/UI/src/components/onyx`, que não existe, e uma
+# contagem de zero **sem qualquer erro**, que é a forma mais cara de um
+# verificador falhar.
 RAIZES_DAS_ARVORES = {
     "Estrutura.txt": None,
-    "UI/README.md": RAIZ / "UI",
+    "UI/README.md": None,
 }
 
 

@@ -1,4 +1,5 @@
 # =====================================================================
+
 # OnyxChat — matriz de verificação
 # ---------------------------------------------------------------------
 # Corre a mesma matriz que `./scripts/testar.sh` corre localmente.
@@ -21,6 +22,27 @@
 # Documentação: `docs/testing.md` §Como correr.
 # =====================================================================
 
+# Os `uses:` são fixados por **SHA de commit**, e o nome do tag fica
+# no comentário ao lado de cada um.
+#
+# ## Porque é que, se `UI/tools/versoes.txt` recusa uma tag mutável
+#
+# Porque é o mesmo argumento, contra o mesmo projecto. Aquele ficheiro
+# recusa descarregar `SHASUMS256.txt` do nodejs.org no momento da
+# instalação: quem emite os sumários e quem entrega o pacote é a mesma
+# entidade, e um `git diff` vazio enquanto a versão muda não é
+# reprodutibilidade.
+#
+# `actions/checkout@v4` é uma tag que pode ser movida. Quem a move ganha
+# código executado no runner com as permissões do workflow — e o
+# `git diff` continua vazio.
+#
+# `zizmor` verifica isto em cada execução (`.github/workflows/`), o que
+# transforma a boa intenção numa regra. Os SHA foram resolvidos pela API
+# do GitHub, não decorados de lado nenhum.
+#
+# Para actualizar: `git ls-remote https://github.com/actions/checkout <tag>`
+# e trocar o SHA, deixando o tag novo no comentário.
 name: verificação
 
 on:
@@ -68,7 +90,8 @@ jobs:
 
     steps:
       - name: obter o código
-        uses: actions/checkout@v4
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Rust com `rustup`
         # O runner já traz Rust, mas uma toolchain nomeada é
@@ -126,7 +149,8 @@ jobs:
 
     steps:
       - name: obter o código
-        uses: actions/checkout@v4
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Rust com `rustup`
         run: |
@@ -140,7 +164,8 @@ jobs:
               cmake pkg-config libssl-dev
 
       - name: cache do cargo
-        uses: actions/cache@v4
+        # v4.2.2
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf
         with:
           path: |
             ~/.cargo/registry
@@ -171,7 +196,8 @@ jobs:
 
     steps:
       - name: obter o código
-        uses: actions/checkout@v4
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Rust nightly
         run: |
@@ -220,7 +246,8 @@ jobs:
 
     steps:
       - name: obter o código
-        uses: actions/checkout@v4
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: dependências de sistema
         # `xz` para descompactar o pacote do Node, e `curl` para o ir

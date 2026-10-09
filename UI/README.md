@@ -182,7 +182,7 @@ UI/
    ├─ components/
    │  ├─ onyx/                # 45 componentes do sistema de design
    │  ├─ AuthLayout.jsx       # invólucro dos ecrãs de acesso
-   │  └─ ui/                  # ⚠ 7 componentes vendorizados do shadcn
+   │  └─ ui/                  # ⚠ 8 ficheiros do shadcn (7 componentes + 1 gancho)
    └─ pages/                  # Os 11 ecrãs
 ```
 

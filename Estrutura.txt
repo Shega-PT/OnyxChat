@@ -29,11 +29,17 @@ confere-o em cada push.
 ├─ .cargo/config.toml       # Perfis e aliases (`cargo release-tor`, …)
 ├─ pyproject.toml           # Metadados e ferramental do Python
 ├─ .gitignore               # O que **não** é versionado; ver §Gerados
+├─ SECURITY.md             # Onde reportar uma vulnerabilidade
+├─ seguranca-excepcoes.toml # Advisories aceites, com razão e data de revisão
+├─ deny.toml                # Licenças proibidas: a PolyForm não admite copyleft
 ├─ Estrutura.txt             # Este ficheiro: o índice, conferido por
 │                           # `scripts/verificar_estrutura.py`
-├─ .github/workflows/        # Integração contínua; ver docs/testing.md
-│   ├─ portoes.yml           # portões de entrega, em cada push
-│   └─ verificacao.yml       # matriz, Tor, fuzzing e interface
+├─ .github/
+│   ├─ workflows/
+│   │   ├─ portoes.yml       # portões de entrega, em cada push
+│   │   ├─ verificacao.yml   # matriz, Tor, fuzzing e interface
+│   │   └─ seguranca.yml     # auditoria; corre também agendada
+│   └─ dependabot.yml       # actualização semanal das dependências
 ├─ README.md                # Ponto de entrada
 ├─ LICENSE                  # PolyForm Noncommercial 1.0.0
 ├─ COPYRIGHT.md             # Titular dos direitos de autor
@@ -83,7 +89,8 @@ confere-o em cada push.
 ├─ verificar_alfabeto.py    # Caracteres fora do repertório português
 ├─ verificar_imports.py     # Cada import nomeado existe mesmo
 ├─ verificar_estrutura.py   # Este ficheiro bate com a árvore real
-└─ verificar_roadmap.py    # Os rótulos PLANEADO/CONCEITO batem com a definição
+├─ verificar_roadmap.py    # Os rótulos PLANEADO/CONCEITO batem com a definição
+└─ verificar_seguranca.sh  # Segredos, advisories, licenças e os workflows
 
 
 # 1. Criptografia
@@ -187,7 +194,7 @@ user/
 
 # 6. Interface
 # React + Vite. `src/` é o que se escreve; o resto é ferramental.
-UI/
+UI/                           # 91 ficheiros JavaScript versionados
 ├─ README.md                # Padrões, decisões e o que a interface promete
 ├─ package.json
 ├─ src/
@@ -229,6 +236,7 @@ tests/                      # pytest: unidade, integração e E2E
 ├─ test_verificar_comentarios.py # A extracção de prosa alcança o JS
 ├─ test_verificar_estrutura.py   # A `Estrutura.txt` bate com a árvore
 ├─ test_verificar_roadmap.py     # Os rótulos do roadmap batem com a definição
+├─ test_verificar_npm_auditoria.py  # O relatório do `npm audit` vs as excepções
 ├─ test_e2e_daemon.py       # E2E com o binário e Tor desligado
 ├─ test_e2e_sidecar.py      # E2E do sidecar com daemon real
 ├─ test_e2e_rede.py         # E2E: dois daemons ligados por relé
@@ -243,7 +251,7 @@ fuzz/
 ├─ fuzz_targets/
 │   ├─ envelope_parser.rs  handshake_parser.rs  ipc_parser.rs
 │   └─ k4_decoder.rs  k7_decoder.rs  relay_parser.rs
-└─ corpus/                  # Sementes versionadas; o resto é ignorado
+└─ corpus/                  # 50 sementes versionadas; o resto é ignorado
 
 
 # Mapa das nove camadas
