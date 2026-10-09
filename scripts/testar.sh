@@ -50,6 +50,35 @@ VENV="$RAIZ/.venv"
 PYTEST="$VENV/bin/pytest"
 COVERAGE="$VENV/bin/coverage"
 
+# O interpretador dos **auditadores**, e é deliberadamente o do sistema e
+# não o do virtualenv.
+#
+# Estes três verificadores usam só a biblioteca padrão — `pathlib`,
+# `re`, `tomllib` — e leem a árvore do projecto. Não precisam do
+# virtualenv, e é por isso que correm mesmo quando o `pytest` é saltado:
+# um gate de documentação que desaparece junto com o ambiente de testes
+# é um gate que só existe em metade das máquinas.
+#
+# ## Porque é que este caminho existe, e não um bit de execução
+#
+# Porque os auditadores são ficheiros Python sem shebang, e é por isso
+# que vivem a `100644` no índice — o bit de execução em ficheiro sem
+# shebang não serve para nada, e pior: o kernel entrega-o ao shell, que o
+# tenta ler como script. Foi exactamente o que aconteceu a
+# `verificar_estrutura.py`, que chegou a estar `100755` sem shebang e
+# produziu uma parede de `linha 59: split('.'): erro de sintaxe` — o
+# shell a tentar executar Python.
+#
+# Invocar por `python3` é o que `portoes.yml` já fazia, e as duas coisas
+# dizerem o mesmo é o que faz um clone funcionar sem preparação: o bit de
+# execução passa a ser uma conveniência local, não um requisito.
+PYTHON="$(command -v python3 || true)"
+if [[ -z "$PYTHON" ]]; then
+    # Sem `python3` não há auditor de texto nenhum, e dizer isso em voz
+    # alta vale mais do que três passos a falharem com «no such file».
+    printf '%s\n' 'aviso: sem python3 no PATH — os auditadores de texto não vão correr' >&2
+fi
+
 # Directório de build do C/C++.
 BUILD_CPP="$RAIZ/crypto/c_cpp/build"
 
@@ -416,20 +445,20 @@ fi
 # RAM a correr a matriz.
 titulo "3b. Estrutura — o mapa b com a árvore?"
 passo "verificar_estrutura.py" \
-    "$RAIZ/scripts/verificar_estrutura.py"
+    "$PYTHON" "$RAIZ/scripts/verificar_estrutura.py"
 
 # Os rótulos do roadmap não custam RAM, e um `PLANEADO` sem
 # especificação é uma promessa que o código não pode cumprir. Vai
 # depois da estrutura porque as duas coisas são sobre documentos que
 # descrevem o código, e antes do `pytest` porque é instantâneo.
 passo "verificar_roadmap.py" \
-    "$RAIZ/scripts/verificar_roadmap.py"
+    "$PYTHON" "$RAIZ/scripts/verificar_roadmap.py"
 
 # A documentação não pode falar da máquina de quem a escreve: um pico de
 # RAM é propriedade do build, e a máquina só decide se cabe. Este passo
 # lê cerca de 240 ficheiros e não compila nada.
 passo "verificar_ambiente.py" \
-    "$RAIZ/scripts/verificar_ambiente.py"
+    "$PYTHON" "$RAIZ/scripts/verificar_ambiente.py"
 
 # A superfície de ataque que não é código. Vai depois dos portões de
 # texto porque é a única que precisa de rede e de ferramentas externas,

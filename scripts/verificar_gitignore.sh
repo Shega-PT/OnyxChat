@@ -444,6 +444,21 @@ verificar_execucavel "scripts/verificar_gitignore.sh" \
   "este próprio verificador"
 verificar_execucavel "scripts/verificar_requisitos.sh" \
   "USER_GUIDE.md §1.1.1 manda correr ./scripts/verificar_requisitos.sh"
+# `verificar_seguranca.sh` entrava no `testar.sh` e no workflow
+# `seguranca.yml` como `./scripts/verificar_seguranca.sh`, e não estava
+# nesta lista. Um clone que lhe tirasse o bit transformava a auditoria de
+# segurança num `Permission denied` — e o portão de permissões do
+# `portoes.yml`, que também o esquecia, dizia «ok». Um ficheiro que dois
+# workflows executam directamente tem de estar na lista; não estar é o
+# ficheiro desaparecer sem que nada diga que era preciso.
+#
+# A razão vai **sem** crases porque o `printf` recebe-a em aspas duplas:
+# uma crase dentro de aspas duplas é substituição de comandos, e o shell
+# ia tentar correr `testar.sh` como um programa. Foi o que aconteceu à
+# primeira versão desta linha, e o aviso saiu dizer
+# «testar.sh: comando não encontrado» no meio de um portão que passava.
+verificar_execucavel "scripts/verificar_seguranca.sh" \
+  "a auditoria de segurança; testar.sh e o workflow seguranca.yml correm-na directamente"
 verificar_execucavel "scripts/medir-arti.sh" \
   "mede o pico da verificação da arti; sem o bit mede-se com o comando errado"
 verificar_execucavel "UI/tools/instalar.sh" \
@@ -454,9 +469,17 @@ verificar_execucavel "UI/tools/onyxchat" \
 echo
 echo "──────────────────────────────────────────────────────────"
 if (( FALHAS == 0 )); then
+  # O `9` é a contagem de `verificar_execucavel` acima. Está escrito à mão
+  # em vez de contado, e um número fixo que mente é pior do que um número
+  # que se mantém: a linha de summary é o que se lê quando se quer saber o
+  # que o portão cobriu, e «8» quando a lista tem nove lê-se como «falhou
+  # um e não percebo qual». Para contar em vez de escrever, o `9` passa a
+  # ser `${#EXECUTAVEIS[@]}` e cada `verificar_execucavel` acrescenta o
+  # nome — que é a forma de isto deixar de ser um número que alguém tem de
+  # lembrar de actualizar.
   printf '\033[0;32m%s\033[0m — %d artefactos, %d fontes, %d executáveis, %d pendência(s), %d por versionar\n' \
     "todas as verificações passam" \
-    "${#ARTEFACTOS[@]}" "${#FONTES[@]}" 8 "${#PENDENCIAS[@]}" "$POR_VERSIONAR"
+    "${#ARTEFACTOS[@]}" "${#FONTES[@]}" 9 "${#PENDENCIAS[@]}" "$POR_VERSIONAR"
   exit 0
 fi
 printf '\033[1;31m%d falha(s)\033[0m\n' "$FALHAS"

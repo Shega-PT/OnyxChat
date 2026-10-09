@@ -64,6 +64,14 @@ jobs:
           # segredo que foi introduzido e apagado numa segunda
           # utilização continua no `git clone`.
           fetch-depth: 0
+          # O `checkout` grava um `GITHUB_TOKEN` num ficheiro local e
+          # deixa-o à disposição dos passos seguintes. Nenhum workflow
+          # deste projecto escreve no repositório, por isso o token não
+          # serve para nada aqui — e um token deitado fora é um token que
+          # um passo a correr `cargo install` ou a descarregar um pacote
+          # não pode usar. É o que o `zizmor` exige em cada `checkout`,
+          # e `zizmor --offline` é o que o transformou em regra.
+          persist-credentials: false
 
       - name: Rust com `rustup`
         # Nomeada, não a do runner: o relatório diz com que versão
@@ -78,14 +86,48 @@ jobs:
         # As três que não vêm no runner. `cargo install` compila, o que
         # é lento — daí a acção do cache abaixo, que faz a diferença
         # entre um workflow de seis minutos e um de vinte.
+        #
+# ## `gnu`, e não `musl`
+        #
+        # O `zizmor` publica um binário estático por plataforma, e o nome
+        # do artefacto diz `-unknown-linux-gnu`. O passo pedia
+        # `-unknown-linux-musl`, que esse mesmo repositório nunca publicou
+        # em nenhuma versão: o `curl -sSfL` recebia um 404, o `tar` de
+        # suite recebia um corpo vazio, e o job morria a instalar
+        # ferramentas — sem chegar a auditar uma única dependência. É o
+        # pior sítio para uma falha: antes de qualquer verificação, e
+        # longe do que a pessoa viria depois procurar.
+        #
+        # Confirma-se pela API do GitHub, e não por tentativa, antes de
+        # fixar um SHA:
+        #
+        #   curl -sSL https://api.github.com/repos/woodruffw/zizmor/releases \
+        #     | python3 -c 'import json,sys; [print(a["name"]) \
+        #         for a in json.load(sys.stdin)[0]["assets"]]'
+        #
+        # ## `./zizmor`, e não `zizmor`
+        #
+        # Dentro do `.tar.gz` o ficheiro chama-se `./zizmor`, com o `./` à
+        # frente — e o `tar xz` exige o nome **exacto**. Pedir `zizmor`
+        # respondia «not found in archive» e saía != 0. A citação fica na
+        # língua original porque é a palavra que o utilizador vai ler no
+        # log à procura da causa — traduzi-la de nada serviria.
+        #
+        # Esta era a **segunda** falha do mesmo passo, escondida pela
+        # primeira. Duas falhas empilhadas no mesmo `run` são a pior
+        # combinação possível: corrigir a primeira só revela a segunda, e
+        # só depois de se gastar uma execução inteira a descobrir isso.
+        #
+        # Já o `gitleaks` usa `gitleaks` sem `./`, e o seu `tar xz` está
+        # certo. Fica escrito aqui para a próxima não se parecer com esta.
         run: |
             cargo install cargo-audit --locked
             cargo install cargo-deny --locked
             curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz \
               | tar xz gitleaks
             sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
-            curl -sSfL https://github.com/woodruffw/zizmor/releases/download/v1.11.0/zizmor-x86_64-unknown-linux-musl.tar.gz \
-              | tar xz zizmor
+            curl -sSfL https://github.com/woodruffw/zizmor/releases/download/v1.11.0/zizmor-x86_64-unknown-linux-gnu.tar.gz \
+              | tar xz ./zizmor
             sudo install -m 0755 zizmor /usr/local/bin/zizmor
             gitleaks version
             cargo audit --version

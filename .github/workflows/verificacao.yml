@@ -41,6 +41,13 @@
 # transforma a boa intenção numa regra. Os SHA foram resolvidos pela API
 # do GitHub, não decorados de lado nenhum.
 #
+# E o `zizmor` também impõe `persist-credentials: false` em cada
+# `actions/checkout`, pela razão de ser dele: o `checkout` guarda um
+# token de `GITHUB_TOKEN` num ficheiro de configuração local, e um passo
+# seguinte que corra código de um pacote externo — um `npm install`, um
+# script de construção — fica com esse token à disposição. Nenhum workflow
+# deste projecto escreve no repositório, portanto ninguém precisa dele.
+#
 # Para actualizar: `git ls-remote https://github.com/actions/checkout <tag>`
 # e trocar o SHA, deixando o tag novo no comentário.
 name: verificação
@@ -92,6 +99,15 @@ jobs:
       - name: obter o código
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # O `checkout` grava um `GITHUB_TOKEN` num ficheiro local e
+          # deixa-o à disposição dos passos seguintes. Nenhum workflow
+          # deste projecto escreve no repositório, por isso o token
+          # não serve para nada aqui — e um token deitado fora é um
+          # token que um passo a correr código de um pacote externo
+          # não pode usar. É o que o `zizmor` exige em cada `checkout`,
+          # e `zizmor --offline` é o que o transformou em regra.
+          persist-credentials: false
 
       - name: Rust com `rustup`
         # O runner já traz Rust, mas uma toolchain nomeada é
@@ -151,6 +167,15 @@ jobs:
       - name: obter o código
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # O `checkout` grava um `GITHUB_TOKEN` num ficheiro local e
+          # deixa-o à disposição dos passos seguintes. Nenhum workflow
+          # deste projecto escreve no repositório, por isso o token
+          # não serve para nada aqui — e um token deitado fora é um
+          # token que um passo a correr código de um pacote externo
+          # não pode usar. É o que o `zizmor` exige em cada `checkout`,
+          # e `zizmor --offline` é o que o transformou em regra.
+          persist-credentials: false
 
       - name: Rust com `rustup`
         run: |
@@ -198,6 +223,15 @@ jobs:
       - name: obter o código
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # O `checkout` grava um `GITHUB_TOKEN` num ficheiro local e
+          # deixa-o à disposição dos passos seguintes. Nenhum workflow
+          # deste projecto escreve no repositório, por isso o token
+          # não serve para nada aqui — e um token deitado fora é um
+          # token que um passo a correr código de um pacote externo
+          # não pode usar. É o que o `zizmor` exige em cada `checkout`,
+          # e `zizmor --offline` é o que o transformou em regra.
+          persist-credentials: false
 
       - name: Rust nightly
         run: |
@@ -248,6 +282,15 @@ jobs:
       - name: obter o código
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # O `checkout` grava um `GITHUB_TOKEN` num ficheiro local e
+          # deixa-o à disposição dos passos seguintes. Nenhum workflow
+          # deste projecto escreve no repositório, por isso o token
+          # não serve para nada aqui — e um token deitado fora é um
+          # token que um passo a correr código de um pacote externo
+          # não pode usar. É o que o `zizmor` exige em cada `checkout`,
+          # e `zizmor --offline` é o que o transformou em regra.
+          persist-credentials: false
 
       - name: dependências de sistema
         # `xz` para descompactar o pacote do Node, e `curl` para o ir
@@ -263,12 +306,33 @@ jobs:
         # pacote contra o próprio nodejs.org, o que é o mesmo que não
         # verificar nada: ver `UI/tools/versoes.txt` §Porque é que os
         # sumários são fixados e não descarregados.
-        run: |
-            UI/tools/onyxchat instalar
-            UI/tools/onyxchat verificar
+        #
+        # Aqui só o `instalar`. O `verificar` é que vai depois do
+        # `instalar-ui`, e a razão está nesse passo.
+        run: UI/tools/onyxchat instalar
 
       - name: dependências da interface
         run: UI/tools/onyxchat instalar-ui
+
+      - name: a ferramenta local responde
+        # `verificar` conta `node_modules` ausente como problema — e por
+        # isso corre **aqui**, depois do `instalar-ui` e não antes.
+        #
+        # Este passo e o seguinte estavam juntos, com o `verificar` antes
+        # do `instalar-ui`: num clone não havia `node_modules`, o
+        # verificador contava um problema, e o job morria a dizer que a
+        # ferramenta local não estava instalada — sendo que estava, e a
+        # instalação que vinha a seguir é que a ia usar. Um portão que
+        # falha por estar cedo demais não é um portão demasiado
+        # exigente: é um portão a tentar ler as agulhas de um relógio a
+        # que ainda não se deu corda.
+        #
+        # Aqui já só se confirma que o Node local responde com a versão
+        # de `versoes.txt` e que o grafo está instalado. A distinção
+        # importa porque `verificar` também corre lint e tipos, e
+        # repetir isso no passo seguinte só gastaria tempo sem acrescentar
+        # nada — o `ver` de baixo é a versão que também constrói.
+        run: UI/tools/onyxchat verificar
 
       - name: lint, tipos e build
         # `ver` é o comando do projecto para os três. `lint:quiet` e não

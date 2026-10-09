@@ -67,6 +67,15 @@ jobs:
       - name: obter o código
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # O `checkout` grava um `GITHUB_TOKEN` num ficheiro local e
+          # deixa-o à disposição dos passos seguintes. Nenhum workflow
+          # deste projecto escreve no repositório, por isso o token
+          # não serve para nada aqui — e um token deitado fora é um
+          # token que um passo a correr código de um pacote externo
+          # não pode usar. É o que o `zizmor` exige em cada `checkout`,
+          # e `zizmor --offline` é o que o transformou em regra.
+          persist-credentials: false
 
       - name: Python da máquina
         # O runner já traz Python, mas a versão exacto não é
@@ -92,9 +101,65 @@ jobs:
         # `verificar_gitignore.sh` também confirma os bits, mas um
         # `git add` feito em Windows sem `core.fileMode` chega a
         # desligá-los sem dar erro nenhum. Ver aqui é mais barato.
+        #
+        # ## Porque é que a lista é explícita
+        #
+        # Porque a pergunta que este portão faz não é «é tudo executável?»
+        # mas «os executáveis são executáveis?». São perguntas diferentes, e
+        # a segunda é a que interessa: um `.py`, um `.md` e um `.txt` em
+        # `scripts/` e `UI/tools/` são ficheiros que **não devem** ter o
+        # bit, e exigi-lo é exigir que um `README.md` seja executável.
+        #
+        # ## Porque é que o `awk` genérico tinha de sair
+        #
+        # A versão anterior verificava `git ls-files -s scripts UI/tools` e
+        # falhava com tudo o que não fosse `100755`. Com dez ficheiros
+        # legítimamente a `100644` na lista, esse portão não tinha defeito
+        # nenhum que reportar: falhava sempre, e portanto não verificava
+        # nada. Um portão que falha sempre é um portão desligado — o mesmo
+        # princípio de `verificar_comentarios.py` a devolver lista vazia
+        # por não conhecer o sufixo, e a interface inteira ficar por
+        # verificar sem que a saída dissesse nada.
+        #
+        # A lista é a mesma de `scripts/verificar_gitignore.sh`
+        # §scripts que TEM de ser executáveis, e a duplicação é
+        # deliberada: ali a lista está em código, aqui tem de estar em YAML,
+        # e um ficheiro comum às duas seria mais um sítio para as duas
+        # divergirem sem ninguém dar por isso. O que as mantém honestas é
+        # que ambas listam os mesmos nomes, e um clone apanha logo no
+        # primeiro dia um ficheiro a menos ou a mais.
         run: |
             git config core.fileMode true
-            git ls-files -s scripts UI/tools | awk '$1 != 100755 {print "  não executável: " $4; f=1} END {exit f?1:0}'
+            falhou=0
+            for f in \
+              scripts/memoria.sh \
+              scripts/memoria-envolver.sh \
+              scripts/testar.sh \
+              scripts/verificar_gitignore.sh \
+              scripts/verificar_requisitos.sh \
+              scripts/verificar_seguranca.sh \
+              scripts/medir-arti.sh \
+              UI/tools/instalar.sh \
+              UI/tools/onyxchat
+            do
+              if [ -z "$(git ls-files -s -- "$f")" ]; then
+                printf '  não versionado: %s\n' "$f"
+                falhou=1
+              elif ! git ls-files -s -- "$f" | grep -q '^100755'; then
+                printf '  não executável: %s\n' "$f"
+                falhou=1
+              fi
+            done
+            if [ "$falhou" -ne 0 ]; then
+              printf '%s\n' \
+                'Estes ficheiros são executados directamente por um portão ou' \
+                'por `docs/`, e um clone que os recebe sem o bit responde' \
+                '«Permissão recusada» — o pior sítio para o descobrir, porque' \
+                'o primeiro aviso não menciona permissões.' \
+                'Corrige com:  git update-index --chmod=+x <ficheiro>'
+              exit 1
+            fi
+            echo 'os 9 executáveis têm o bit no índice'
 
       - name: o que está e o que não está versionado
         # A pendência «por versionar» que este portão imprime não é
