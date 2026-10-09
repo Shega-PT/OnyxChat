@@ -275,9 +275,44 @@ def test_as_contagens_versionadas_conferem() -> None:
     assert ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes") == 50
     js = ve._conta(ve.RAIZ / "UI", "ficheiros JavaScript versionados")
     assert js == 91, js
-    # E não são o mesmo que o disco, que tem mais por gerar.
+
+
+def test_a_contagem_de_sementes_ignora_o_disco() -> None:
+    """A contagem vem do índice, e o índice não depende de quem executou.
+
+    Havia aqui uma segunda asserção que comparava o disco com o índice e
+    afirmava que o disco tinha **sempre** mais sementes — a diferença que
+    o `cargo fuzz` vai escrevendo à medida que encontra entradas novas.
+
+    É uma afirmação sobre o estado da máquina, não sobre o verificador, e
+    o CI provou-o: num runner limpo nunca se correu fuzzing, o disco tem
+    exactamente as 50 sementes versionadas, e a comparação dá
+    `50 > 50` — falso. O teste passava em todas as máquinas onde alguém
+    já tinha corrido `cargo fuzz` e falhava em todas as outras, incluindo
+    a que mais importa, que é a de quem não tem nada gerado.
+
+    O que fica é o que a asserção queria de facto provar: a contagem
+    segue o índice, e o índice não muda com o que o fuzzing gera. Um
+    clone tem de dar o mesmo número que a máquina onde o fuzzing já
+    correu, e é isso que se verifica aqui.
+    """
     em_disco = len([p for p in (ve.RAIZ / "fuzz" / "corpus").rglob("*") if p.is_file()])
-    assert em_disco > ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes")
+    indexado = ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes")
+    assert indexado == 50
+    # O disco nunca pode ter **menos** do que o índice: um `git rm` de um
+    # ficheiro versionado é a única forma de isso acontecer, e nesse caso
+    # a falha é do índice, não da contagem.
+    assert em_disco >= indexado
+    # E a contagem não muda porque o disco tenha mais. `cargo fuzz` escreve
+    # sementes novas a cada execução; o número versionado não pode seguir
+    # esse ritmo, que é a razão de ser de `git ls-files` nesta contagem.
+    (ve.RAIZ / "fuzz" / "corpus" / "k4_decoder").mkdir(parents=True, exist_ok=True)
+    descartada = ve.RAIZ / "fuzz" / "corpus" / "k4_decoder" / "gerada-pelo-fuzz.bin"
+    descartada.write_bytes(b"\x00")
+    try:
+        assert ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes") == indexado
+    finally:
+        descartada.unlink()
 
 
 def test_a_palavra_composta_vence_a_simples() -> None:

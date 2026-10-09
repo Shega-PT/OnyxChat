@@ -148,7 +148,36 @@ def test_caminho_conta_por_omissao_esta_no_projecto() -> None:
     caminho = conta.caminho_conta()
     assert caminho.is_absolute()
     assert caminho.parent.name == "user"
-    assert "OnyxChat" in caminho.parent.parent.name
+    # A raiz é a do projecto, e o que se verifica é **essa** — não o nome
+    # que a pasta por acaso tem. Havia aqui uma asserção que exigia
+    # `OnyxChat` no nome da pasta, e o CI provou que ela não testava o
+    # que a docstring promete: um runner clona para `/home/runner/work/
+    # OnyxChat/OnyxChat` mas o checkout é directo ao nível do repositório,
+    # e o teste passou a falhar por o nome da pasta de trabalho não
+    # coincidir com o nome do projecto.
+    #
+    # Um `git clone` é um `git clone`, e o `testar.sh` é o mesmo script
+    # localmente e no CI — um teste que só passa na máquina onde foi
+    # escrito não está a testar o produto, está a testar o nome de uma
+    # directório. Comparar com a raiz calculada pelo próprio pacote é o
+    # que torna a asserção verdadeira em qualquer clone, e é o que a
+    # docstring diz desde o início.
+    raiz = Path(conta.__file__).resolve().parent.parent
+    assert caminho.parent.parent == raiz
+
+
+def test_caminho_conta_nao_depende_do_directorio_de_execucao(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O `cwd` muda o sítio de onde se executa; o caminho não muda.
+
+    É a mesma propriedade da docstring acima, verificada pelo seu custo:
+    chamar a função a partir de outra pasta tem de dar o mesmo caminho. Um
+    caminho relativo ao `cwd` passava a primeira asserção e falhava esta.
+    """
+    antes = conta.caminho_conta()
+    monkeypatch.chdir(tmp_path)
+    assert conta.caminho_conta() == antes
 
 
 def test_conta_existe_false_para_ficheiro_ausente(destino: Path) -> None:
