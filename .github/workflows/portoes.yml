@@ -172,7 +172,19 @@ jobs:
         # errado — um ficheiro que se apagou, um caminho que se mudou —
         # é a forma mais barata de a documentação divergir sem o código
         # tocar nele, e é o que este portão existe para apanhar.
-        run: ./scripts/verificar_estrutura.py
+        #
+        # `python3`, e não `./scripts/verificar_estrutura.py` como estava.
+        #
+        # Os auditadores são Python sem shebang, indexados a `100644`, e
+        # os quatro passos seguintes já diziam `python3` — este era o
+        # único que não dizia, e respondia «Permissão recusada». A
+        # diferença entre um portão que corre e um que não corre foi,
+        # durante um tempo, só essa palavra.
+        #
+        # Corrigir o `testar.sh` sem corrigir aqui deixa o CI a dar a
+        # mesma falha por outro caminho, e é por isso que a próxima
+        # alteração a um auditador se procura nos dois sítios.
+        run: python3 scripts/verificar_estrutura.py
 
       - name: os rótulos do roadmap estão certos
         # Um `PLANEADO` sem especificação é uma promessa que o código
