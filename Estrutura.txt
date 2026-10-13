@@ -84,6 +84,8 @@ confere-o em cada push.
 ├─ memoria.sh               # Decide a configuração A/B/C antes de compilar
 ├─ memoria-envolver.sh      # Aplica os tectos de cgroup e mede o pico
 ├─ medir-arti.sh            # Mede o pico real de cada configuração
+├─ interface-visual.py      # Monta servidor + interface + janela interna
+├─ interface-visual.js      # A janela: GTK 4 e WebKit, em `gjs`
 ├─ verificar_requisitos.sh  # Ferramentas e versões mínimas
 ├─ verificar_gitignore.sh   # O que está e o que não está versionado
 ├─ verificar_portugues.py        # Americanismos no código e nos documentos

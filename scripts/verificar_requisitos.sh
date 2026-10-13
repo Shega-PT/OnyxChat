@@ -150,6 +150,7 @@ detectar() {
         cmake)       saida="$(cmake --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)" ;;
         gpp)         saida="$(g++ --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)" ;;
         pkg-config)  saida="$(pkg-config --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)" ;;
+        gjs)         saida="$(gjs --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)" ;;
         virtualenv)  [ -d "$RAIZ/.venv" ] && saida="presente" || saida="" ;;
         pytest)      if [ -x "$RAIZ/.venv/bin/pytest" ]; then
                          saida="$("$RAIZ/.venv/bin/pytest" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"

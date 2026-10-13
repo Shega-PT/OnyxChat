@@ -62,6 +62,17 @@ gpp        | -    | g++ --version                     | obrigatorio    | gestor-
 # do repositório, ver `UI/tools/README.md`.
 node       | 20.19 | UI/tools/onyxchat --versao         | para-interface | auto
 
+# --- Avaliação visual -------------------------------------------------
+# O que `scripts/interface-visual.py` usa para ter uma janela onde se vê
+# a interface. Não é `obrigatorio` porque o projecto constrói, testa e
+# distribui sem ele; é `para-interface` porque sem isto não há ninguém a
+# ver a interface senão numa captura.
+#
+# O `gjs` vem com a introspecção GObject, que é o que permite escrever a
+# janela em GTK e WebKit sem compilador e sem uma cadeia de empacotamento
+# — e o motor de renderização é o mesmo que o Tauri usaria.
+gjs        | -    | gjs --version                      | para-interface | gestor-de-pacotes
+
 # --- Opcionais --------------------------------------------------------
 # Sem `pkg-config` e sem `libssl-dev` o projecto constrói na mesma (o
 # Rust compila a sua própria criptografia e o `main.rs` falha com
