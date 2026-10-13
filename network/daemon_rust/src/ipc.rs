@@ -1,4 +1,4 @@
-// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 //
 // Licença base do projecto: PolyForm Noncommercial 1.0.0.
 // Não é open source pela definição da OSI. Uso comercial
@@ -15,7 +15,7 @@
 //     ligação é fechada **sem resposta**;
 //   * pedidos `0x01 ENCODE` / `0x02 DECODE` (estadoless, puros);
 //   * pedidos de rede/handshake `0x03..0x0C` sobre o `Estado` comum
-//     (Etapa 7: Tor, P2P, relay e troca de chaves de amizade);
+//     (etapa de rede: Tor, P2P, relay e troca de chaves de amizade);
 //   * socket em `$ONYXCHAT_SOCKET` ou `/tmp/onyxchat-{uid}.sock`, 0600;
 //   * o daemon nunca aborta por dados do cliente — tudo vira `ERRO`
 //     com código legível, sem chaves/nonces/payloads no texto.
@@ -493,7 +493,7 @@ fn processar_decode(estado: &Estado, pedido: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------
-// Estado do daemon (Etapa 7) — partilhado por todas as ligações IPC
+// Estado do daemon (etapa de rede) — partilhado por todas as ligações IPC
 // ---------------------------------------------------------------------
 
 /// Pedido de handshake enviado e ainda por confirmar (`PEDIR_AMIZADE`).

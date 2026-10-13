@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -182,7 +182,7 @@ def caminho_socket() -> str:
 
 
 # ---------------------------------------------------------------------
-# Estruturas devolvidas pelos comandos da Etapa 7
+# Estruturas devolvidas pelos comandos da etapa de rede
 # ---------------------------------------------------------------------
 
 
@@ -444,7 +444,7 @@ class ClienteIpc:
             raise RespostaInvalida("plaintext do daemon não é UTF-8") from erro
 
     # -------------------------------------------------------------
-    # Rede (Etapa 7)
+    # Rede (etapa de rede)
     # -------------------------------------------------------------
 
     def estado(self) -> EstadoDaemon:
@@ -507,7 +507,7 @@ class ClienteIpc:
         _exigir_vazio(self._pedir(CMD_FECHAR, b""), "FECHAR")
 
     # -------------------------------------------------------------
-    # Handshake (Etapa 7)
+    # Handshake (etapa de rede)
     # -------------------------------------------------------------
 
     def pedir_amizade(self, seed: bytes, pub_dest: bytes) -> PedidoAmizade:

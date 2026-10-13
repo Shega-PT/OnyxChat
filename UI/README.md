@@ -171,7 +171,7 @@ UI/
    │  └─ onyx/
    │     ├─ data-adapter.js   # A costura — ver abaixo
    │     ├─ mock-adapter.js   # implementação de demonstração
-   │     ├─ bridge-adapter.js # 22 métodos sobre o sidecar (Etapa 5)
+   │     ├─ bridge-adapter.js # 25 métodos sobre o sidecar (Etapa da interface)
    │     ├─ runtime.js        # interruptor de demonstração
    │     ├─ mock-data.js      # Os dados fictícios
    │     ├─ onyx-context.jsx  # Estado partilhado da casca
@@ -215,15 +215,15 @@ páginas  →  dataAdapter  →  bridgeAdapter   (backend real, Etapa 5)
 
 Nenhuma página conhece a origem dos dados, e nenhuma escreve no adaptador.
 
-**O contrato está escrito por extenso**, no `data-adapter.js`: são catorze
-funções com as suas assinaturas. Os dois adaptadores são verificados
-contra ele, o que significa que acrescentar uma função a um e esquecer o
-outro dá erro de compilação — e não um erro em produção quando uma vista
-tenta chamar a que falta.
+**O contrato está escrito por extenso**, no `data-adapter.js`: são
+**vinte e cinco** funções com as suas assinaturas. Os dois adaptadores são
+verificados contra ele, o que significa que acrescentar uma função a um e
+esquecer o outro dá erro de compilação — e não um erro em produção quando
+uma vista tenta chamar a que falta.
 
-### `bridge-adapter.js` — o que ainda recusa
+### `bridge-adapter.js` — o que recusa
 
-São **22 métodos** implementados contra o `sidecar`. `PonteIndisponivel`
+São **25 métodos** implementados contra o `sidecar`. `PonteIndisponivel`
 fica para três casos, e são os três legítimos:
 
 1. o utilizador está em modo de demonstração, e o `dataAdapter` nunca
@@ -389,8 +389,26 @@ recusado.
 | 3 | Identidade sobre SHA-256, com vectores cruzados | **concluída** |
 | 4 | Credenciais locais cifradas e ecrãs de acesso, sem serviço externo | **concluída** |
 | 5 | Sidecar Python em `127.0.0.1`: HTTP sobre o socket Unix | **concluída** |
-| 6 | Casca de desktop (Tauri) | `PLANEADO` |
+| 6 | ~~Casca de desktop (Tauri)~~ — **reformulada** | **descartada**: a interface é web |
 | 7 | Cada página alimentada pelo backend, e não pelo adaptador de demonstração | `PLANEADO` |
+
+> **A Etapa 6 não está `PLANEADO`: foi reformulada, e o número ficou.**
+> A linha dizia «Casca de desktop (Tauri) · `PLANEADO`» enquanto a
+> `Estrutura.txt` afirmava o contrário — que `src-tauri/` está vazio e que
+> «o plano é outro». A árvore tem razão: não há dependência de Tauri em
+> `package.json`, o directório só tem `gen/` e `target/` gerados, e a
+> interface serve-se por HTTP. Um `PLANEADO` sem dependência declarada e
+> sem um único ficheiro é um `CONCEITO` a fingir ser trabalho agendado, e
+> a interface passa a web por decisão.
+
+> **Estes números são da interface, e só dela.** O código Rust e Python da
+> camada de rede usava «Etapa 7» para Tor, P2P, IPC e handshake — trabalho
+> que está feito e testado. Duas séries com o mesmo nome e sentidos
+> opostos é o tipo de colisão que faz um leitor acreditar que a rede não
+> existe, porque o `roadmap.md` diz que a Etapa 7 é `PLANEADO`. Desde
+> 2026-10-13 a rede escreve **«etapa de rede»**, sem número, e esta tabela
+> fica com a numeração sequencial. Se voltar a aparecer um «Etapa 7» no
+> código de rede, é uma referência à interface e está errada lá.
 
 > **A Etapa 5 ficou com duas decisões que valem a pena saber.**
 >

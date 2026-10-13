@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -222,7 +222,8 @@ def test_a_identidade_vem_da_conta_e_nao_do_daemon(completo: _Aberto) -> None:
     A rota de identidade **não** pergunta ao daemon. Poderia, e seria
     mais correcto — a identidade real é a chave Ed25519 dele — mas a conta
     tem o identificador derivado e a impressão, e as duas coisas têm de
-    concordar. Ver a nota sobre a Etapa 7.
+    concordar. Ligar a impressão à chave real está em
+    `docs/roadmap.md` §PLANEADO.
     """
     codigo, corpo = completo.pedir("/api/identidade")
     assert codigo == 200
@@ -252,13 +253,13 @@ def test_uma_mensagem_cifrada_pelo_daemon_vem_de_cima(
 ) -> None:
     """O daemon cifra, e o que sai é um envelope de versão 1.
 
-    Isto não é um teste do sidecar — é o limite do que a Etapa 5 pode
-    afirmar. A rota `/api/mensagens` **guarda texto**, não envelopes: o
-    texto que chega ao ecrã é o que a pessoa escreveu, e o envelope que
-    vai para o outro lado é montado pela Etapa 7, quando a Etapa 6 já
-    der um `k1` de sessão a sério.
+    Isto não é um teste do sidecar — é o limite do que a Etapa 5 da
+    interface pode afirmar. A rota `/api/mensagens` **guarda texto**,
+    não envelopes: o texto que chega ao ecrã é o que a pessoa escreveu, e
+    o envelope que vai para o outro lado é montado pelo daemon, a partir
+    de uma `k1` de sessão.
 
-    Ver a nota sobre a honestidade da loja em `server/loja.py` §O que é
+    A nota sobre a honestidade da loja está em `server/loja.py` §O que é
     guardado em claro: o que não está cifrado é a metainformação, e o
     texto em claro no máximo até ao momento da cifra.
     """

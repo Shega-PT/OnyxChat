@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -282,3 +282,75 @@ def test_o_verificador_passa_no_repositorio() -> None:
         cwd=RAIZ,
     )
     assert r.returncode == 0, f"verificador falhou:\n{r.stdout}\n{r.stderr}"
+
+def test_a_lista_gramatica_nao_volta_a_aparecer() -> None:
+    r"""A lista `GRAMATICA` foi removida a 2026-10-13 e não deve voltar.
+
+    Não é um teste de comportamento: é um teste de **ausência**, e a
+    pergunta que faz é «esta regra está a ser aplicada?». A resposta
+    durante quase um ano foi «não» — a lista existia, o auditor passava
+    verde, e ninguém sabia se havia concordância a fiscalizar.
+
+    ## O teste procura a definição, não a palavra
+
+    A primeira versão deste teste affirmava que o nome não aparecia no
+    ficheiro, e **falhou imediatamente**: a nota que explica a remoção
+    menciona o nome, porque explicar a remoção é parte do trabalho. Um
+    teste de ausência que procure a palavra é um teste que obriga a
+    remover a explicação — que é o contrário do que se quer.
+
+    Por isso o que se procura é a **atribuição**. Um nome próprio e uma
+    lista que começa a seguir só existem juntos, e um comentário que cita
+    o nome não os reconstitui.
+
+    ## Porque é que a lista não foi reparada em vez de apagada
+
+    Ligá-la não era abri-la: era executar código nunca exercitado, com
+    defeitos visíveis sem correr nada. O padrão `\ba o\b` seguido de
+    uma lista de substantivos casa «a o guarda», que não é português de
+    lado nenhum, e o erro que a regra queria apanhar era outro; a
+    alternativa `ficheiros|ficheiros` repete o mesmo termo duas vezes, o
+    que é a forma silenciosa de escrever `|`.
+
+    Se alguma vez houver gramática auditada, ela nasce de um ficheiro de
+    teste com o exemplo errado **e** o certo. Uma lista escrita e não
+    testada é a forma mais barata de aparentar qualidade sem ter
+    nenhuma.
+    """
+    codigo = VERIFICADOR.read_text(encoding="utf-8")
+    assert not re.search(r"^GRAMATICA\s*=", codigo, re.M), "a lista voltou"
+    # A lista morta levava uma regra de concordância que nunca correria.
+    assert r"\bos (chaves|amizades" not in codigo, "a regra voltou sem a lista"
+
+
+def test_o_auditor_de_frases_nao_tem_excepcao_por_nome() -> None:
+    """`DOCUMENTOS_ESTRANGEIROS` foi removido, e era uma armadilha.
+
+    A lista continha `README`, `LICENSE` e `CHANGELOG` — os três
+    documentos que existem no repositório e os três mais lidos. Ligá-la
+    teria posto fora da auditoria de português precisamente os ficheiros
+    que estão em português.
+
+    O teste procura a atribuição pelo mesmo motivo do anterior: a nota
+    que explica a remoção cita o nome, e obrigar a que essa nota
+    desapareça seria trocar um problema pequeno por um pior.
+
+    Este teste está aqui, no ficheiro do `verificar_portugues.py`, e não
+    no do `verificar_frases.py`, porque não existe ficheiro de testes do
+    `verificar_frases.py` — e essa é a lacuna que ele fecha.
+    """
+    frases = (RAIZ / "scripts" / "verificar_frases.py").read_text(encoding="utf-8")
+    assert not re.search(r"^DOCUMENTOS_ESTRANGEIROS\s*=", frases, re.M), "a lista voltou"
+
+    # E nenhum ficheiro é excluído da auditoria pelo seu nome. A excepção
+    # legítima é por directório — `IGNORADOS`, que apanha `vendor` e
+    # `node_modules` — porque depende de quem escreveu o ficheiro e não
+    # de como se chama.
+    #
+    # O teste procura a forma de conjunto, `{…}`, e não o nome solto: a
+    # nota de remoção lista os seis nomes ao explicar porque é que foram
+    # removidos, e uma lista é exactamente o que se está a proibir.
+    for nome in ("README", "CHANGELOG", "AUTHORS", "NOTICE", "LICENSE.txt"):
+        assert not re.search(rf'\{{[^}}]*"{re.escape(nome)}"', frases, re.S), (
+            f"{nome} está isento por nome"
+        )

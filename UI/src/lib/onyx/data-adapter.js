@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 // =====================================================================
 // data-adapter.js — a costura de dados
 // ---------------------------------------------------------------------
@@ -42,13 +48,13 @@ import { PonteIndisponivel } from './bridge-adapter';
  * É escrito aqui, e não inferido. Duas razões, ambas da mesma natureza:
  *
  *  1. **`dataAdapter` é um `Proxy`.** O TypeScript infere o tipo de
- *     `new Proxy({}, ...)` como `{}`, e cada uma das catorze funções
+ *     `new Proxy({}, ...)` como `{}`, e cada uma das vinte e cinco
  *     aparece como «não existe» ao consumidor. Um `@type` em cima da
  *     exportação resolve — e o que se escreve nesse `@type` não pode ser
  *     um palpite.
  *
  *  2. **O contrato precisa de existir por escrito.** As vistas conhecem
- *     estas catorze funções e nada mais. Escrevê-las aqui transforma a
+ *     estas vinte e cinco funções e nada mais. Escrevê-las aqui transforma a
  *     frase «as assinaturas têm de ser idênticas às de `mockAdapter`» numa
  *     verificação: acrescentar uma função a um adaptador e esquecer a outra
  *     passa a dar erro de tipo, e não a dar um erro em produção quando a
@@ -74,6 +80,11 @@ import { PonteIndisponivel } from './bridge-adapter';
  * @property {(identificador: string) => Promise<object>} discover
  * @property {(conversationId: string, texto: string) => Promise<object>} sendMessage
  * @property {(identificador: string, mensagem: string) => Promise<object>} sendContactRequest
+ * @property {(conversationId: string) => Promise<object>} markConversationRead
+ * @property {(conversationId: string, pinned: boolean) => Promise<object>} pinConversation
+ * @property {(conversationId: string, muted: boolean) => Promise<object>} muteConversation
+ * @property {(conversationId: string) => Promise<object>} clearHistory
+ * @property {(contactId: string, blocked: boolean) => Promise<object>} blockContact
  * @property {() => Promise<{estado: string}>} getAccountState
  * @property {(dados: {utilizador: string, frase: string}) => Promise<object>} registerAccount
  * @property {(dados: {frase: string}) => Promise<object>} unlockAccount

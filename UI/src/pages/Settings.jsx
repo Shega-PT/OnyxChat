@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 import React, { useEffect, useState } from 'react';
 import { RotateCcw, Save } from 'lucide-react';
 import { usarToast as useToast } from '@/lib/shadcn';
@@ -300,9 +306,10 @@ function SecaoDemonstracao({ activo, forcado, aoMudar }) {
           </p>
         ) : (
           <p className="text-[11.5px] leading-relaxed text-onyx-text3">
-            Desligar deixa a interface a falar com o backend local. A ponte que o serve
-            ainda não existe — chega na Etapa 5 —, e até lá a aplicação mostra um estado
-            próprio a dizer isso, em vez de fingir que não há conversas.
+            Desligar liga a interface ao backend local: <code className="font-mono">onyxchat
+            sidecar</code>, um servidor em <code className="font-mono">127.0.0.1</code> que fala
+            com o daemon pelo socket Unix. Se o sidecar não responder, a aplicação diz que não
+            respondeu — em vez de fingir que não há conversas.
           </p>
         )}
       </div>

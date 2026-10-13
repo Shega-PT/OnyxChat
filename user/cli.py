@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -697,7 +697,7 @@ def _construir_parser() -> argparse.ArgumentParser:
     )
     descobrir.set_defaults(func=_cmd_descobrir)
 
-    estado = subcomandos.add_parser("estado", help="estado do daemon (Etapa 7)")
+    estado = subcomandos.add_parser("estado", help="estado do daemon (etapa de rede)")
     estado.add_argument("--socket", help="socket do daemon (override)")
     estado.set_defaults(func=_cmd_estado)
 

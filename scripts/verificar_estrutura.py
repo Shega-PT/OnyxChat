@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -165,8 +165,14 @@ _CONTAGEM = re.compile(
     r"\b(?:Os\s+|As\s+|os\s+|as\s+)?(\d+)\s+"
     r"(ficheiros JavaScript versionados|sementes"
     r"|documentos|componentes|ecrãs|vistas|páginas|ficheiros|testes"
-    r"|crates|alvos|corpora)\b"
+    r"|crates|alvos|corpora|métodos)\b"
 )
+
+#: O corpo de um método do contrato da interface. Anchorizado ao fim da
+#: linha de propósito: um ``async`` a meio de uma linha é código, não a
+#: declaração de um método, e contá-lo daria um número que sobe a cada
+#: reformatar.
+_METODO = re.compile(r"^\s{2}async\s+[A-Za-z_][A-Za-z0-9_]*\s*\(", re.MULTILINE)
 
 #: O que conta, por substantivo. Um substantivo sem lista conta tudo o que
 #: não é directório, o que é a leitura que uma pessoa faz e a que um
@@ -218,10 +224,23 @@ def _conta(directorio: Path | None, substantivo: str) -> int | None:
     **índice**, e não no disco, porque é isso que a palavra «versionado»
     quer dizer. Ver `indexados`.
 
+    ``métodos`` conta as declarações ``async`` de **um ficheiro**, e não
+    de um directório — é a única contagem que não é sobre uma árvore. A
+    razão de existir: o contrato entre a interface e o sidecar foi
+    documentado como «22 métodos», «catorze» e «vinte e uma» em três
+    sítios diferentes, e o número real era 20 nos três. Nenhum era
+    verificável a olho, e a troca de uma contagem com a de outra (os 22
+    são as **rotas**, não os métodos) produz um número plausível e
+    errado, que é a pior das duas coisas.
+
     Devolve ``None`` quando o substantivo não é contável — ``crates``,
     ``alvos`` e ``corpora`` só um `cargo metadata` ou um `ls` de um
     directório crate os dá. Deixar por medir é honesto; medir mal não é.
     """
+    if substantivo == "métodos":
+        if not directorio.is_file():
+            return None
+        return len(_METODO.findall(directorio.read_text(encoding="utf-8")))
     if directorio is None or not directorio.is_dir():
         return None
     if substantivo == "documentos":
@@ -452,10 +471,15 @@ def contagens(
         cont = _CONTAGEM.search(comentario)
         if not cont:
             return
-        medido = _conta(raiz / caminho, cont.group(2))
+        alvo = raiz / caminho
+        medido = _conta(alvo, cont.group(2))
         if medido is not None:
+            # A barra só entra para directórios: `docs/ — «documentos»»
+            # lê como índice, e `bridge-adapter.js/ — «métodos»» lê como
+            # um directório com o nome de um ficheiro.
+            sufixo = "" if alvo.is_file() else "/"
             achados.append(
-                (f"{caminho}/ — «{cont.group(2)}» (linha {linha})",
+                (f"{caminho}{sufixo} — «{cont.group(2)}» (linha {linha})",
                  int(cont.group(1)), medido)
             )
 

@@ -27,8 +27,14 @@ não está instalado, e instalar dependências no ambiente do utilizador não
   transitiva e estática; os `.rlib` não correm em lado nenhum do
   processo.
 
-Para uma auditoria deublish, `cargo deny check licenses` com um
-`deny.toml` versionado é oigrateo. Está em `docs/roadmap.md` §PLANEADO.
+Para uma auditoria de *publish*, `cargo deny check licenses` com um
+`deny.toml` versionado é o meio. **Já está feito e já é portão**:
+`scripts/verificar_seguranca.sh` corre-o, em cada push, e
+[`SECURITY.md`](SECURITY.md) §Cadeia de fornecimentos diz onde. Este
+parágrafo dizia «Está em `docs/roadmap.md` §PLANEADO» até 2026-10-13 —
+e esse rótulo estava errado desde a fase de auditoria: uma tarefa
+declarada por fazer e já imposta em cada push convida a alguém a
+reimplementá-la.
 
 ## Resultado — Rust
 

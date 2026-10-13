@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -352,6 +352,90 @@ def test_uma_contagem_errada_e_lida_como_errada(com_mapa, monkeypatch) -> None:
         assert lidos[0][1] == 3, lidos
     finally:
         ve.MAPA.write_text("\n".join(original), encoding="utf-8")
+
+
+def test_a_contagem_de_metodos_conta_o_ficheiro_certo() -> None:
+    """O contrato da interface é uma contagem de **ficheiro**, não de pasta.
+
+    O número apareceu como 22, «catorze» e «vinte e uma» em três sítios,
+    e o real era 20 nos três. Os 22 são as **rotas** do sidecar — uma
+    contagem copiada para a outra, que produz um número plausível e
+    errado. Sem esta contagem no portão, corrigir os três textos hoje é
+    apenas uma correcção: amanhã um quarto sítio volta a estar errado e
+    ninguém o apanha.
+
+    Os dois adaptadores têm de dar o mesmo número. Divergirem é
+    exactamente a falha que o contrato existe para impedir: uma função
+    acrescentada a um e esquecida no outro só aparece quando alguém
+    desliga o interruptor da demonstração.
+
+    O valor literal está aqui e não lido do ficheiro por uma razão: o
+    número **é** a asserção. Comparar os dois adaptadores entre si apanha
+    a divergência; confirmar que batem com o declarado é o que apanha um
+    número errado em três sítios ao mesmo tempo, e o único sítio onde isso
+    pode ser escrito é um teste.
+    """
+    ponte = ve._conta(ve.RAIZ / "UI/src/lib/onyx/bridge-adapter.js", "métodos")
+    demo = ve._conta(ve.RAIZ / "UI/src/lib/onyx/mock-adapter.js", "métodos")
+    contrato = ve.RAIZ / "UI/src/lib/onyx/data-adapter.js"
+    declarados = contrato.read_text(encoding="utf-8").count("@property")
+    assert ponte == 25, ponte
+    assert demo == ponte, f"os dois adaptadores divergem: {ponte} != {demo}"
+    assert declarados == ponte, f"o contrato declara {declarados} e há {ponte}"
+
+
+def test_a_contagem_de_metodos_conta_declaracoes_e_nao_linhas(tmp_path) -> None:
+    """A contagem é de declarações, e o limite é conhecido.
+
+    Duas declarações na mesma linha são contadas como uma. O teste
+    existe para **fixar esse limite**, não para o esconder: se um dia a
+    regra mudar, esta asserção falha e obriga a decidir o que se quer.
+
+    Um ``async`` dentro de um comentário não conta, porque o comentário
+    começa por ``//`` e a regra exige dois espaços de indentação antes
+    de ``async``.
+    """
+    ficheiro = tmp_path / "exemplo.js"
+    ficheiro.write_text(
+        "export default {\n"
+        "  async primeiro() { return 1; } async segundo() { return 2; }\n"
+        "  function terceiro() {}\n"
+        "  // async naoConta() {}\n"
+        "};\n",
+        encoding="utf-8",
+    )
+    assert ve._conta(ficheiro, "métodos") == 1
+
+
+def test_uma_declaracao_por_linha_conta_todas(tmp_path) -> None:
+    """O caso normal: o que o projecto escreve, e o que se conta.
+
+    A asserção acima fixa o limite; esta fixa o caminho feliz, e juntas
+    dizem o que a regra é: **uma linha, um método**, e o ficheiro real
+    segue a convenção. É a razão de o número 20 ser estável.
+    """
+    ficheiro = tmp_path / "exemplo.js"
+    ficheiro.write_text(
+        "export default {\n"
+        "  async primeiro() { return 1; }\n"
+        "  async segundo() { return 2; }\n"
+        "  function terceiro() {}\n"
+        "  // async naoConta() {}\n"
+        "};\n",
+        encoding="utf-8",
+    )
+    assert ve._conta(ficheiro, "métodos") == 2
+
+
+def test_a_contagem_de_metodos_diz_nao_a_directorio(tmp_path) -> None:
+    """Um substantivo que só conta ficheiros devolve ``None`` numa pasta.
+
+    Deixar por medir é honesto; medir mal não é. Um ``None`` faz o
+    verificador não dizer nada, que é o comportamento correcto para um
+    substantivo sem regra — e a diferença entre isto e devolver 0 é a
+    diferença entre «não sei» e «não há nada».
+    """
+    assert ve._conta(tmp_path, "métodos") is None
 
 
 def test_o_mapa_e_lido_como_uma_arvore_com_pilha() -> None:

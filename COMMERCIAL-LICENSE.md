@@ -42,7 +42,7 @@ ShegaPT («Licenciador»)
 
 **Referência da licença base:** PolyForm Noncommercial 1.0.0, tal como
 consta no ficheiro `LICENSE` do repositório
-`https://github.com/Shega-PT/OnixChat`, revisto em «DATA-DA-REVISÃO-DO-LICENSE»
+`https://github.com/Shega-PT/OnyxChat`, revisto em «DATA-DA-REVISÃO-DO-LICENSE»
 
 ---
 

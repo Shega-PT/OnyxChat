@@ -58,9 +58,18 @@ O dano possível é de disponibilidade.
 
 ### A4 — Routing node malicioso (futuro)
 
-Estado: **conceito** (`roadmap.md`). Regras previstas: um nó de
+Estado: **`PLANEADO`** (`roadmap.md` §PLANEADO; secção normativa em
+[`SYS_GUIDE.md`](SYS_GUIDE.md) §10.4). Regras previstas: um nó de
 transporte não deve receber confiança criptográfica e não deve
 armazenar permanentemente o que transporta.
+
+O rótulo era **conceito** até 2026-10-13, e estava errado pela razão que
+o [`roadmap.md`](roadmap.md) §Como se decide torna explícita: `PLANEADO`
+exige três coisas ao mesmo tempo — decisão, especificação e ausência de
+código. Este item tem as três, e a especificação é a §10.4 do `SYS_GUIDE`.
+O que falta é a decisão e o código. Chamá-lo `conceito` punha-o na mesa
+errada: `CONCEITO` diz «nada foi especificado», e foi precisamente essa a
+propriedade que se verificou ser falsa.
 
 ### A5 — Atacante com acesso ao tráfego (observação passiva)
 
@@ -135,7 +144,7 @@ Isto é o objetivo da **defesa em profundidade** (`pipeline.md`
 | | |
 | --- | --- |
 | **Pode tentar** | ler `/swapfile` e `/proc/*/mem` como root; fazer *cold-boot attack* à RAM física; analisar o SSD em busca de restos de páginas descartadas; capturar dumps de núcleo |
-| **Defesas** | **`mlockall(MCL_CURRENT\|MCL_FUTURE)`** no arranque do daemon impede o page-out de material sensível (`PLANEADO` — F0c); `zeroize` no `Drop` no Rust reduz a janela em RAM; desde a fase F o C limpa a saída das suas camadas nos caminhos de erro com `sodium_memzero` (`onyx_limpar`) |
+| **Defesas** | **`mlockall(MCL_CURRENT\|MCL_FUTURE)`** no arranque do daemon impede o page-out de material sensível (`IMPLEMENTADO` — `paginas.rs`, `main.rs`); `zeroize` no `Drop` no Rust reduz a janela em RAM; desde a fase F o C limpa a saída das suas camadas nos caminhos de erro com `sodium_memzero` (`onyx_limpar`) |
 | **Não é mitigado** | acesso físico ao hardware, forense de disco, *cold-boot*, dumps de núcleo |
 
 Isto está deliberadamente **fora** do âmbito de A8 e é declarado como
@@ -215,7 +224,7 @@ garantia.
 | rede → `envelope.rs`   | parsing exploratório               | análise por comprimento, limites          |
 | cliente → `ipc.rs`     | pedidos inválidos, outro uid       | validação total + `SO_PEERCRED` + `0600`  |
 | disco → keystore       | leitura por outro utilizador       | `0600` + cifra com PBKDF2                 |
-| RAM → swap             | page-out de material sensível       | `mlockall` (`PLANEADO` F0c) + swapfile `0600` |
+| RAM → swap             | page-out de material sensível       | `mlockall` (`IMPLEMENTADO`) + swapfile `0600` |
 | relay/discovery → nós  | envenenamento de mapeamento        | autenticação fim-a-fim (Ed25519)          |
 | cadeia de fornecimentos | dependência comprometida         | auditoria contínua, excepções datadas    |
 

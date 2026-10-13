@@ -1,4 +1,4 @@
-// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 //
 // Licença base do projecto: PolyForm Noncommercial 1.0.0.
 // Não é open source pela definição da OSI. Uso comercial
@@ -16,7 +16,7 @@
 //   * `lua_camadas`— embedding Lua das camadas K2/K3/K6/K8;
 //   * `pipeline`   — orquestração K1→K9 e assinatura Ed25519;
 //   * `ipc`        — servidor UDS + protocolo ENCODE/DECODE;
-//   * `tor`        — traço `BackendTor` + `TorFalso` (Etapa 7);
+//   * `tor`        — traço `BackendTor` + `TorFalso` (etapa de rede);
 //   * `tor_arti`   — `TorReal`: arti-client embutido (único ficheiro
 //                    que toca na rede real; fora da métrica de cobertura;
 //                    só existe com a feature `tor-real`, que NÃO é de

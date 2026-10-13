@@ -43,13 +43,14 @@ confere-o em cada push.
 ├─ README.md                # Ponto de entrada
 ├─ LICENSE                  # PolyForm Noncommercial 1.0.0
 ├─ COPYRIGHT.md             # Titular dos direitos de autor
+├─ CHANGELOG.md             # Registo de alterações, por versão
 ├─ COMMERCIAL-LICENSE.md    # Autorização para uso comercial
 ├─ AUTHORIZED.md            # Quem tem autorização, e de quê
 ├─ CONTRIBUTING.md          # Como contribuir
 └─ THIRD-PARTY.md           # Dependências de terceiros e respectivas licenças
 
 
-# docs/ — 20 documentos
+# docs/ — 21 documentos
 ---------------------------------------------------------------------
 ├─ index.md                 # Índice; é o porta de entrada
 ├─ SYS_GUIDE.md             # Manual do sistema, para quem usa
@@ -59,6 +60,7 @@ confere-o em cada push.
 ├─ pipeline.md              # As nove camadas K1→K9, com parâmetros
 ├─ message_format.md        # Envelope binário: versão, nonces, payload
 ├─ ipc_spec.md              # Contrato IPC Python ↔ Rust (framing, códigos)
+├─ sidecar.md               # Contrato HTTP local: 26 rotas, origens, erros
 ├─ handshake.md             # Handshake de amizade e ciclo de vida das chaves
 ├─ key_management.md        # Derivação, rotação e eliminação de chaves
 ├─ conta.md                 # Conta local, frase de segurança, cópias

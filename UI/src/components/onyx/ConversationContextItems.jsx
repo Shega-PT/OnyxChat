@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 import React from 'react';
 import {
   Ban,
@@ -34,11 +40,19 @@ import {
  * lida". É a mesma separação que existe entre `MessageComposer`, que
  * desenha o campo, e `Conversations`, que decide o que enviar.
  *
+ * Todas recebem a **conversa inteira**, e não o `id`. As três que já o
+ * recebiam — ver identidade, copiar, limpar, bloquear — precisavam dele
+ * por si; as três restantes passaram a precisar porque «fixar» e
+ * «silenciar» são inversões, e inverter exige saber o estado actual.
+ * Passar só o `id` obrigaria a vista a manter uma segunda fonte de
+ * verdade sobre o que está fixado — que é exactamente o tipo de estado
+ * duplicado que diverge.
+ *
  * @param {object} props
  * @param {object} props.conversation Conversa, já preparada pelo adaptador.
- * @param {(id: string) => void} props.onMarcarLida
- * @param {(id: string) => void} props.onSilenciar
- * @param {(id: string) => void} props.onFixar
+ * @param {(conversation: object) => void} props.onMarcarLida
+ * @param {(conversation: object) => void} props.onSilenciar
+ * @param {(conversation: object) => void} props.onFixar
  * @param {(conversation: object) => void} props.onVerIdentidade
  * @param {(conversation: object) => void} props.onCopiarIdentificador
  * @param {(conversation: object) => void} props.onLimparHistorico
@@ -62,14 +76,14 @@ export default function ConversationContextItems({
       <MenuContextualSeparador className="my-1 bg-onyx-line" />
 
       {temNaoLidas && (
-        <MenuContextualItem className={estiloItemMenu} onSelect={() => onMarcarLida(conversation.id)}>
+        <MenuContextualItem className={estiloItemMenu} onSelect={() => onMarcarLida(conversation)}>
           <Check className="h-3.5 w-3.5 shrink-0 text-onyx-text3" />
           Marcar como lida
           <span className="ml-auto font-mono text-[10px] text-onyx-text3">{conversation.unread}</span>
         </MenuContextualItem>
       )}
 
-      <MenuContextualItem className={estiloItemMenu} onSelect={() => onSilenciar(conversation.id)}>
+      <MenuContextualItem className={estiloItemMenu} onSelect={() => onSilenciar(conversation)}>
         {conversation.muted ? (
           <Bell className="h-3.5 w-3.5 shrink-0 text-onyx-text3" />
         ) : (
@@ -78,7 +92,7 @@ export default function ConversationContextItems({
         {conversation.muted ? 'Reativar notificações' : 'Silenciar'}
       </MenuContextualItem>
 
-      <MenuContextualItem className={estiloItemMenu} onSelect={() => onFixar(conversation.id)}>
+      <MenuContextualItem className={estiloItemMenu} onSelect={() => onFixar(conversation)}>
         {conversation.pinned ? (
           <PinOff className="h-3.5 w-3.5 shrink-0 text-onyx-text3" />
         ) : (
@@ -121,8 +135,12 @@ export default function ConversationContextItems({
       </MenuContextualItem>
 
       <MenuContextualItem className={estiloItemMenuDestrutivo} onSelect={() => onBloquear(conversation)}>
-        <Ban className="h-3.5 w-3.5 shrink-0" />
-        Bloquear
+        {conversation.contact?.blocked ? (
+          <Check className="h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <Ban className="h-3.5 w-3.5 shrink-0" />
+        )}
+        {conversation.contact?.blocked ? 'Desbloquear' : 'Bloquear'}
       </MenuContextualItem>
     </>
   );

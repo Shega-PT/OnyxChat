@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 // =====================================================================
 // bridge-adapter.js — implementação real do adaptador
 // ---------------------------------------------------------------------
@@ -159,7 +165,7 @@ export class ErroDoSidecar extends Error {
 }
 
 /**
- * Adaptador real — os 22 métodos contra o `sidecar` de `127.0.0.1`.
+ * Adaptador real — os 25 métodos contra o `sidecar` de `127.0.0.1`.
  *
  * `PonteIndisponivel` fica para o sidecar que não respondeu dentro do
  * limite; os pedidos que chegam ao servidor e são recusados dão
@@ -190,6 +196,80 @@ export const bridgeAdapter = {
   /** @returns {Promise<object[]>} */
   async listContacts({ query = '' } = {}) {
     return pedir(`/api/contactos?pesquisa=${encodeURIComponent(query)}`);
+  },
+
+  /**
+   * Marca a conversa e as suas mensagens recebidas como lidas.
+   *
+   * A rota `/conversas/{id}/lida` existe no backend desde a Etapa 5 e
+   * nunca foi chamada: o botão estava no menu de contexto e não fazia
+   * nada. Ver `Conversations.jsx` §As acções que escrevem.
+   *
+   * @returns {Promise<object>}
+   */
+  async markConversationRead(conversationId) {
+    return pedir(`/api/conversas/${encodeURIComponent(conversationId)}/lida`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Fixa ou desfixa.
+   *
+   * @param {string} conversationId
+   * @param {boolean} pinned `true` fixa, `false` desfixa. Explícito
+   *   porque «alternar» obriga quem implementa a manter o estado certo
+   *   para saber o que vai fazer.
+   * @returns {Promise<object>}
+   */
+  async pinConversation(conversationId, pinned) {
+    return pedir(`/api/conversas/${encodeURIComponent(conversationId)}/fixada`, {
+      method: 'POST',
+      body: JSON.stringify({ valor: pinned }),
+    });
+  },
+
+  /**
+   * Silencia ou dessilencia.
+   *
+   * @param {string} conversationId
+   * @param {boolean} muted
+   * @returns {Promise<object>}
+   */
+  async muteConversation(conversationId, muted) {
+    return pedir(`/api/conversas/${encodeURIComponent(conversationId)}/silenciada`, {
+      method: 'POST',
+      body: JSON.stringify({ valor: muted }),
+    });
+  },
+
+  /**
+   * Apaga as mensagens da conversa.
+   *
+   * A conversa fica; o que se apaga é o histórico. Perder o contacto
+   * seria perder a relação, que é uma coisa diferente e não é esta.
+   *
+   * @returns {Promise<object>}
+   */
+  async clearHistory(conversationId) {
+    return pedir(`/api/conversas/${encodeURIComponent(conversationId)}/limpar`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Bloqueia ou desbloqueia o contacto.
+   *
+   * @param {string} contactId o `contactId` da conversa, não o da
+   *   conversa — quem bloqueia é uma pessoa, não um fio de mensagens.
+   * @param {boolean} blocked
+   * @returns {Promise<object>}
+   */
+  async blockContact(contactId, blocked) {
+    return pedir(`/api/contactos/${encodeURIComponent(contactId)}/bloqueado`, {
+      method: 'POST',
+      body: JSON.stringify({ valor: blocked }),
+    });
   },
 
   /** @returns {Promise<object[]>} */

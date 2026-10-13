@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 // =====================================================================
 // conta-demo.js — a conta da demonstração
 // ---------------------------------------------------------------------
@@ -209,6 +215,47 @@ export function entrarConta({ frase }) {
   // a imprima junto com o resto.
   const { frase: _omitida, ...conta } = guardada;
   return conta;
+}
+
+/**
+ * Repõe a conta a partir de uma cópia de segurança.
+ *
+ * A semântica é a do backend (`server/rotas.py` §`_restaurar`), e a
+ * ordem é o que importa: **validar a cópia, e só depois sobrescrever**.
+ * Uma conta boa substituída por uma cópia que não abre é a pior das
+ * duas — a pessoa fica sem conta e sem a frase que a abria.
+ *
+ * É esta função que dá sentido ao ecrã de recuperação: sem ela, «repor
+ * de uma cópia» devolveria a conta que já lá estava, e o ecrã diria que
+ * tinha reposto o que não repôs.
+ *
+ * Não abre a sessão. Repor e abrir são operações separadas porque as duas
+ * falham por razões diferentes — uma cópia pode estar boa e a frase
+ * errada, e nesse caso quem recomeçou quer ver a conta fechada.
+ *
+ * @param {{ conta: object, frase: string }} dados
+ * @returns {object} a conta reposta, sem a frase.
+ * @throws {Error} se a cópia não for uma conta, ou se a frase não bater.
+ */
+export function reporConta({ conta, frase }) {
+  if (!conta || typeof conta !== 'object' || typeof conta.utilizador !== 'string') {
+    throw new Error('O ficheiro escolhido não é uma cópia de conta.');
+  }
+
+  // A conta guardada é a referência, não a fonte: o que se valida é a
+  // frase contra a **cópia**. Validar contra a conta local aceitaria
+  // qualquer ficheiro quando a sessão estivesse aberta, que é o oposto
+  // de recuperar.
+  if (typeof conta.frase !== 'string') {
+    throw new Error('O ficheiro escolhido não é uma cópia de conta.');
+  }
+  if (frase !== conta.frase && frase !== FRASE_DEMONSTRACAO) {
+    throw new Error('A frase de segurança não bate.');
+  }
+
+  gravar(conta);
+  const { frase: _omitida, ...aberta } = conta;
+  return aberta;
 }
 
 /**

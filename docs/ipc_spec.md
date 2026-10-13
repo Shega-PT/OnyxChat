@@ -252,10 +252,26 @@ estrita nas duas direções de propósito: aceitar «qualquer coisa que
 acabe em `.onion`» transformaria a validação em decorado, e um pedido
 incoerente que passa despercebido é pior do que um pedido recusado.
 
-**`PLANEADO` (F2.1).** A validação `pub_de_hex(destino) == pub_par` e
-a resolução `ID → .onion` no cliente Python ainda não estão
-implementadas. Estado actual: `pub_de_hex()` existe em `p2p.rs` mas é
-código morto; em modo relay o `destino` é simplesmente ignorado.
+**`IMPLEMENTADO`.** A validação `pub_de_hex(destino) == pub_par` está em
+`network/daemon_rust/src/ipc.rs`, na função `validar_destino`: o `destino`
+em modo `relay` é passado a `p2p::pub_de_hex()`, e uma pública que não
+coincida com `pub_par` devolve `0x0D DestinoInvalido` com a razão, em vez
+de ser ignorada. A resolução `ID → .onion` está do lado do cliente, em
+`messenger/descoberta.py` — `classificar_destino()` decide o modo a partir
+da forma, e `resolver_ou_usar()` consulta o servidor e devolve o `.onion`.
+
+`pub_de_hex()` **não** é código morto, e é a `validar_destino()` que o
+chama nesse caminho. Uma versão anterior deste parágrafo afirmava o
+contrário, e o [`roadmap.md`](roadmap.md) regista a correcção desde
+2026-10-07; o texto aqui ficou por actualizar, e é a razão de o portão de
+documento existir: um `PLANEADO` que já tem código custa mais caro do que
+uma omissão, porque quem o lê constrói por cima dele.
+
+### Modo `relay` com `destino` vazio
+
+`destino` vazio é legítimo e significa «a mailbox da `pub` do corpo». O
+`.onion` é aceite e normalizado, mas a mailbox vem sempre do corpo — o
+`destino` nunca escolhe a quem se escreve.
 
 ### Comandos de handshake
 

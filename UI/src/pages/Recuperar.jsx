@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 // =====================================================================
 // Recuperar.jsx — o que acontece quando a frase se perdeu
 // ---------------------------------------------------------------------
@@ -75,6 +81,20 @@ export default function Recuperar() {
    * ficheiro para um servidor é dar-lhe o poder de ler um ficheiro que a
    * pessoa não escolheu.
    *
+   * O texto passa **cru**, sem `JSON.parse`. A cópia que a Etapa 5 passou
+   * a exportar é base64 de um keystore binário — o corpo de uma resposta
+   * HTTP tem de ser JSON, e o ficheiro não — e fazer-lhe `JSON.parse`
+   * era reprovar sempre com «não é uma cópia de conta», mesmo com a
+   * cópia certa à frente. Era uma falha silenciosa do ponto mais
+   * sensible do programa: a pessoavia uma recusa que não se parecia com
+   * um ficheiro estragado, e não com uma conta que ela acabara de
+   * exportar.
+   *
+   * A validação fica do lado do adaptador, que é quem sabe a diferença
+   * entre «isto não é uma conta» e «a frase não bate». Duas mensagens
+   * distintas para duas causas distintas, e a pessoa sabe se deve
+   * procurar outro ficheiro ou outra frase.
+   *
    * O gatilho é o `change` do input, e não um botão de submissão: o
    * botão só abre o selector de ficheiros, e um formulário sem botão de
    * submissão nunca é submetido. Com um `onSubmit` a espera de um evento
@@ -95,19 +115,15 @@ export default function Recuperar() {
     setSucesso('');
     setOcupado(true);
 
-    let conteudo;
-    try {
-      conteudo = JSON.parse(await ficheiro.text());
-    } catch {
-      setErro('O ficheiro escolhido não é uma cópia de conta.');
+    const conteudo = (await ficheiro.text()).trim();
+    if (!conteudo) {
+      setErro('O ficheiro escolhido está vazio.');
       setOcupado(false);
       return;
     }
 
     const { erro: falha } = await restaurar({ conteudo, frase: fraseCopia });
     if (falha) {
-      // A cópia estar corrompida e a frase estar errada dão a mesma
-      // mensagem, pelo mesmo motivo que o ecrã de entrada não distingue.
       setErro(falha);
     } else {
       setSucesso('A conta foi reposta. Escreva a frase para abrir.');
@@ -204,8 +220,9 @@ export default function Recuperar() {
         {estaEmDemonstracao() && (
           <p className="border-t border-onyx-line pt-4 text-[11px] text-onyx-text3">
             Demonstração: nada disto toca em ficheiros. A conta de demonstração é um valor em{' '}
-            <code className="font-mono">localStorage</code>, e a Etapa 5 põe aqui o sidecar
-            real.
+            <code className="font-mono">localStorage</code> que qualquer pessoa com acesso a
+            este computador e ao código lê. Fora da demonstração, a conta está num keystore
+            cifrado com a frase de segurança.
           </p>
         )}
       </div>

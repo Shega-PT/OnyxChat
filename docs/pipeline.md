@@ -416,7 +416,7 @@ produção. Ver `docs/testing.md`.
 | K2/K3/K6/K8 | `ErroPipeline::Lua`             | falha do interpretador (mensagem fixa) |
 | K3/K6  | `Lua("…chave inválida…")`             | chave vazia rejeitada pelo script |
 | K4     | `ONYX_ERR_ARG` / `ONYX_ERR_CAP`       | argumento/buffer inválidos        |
-| K4     | `ONYX_ERR_TAMANHO`                    | entrada vazia ou ≠ múltiplo de 5 (decifragem: `IMPLEMENTADO` · cifragem: `PLANEADO` F2.2) |
+| K4     | `ONYX_ERR_TAMANHO`                    | entrada vazia, nos **dois** sentidos; na decifragem também `≠ múltiplo de 5` (`IMPLEMENTADO`) |
 | K4     | `ONYX_ERR_PAD`                        | PKCS#7 inválido na decifragem     |
 | K7     | `BlocoIncompleto`                     | comprimento ímpar                 |
 | K7     | `PaddingInvalido`                     | PKCS#7 inválido ou ausente        |

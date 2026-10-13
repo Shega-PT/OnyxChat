@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -173,6 +173,23 @@ def montar(
             lambda ctx, p: (_ := loja.marcar_lida(p["id"])) or {"ok": True},
             "marcar-lida",
         ),
+        # As acções do menu de contexto. Recebem o valor explícito em vez
+        # de alternarem: «fixar» e «desfixar» são o mesmo pedido com
+        # valores diferentes, e um botão que só diz «alterna» obriga quem
+        # o implementa a manter o estado certo para saber o que vai fazer.
+        Rota("POST", "/conversas/{id}/fixada", _fixar_conversa, "fixar-conversa"),
+        Rota(
+            "POST",
+            "/conversas/{id}/silenciada",
+            _silenciar_conversa,
+            "silenciar-conversa",
+        ),
+        Rota(
+            "POST",
+            "/conversas/{id}/limpar",
+            _limpar_historico,
+            "limpar-historico",
+        ),
 
         # --- contactos -----------------------------------------------
         Rota(
@@ -180,6 +197,12 @@ def montar(
             "/contactos",
             lambda ctx, parametros: loja.contactos(pesquisa=ctx.um("pesquisa")),
             "contactos",
+        ),
+        Rota(
+            "POST",
+            "/contactos/{id}/bloqueado",
+            _bloquear_contacto,
+            "bloquear-contacto",
         ),
         Rota(
             "POST",
@@ -293,6 +316,57 @@ def _decidir_pedido(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]
     if not isinstance(decisao, str):
         raise ErroDePedido(400, "falta o campo «decisao»")
     return contexto.loja.decidir_pedido(parametros["id"], decisao)
+
+
+def _bandeira(contexto: Any, campo: str = "valor") -> bool:
+    """Lê um booleano do corpo do pedido, e não o seu oposto.
+
+    A rota recebe ``{"valor": true}`` ou ``{"valor": false}``, e as duas
+    coisas têm de ser distinguíveis. ``bool(corpo.get(campo))`` trataria
+    um campo ausente como ``False`` — que é o mesmo que «desfixar», e
+    faria um pedido malformado desligar algo que estava ligado.
+
+    O ``tipo`` é conferido: ``"false"`` é uma string verdadeira em
+    Python, e um cliente que mandasse texto em vez de JSON desligaria a
+    conversa sem querer. É `400`, não ``False``.
+    """
+    corpo = contexto.json()
+    if campo not in corpo:
+        raise ErroDePedido(400, f"falta o campo «{campo}»")
+    valor = corpo[campo]
+    if not isinstance(valor, bool):
+        raise ErroDePedido(400, f"«{campo}» tem de ser verdadeiro ou falso")
+    return valor
+
+
+def _fixar_conversa(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """Fixa ou desfixa. `POST /conversas/{id}/fixada`."""
+    contexto.loja.fixar_conversa(parametros["id"], _bandeira(contexto))
+    return {"ok": True}
+
+
+def _silenciar_conversa(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """Silencia ou dessilencia. `POST /conversas/{id}/silenciada`."""
+    contexto.loja.silenciar_conversa(parametros["id"], _bandeira(contexto))
+    return {"ok": True}
+
+
+def _limpar_historico(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """Apaga as mensagens. `POST /conversas/{id}/limpar`."""
+    try:
+        contexto.loja.limpar_historico(parametros["id"])
+    except loja_mod.LojaInvalida as erro:
+        raise ErroDePedido(404, str(erro)) from erro
+    return {"ok": True}
+
+
+def _bloquear_contacto(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """Bloqueia ou desbloqueia. `POST /contactos/{id}/bloqueado`."""
+    try:
+        contexto.loja.bloquear_contacto(parametros["id"], _bandeira(contexto))
+    except loja_mod.LojaInvalida as erro:
+        raise ErroDePedido(404, str(erro)) from erro
+    return {"ok": True}
 
 
 def _seguranca(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:

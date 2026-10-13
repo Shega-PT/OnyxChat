@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 // =====================================================================
 // mock-adapter.js — implementação de demonstração do adaptador
 // ---------------------------------------------------------------------
@@ -88,6 +94,28 @@ function buildConversation(conversation) {
   };
 }
 
+/**
+ * Encontra a conversa de demonstração pelo identificador.
+ *
+ * @param {string} conversationId
+ * @returns {object|undefined}
+ */
+function acharConversa(conversationId) {
+  return mock.conversations.find((c) => c.id === conversationId);
+}
+
+/**
+ * Encontra o contacto de uma conversa.
+ *
+ * @param {object} conversation
+ * @returns {object|undefined}
+ */
+function acharContacto(conversation) {
+  return conversation?.contactId
+    ? mock.contacts.find((c) => c.id === conversation.contactId)
+    : undefined;
+}
+
 /** @type {import('./data-adapter').AdaptadorDados} */
 export const mockAdapter = {
   async getIdentity() {
@@ -149,6 +177,76 @@ export const mockAdapter = {
               .includes(term)
       )
       .sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+  },
+
+  /**
+   * Marca a conversa e as suas mensagens recebidas como lidas.
+   *
+   * As mensagens da conversa são as `messages`, e cada uma tem `unread`.
+   * O zero vai para a conversa e para as mensagens **recebidas** — as
+   * enviadas por nós nunca tiveram nada por ler, e limpá-las faria a
+   * lista mostrar menos do que a pessoa escreveu. Esta é a mesma razão
+   * que está no comentário de `marcar_lida` em `server/loja.py`.
+   */
+  async markConversationRead(conversationId) {
+    await delay(140);
+    const conversation = acharConversa(conversationId);
+    if (!conversation) throw new Error('Não existe essa conversa.');
+    conversation.unread = 0;
+    conversation.messages = conversation.messages.map((message) =>
+      message.from === 'them' ? { ...message, unread: false } : message
+    );
+    return { ok: true };
+  },
+
+  /** Fixa ou desfixa. Vê `bridge-adapter.pinConversation`. */
+  async pinConversation(conversationId, pinned) {
+    await delay(140);
+    const conversation = acharConversa(conversationId);
+    if (!conversation) throw new Error('Não existe essa conversa.');
+    conversation.pinned = Boolean(pinned);
+    return { ok: true };
+  },
+
+  /** Silencia ou dessilencia. Vê `bridge-adapter.muteConversation`. */
+  async muteConversation(conversationId, muted) {
+    await delay(140);
+    const conversation = acharConversa(conversationId);
+    if (!conversation) throw new Error('Não existe essa conversa.');
+    conversation.muted = Boolean(muted);
+    return { ok: true };
+  },
+
+  /**
+   * Apaga as mensagens, e deixa a conversa.
+   *
+   * Deixar `messages` com um único item impede `lastMessageOf` de
+   * rebentar num `.text` de `undefined` — e a lista continuaria a
+   * desenhar, vazia, que é o que se vê depois de limpar.
+   */
+  async clearHistory(conversationId) {
+    await delay(180);
+    const conversation = acharConversa(conversationId);
+    if (!conversation) throw new Error('Não existe essa conversa.');
+    conversation.messages = [{ from: 'system', text: '', at: conversation.messages[0]?.at }];
+    conversation.lastMessage = '';
+    conversation.unread = 0;
+    return { ok: true };
+  },
+
+  /**
+   * Bloqueia ou desbloqueia o contacto.
+   *
+   * O bloqueio é do **contacto**, não da conversa: quem se bloqueia é a
+   * pessoa, e é o contacto que passa a recusar pedidos. A conversa
+   * continua a ser a mesma — silenciar é que é por conversa.
+   */
+  async blockContact(contactId, blocked) {
+    await delay(160);
+    const contact = mock.contacts.find((c) => c.id === contactId);
+    if (!contact) throw new Error('Não existe esse contacto.');
+    contact.blocked = Boolean(blocked);
+    return { ok: true };
   },
 
   async listRequests({ includeBlocked = false } = {}) {
@@ -225,17 +323,24 @@ export const mockAdapter = {
   /**
    * O estado da conta, para a interface decidir entre registo e entrada.
    *
-   * Devolve sempre `{ estado: 'registada' }` assim que existe conta: a
-   * demonstração não tem uma barreira entre o registo e a casca, porque
-   * não há chave nenhuma para desbloquear. Dizer «bloqueada» aqui seria
-   * obrigar a interface a mostrar um ecrã de entrada para o qual não há
-   * segredo — e quem lesse esse ecrã ficaria à espera de uma palavra que
-   * não existe em lado nenhum.
+   * Devolve os **três valores do backend** — `sem-conta`, `trancada`,
+   * `desbloqueada` — e não um quarto inventado aqui. Esta devia devolver
+   * `registada`, que não existe em lado nenhum do outro lado do adaptador,
+   * e o `SessaoContext` tratava tudo o que não fosse `sem-conta` como
+   * `trancada`: uma coincidência que funcionava por acidente e que
+   * deixaria de funcionar à primeira alteração.
+   *
+   * Uma conta de demonstração existe e está trancada: `entrarConta()`
+   * exige a frase, e `FRASE_DEMONSTRACAO` é a frase. Dizer
+   * `desbloqueada` sem que a sessão esteja aberta seria o inverso do
+   * defeito que este método corrigia.
+   *
+   * @returns {Promise<{estado: string, demonstracao: boolean}>}
    */
   async getAccountState() {
     await delay(120);
     const conta = contaDemo.lerConta();
-    return { estado: conta ? 'registada' : 'sem-conta', demonstracao: true };
+    return { estado: conta ? 'trancada' : 'sem-conta', demonstracao: true };
   },
 
   /** Cria a conta de demonstração. */
@@ -260,19 +365,53 @@ export const mockAdapter = {
     await delay(160);
   },
 
-  /** Devolve a cópia de segurança, como texto para descarregar. */
+  /**
+   * Devolve a cópia de segurança, **em base64** como o backend.
+   *
+   * Esta devolveia `conteudo` já desserializado e um `nomeFicheiro`, o
+   * que a tornava incompatível com `bridge-adapter.exportAccount()`: o
+   * backend devolve base64 de um ficheiro binário, porque o corpo de uma
+   * resposta tem de ser JSON. Duas formas para um método é um contrato
+   * que não é contrato — e a versão que diverge sempre é a de
+   * demonstração, que é justamente a que ninguém exercita a sério.
+   *
+   * A demonstração passa a passar pelo mesmo caminho, base64 e
+   * descodificação incluídas. É mais uma operação, e é a mesma que o
+   * `Recuperar.jsx` faz com uma cópia real.
+   *
+   * @returns {Promise<{conteudo: string, modo: string}>}
+   */
   async exportAccount() {
     await delay(300);
     const conta = contaDemo.lerConta();
     if (!conta) throw new Error('Ainda não existe conta para exportar.');
-    return { conteudo: conta, nomeFicheiro: 'conta-demo.json' };
+    return {
+      conteudo: btoa(unescape(encodeURIComponent(JSON.stringify(conta)))),
+      modo: '0600',
+    };
   },
 
-  /** Repõe uma conta a partir de uma cópia. */
-  async restoreAccount({ conteudo }) {
+  /**
+   * Repõe uma conta a partir de uma cópia.
+   *
+   * O `conteudo` chega em base64, pelo mesmo caminho de `exportAccount`.
+   * Descodificar antes de decidir o que fazer com a frase é o que faz
+   * esta função e `bridge-adapter.restoreAccount()` receberem a mesma
+   * coisa: um ficheiro não legível é `400`, e uma frase errada é um erro
+   * de frase. Confundir os dois seria fazer a pessoa recomeçar à procura
+   * do ficheiro errado.
+   *
+   * @param {{conteudo: string, frase: string}} dados
+   */
+  async restoreAccount({ conteudo, frase }) {
     await delay(420);
-    if (!contaDemo.lerConta()) throw new Error('Ainda não existe conta para substituir.');
-    return contaDemo.entrarConta({ frase: conteudo.frase });
+    let conta;
+    try {
+      conta = JSON.parse(decodeURIComponent(escape(atob(conteudo))));
+    } catch {
+      throw new Error('a cópia não é um ficheiro válido');
+    }
+    return contaDemo.reporConta({ conta, frase });
   },
 
   async sendContactRequest(identifier, message) {

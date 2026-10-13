@@ -253,6 +253,7 @@ processo.
 | `/swapfile` com modo `0600 root:root` | um atacante **não-root** da mesma máquina (A8) não consegue ler a swap |
 | `kernel.yama.ptrace_scope = 1` | restringe `/proc/<pid>/mem` entre utilizadores distintos |
 | `zeroize` no `Drop` (Rust e C) | a cópia em RAM é limpa no descarte |
+| `mlockall(MCL_CURRENT \| MCL_FUTURE)` no arranque | impede o page-out do material sensível — ver §`mlockall` |
 
 ### O que **não** está mitigado
 
@@ -266,9 +267,9 @@ processo.
 Estes casos estão **fora do âmbito de A8** e são declarados
 explicitamente como **A10** em [`threat_model.md`](threat_model.md).
 
-### `PLANEADO` (F0c) — `mlockall`
+### `IMPLEMENTADO` — `mlockall`
 
-O daemon passará a trancar as suas páginas em RAM no arranque:
+O daemon tranca as suas páginas em RAM no arranque:
 
 ```text
 mlockall(MCL_CURRENT | MCL_FUTURE)
@@ -295,6 +296,28 @@ valor por omissão pode ser insuficiente; nesse caso subir com
 > protege contra page-out. Não protege contra `root`, forense de disco
 > nem *cold-boot*. Nenhuma chave em RAM está segura contra quem tem
 > acesso físico ao sistema.
+
+#### Onde está, e o que a degradação devolve
+
+`crypto/rust/src/paginas.rs` é o dono da operação;
+`crypto_core::paginas::trancar_paginas()` devolve um `EstadoPaginas` —
+`Trancadas`, ou `Desbloqueadas(MotivoFalha)`. O motivo é um **enum, não
+uma string**: o arranque precisa de distinguir «limite de memória» de
+«plataforma sem suporte», porque as mitigações são diferentes — a
+primeira resolve-se com `ulimit`, a segunda não tem solução em código.
+
+O ponto de chamada é `network/daemon_rust/src/main.rs`, no arranque, e
+`destrancar_paginas()` corre no `Drop` do mesmo percurso. Trancar no
+arranque e destrancar no `Drop` é o par que fecha o ciclo: o processo
+que não devolve a página mantém-na trancada para sempre, e o `Drop`
+liberta o que não precisa de continuar trancado.
+
+Este parágrafo esteve errado até 2026-10-13: a secção dizia `PLANEADO`
+(F0c) e o `roadmap.md` repetia o rótulo, com o código à frente dos dois
+desde a fase F. É o erro que a regra editorial do
+[`roadmap.md`](roadmap.md) §Estado actual vs futuro existe para tornar
+impossível de novo — um `PLANEADO` que já tem código é uma promessa que
+o código está a cumprir em silêncio.
 
 ---
 

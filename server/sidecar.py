@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -478,7 +478,7 @@ class Manipulador(BaseHTTPRequestHandler):
         O plano desta Etapa previa «HTTP + WebSocket», e a parte do
         WebSocket ficou por fazer de propósito — ver ``docs/sidecar.md``
         §O canal de eventos, onde a decisão está escrita com a
-        razão. Resumo: as vinte e uma funções do contrato em
+        razão. Resumo: as vinte e cinco funções do contrato em
         ``bridge-adapter.js`` são todas pedido/resposta, e não há
         consumidor para um canal de empurrar eventos. Uma implementação
         de RFC 6455 feita à mão, sem consumidor, seria exactamente o

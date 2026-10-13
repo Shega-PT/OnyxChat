@@ -24,17 +24,18 @@ O OnyxChat é uma **arquitetura de comunicação P2P privada** em que cada
 instância funciona simultaneamente como cliente e como servidor/endpoint:
 
 ```text
-                 ┌─────────────────────────┐
-                 │        ONYX CHAT        │
-                 │                         │
-                 │  Identidade própria     │
-                 │  Criptografia E2E       │
-                 │  Tor                    │
-                 │  P2P                    │
-                 │  Discovery mínimo       │
-                 │  Relay opcional         │
-                 │  Routing descentralizado│
-                 └────────────┬────────────┘
+                 ┌─────────────────────────────────┐
+                 │           ONYX CHAT              │
+                 │                                 │
+                 │  Identidade própria             │
+                 │  Criptografia E2E               │
+                 │  Tor                            │
+                 │  P2P                            │
+                 │  Discovery mínimo               │
+                 │  Relay opcional                 │
+                 │  Routing descentralizado        │
+                 │        · PLANEADO ·             │
+                 └────────────┬────────────────────┘
                               │
                   ┌───────────┴───────────┐
                   │                       │
@@ -44,6 +45,17 @@ instância funciona simultaneamente como cliente e como servidor/endpoint:
                               │
                        conteúdo protegido
 ```
+
+> **O routing descentralizado está marcado, e a marca é o ponto.** Tudo
+> o resto da caixa existe. O routing **não** — é `PLANEADO`, e está em
+> [`roadmap.md`](roadmap.md) §PLANEADO com secção normativa em §10.4.
+>
+> A marca é necessária porque a caixa é o **primeiro** parágrafo de §1.1,
+> e quem avalia o projecto lê a caixa antes de chegar a §10.4. Uma caixa
+> que listasse o routing sem marca descreveria como presente exactamente
+> a peça que ainda não existe — e é a regra editorial do projecto a dizer
+> que um parágrafo que descreve comportamento sem dizer o estado vai
+> divergir do código.
 
 ### 1.2 O que **não** é
 
@@ -58,7 +70,8 @@ desta área esconde:
   especificações formais e testes de paridade.
 * **Não** esconde o IP real de forma absoluta. Ver §3.
 * **Não** elimina metadados. Ver §3.4.
-* **Não** garante entrega. Ver §10.4.
+* **Não** garante entrega. Ver
+  [`threat_model.md`](threat_model.md) §Limitações 4.
 
 ### 1.3 A afirmação correcta, e a incorrecta
 
@@ -285,7 +298,6 @@ Norma completa: [`message_format.md`](message_format.md).
 | `crypto/rust` (`crypto_core`) | Rust | K1, K5, K7, espelho de K9, Ed25519, `Segredo`+zeroize, CSPRNG |
 | `crypto/c_cpp` | C/C++ | K4 (transposição), K9 em produção (libsodium) |
 | `crypto/python_lua/lua` | Lua | K2, K3, K6, K8 **em produção** (embutidas no daemon) |
-| `crypto/python_lua/lua` | Lua | K2, K3, K6, K8 em produção, embutidas no daemon |
 | `network/daemon_rust` (`onyxchatd`) | Rust | orquestra o pipeline, IPC UDS, Tor, P2P, handshake, relay |
 | `messenger/` | Python | cliente IPC, envelope, chaves, keystore cifrado |
 | `user/` | Python | CLI/TUI e gestão de identidade local |
@@ -435,8 +447,14 @@ nunca chega a ser processado pelo pipeline.
 tests/vectors/camadas.json    →  KATs por camada (K1..K9)
 tests/vectors/pipeline.json   →  vectors fim-a-fim (c1..c9 + envelope)
 tests/vectors/handshake.json  →  REQUEST/ACCEPT/REJECT
+tests/vectors/identidade.json →  identificador e impressão sobre SHA-256
 docs/test_vectors.md          →  forma legível dos mesmos dados (GERADO)
 ```
+
+São **quatro** ficheiros, e o quarto — `identidade.json` — só entrou na
+Etapa 3, com a identidade derivada. As listas deste guia só o incluíam a
+partir de 2026-10-13, e um leitor que contasse os vectores a partir daqui
+contaria três quando há quatro.
 
 Gerados por `cargo run -p onyxchatd --example gerar_vetores` a partir
 da implementação de referência. **Nunca editar à mão** — um teste
@@ -618,8 +636,20 @@ gestão de chaves e zeroização.
 
 ### PLANEADO
 
+Doze itens — a lista **completa** está na tabela de
+[`roadmap.md`](roadmap.md) §PLANEADO, e este resumo só dá o flavor:
+
 Routing nodes · rede de transporte descentralizada · discovery
-descentralizado.
+descentralizado · alimentar cada ecrã pelo backend · imprimir de
+identidade ligada à chave real · K1 derivada no caminho por omissão ·
+relay por `.onion` · Argon2id na conta · chaves de sessão fora do `argv`.
+
+> Este resumo lista três destes doze até 2026-10-13, e dizia «tabela
+> completa e autoritativa em `roadmap.md`» logo acima. A contradição era
+> invisível **e** inofensiva enquanto os três coincidissem com o grosso do
+> que interessa — routing nodes, discovery descentralizado — e passa a ser
+> enganadora quando os nove restantes são todos segurança. Um resumo que
+> se apresenta como completo e não é é pior do que não haver resumo.
 
 ### CONCEITO
 

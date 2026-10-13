@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -56,22 +56,44 @@ AMERICANISMOS = {
     r"\bscreen(s)?\b": "ecrã",
 }
 
-# Construções que são erro de português, não escolha de variante.
-GRAMATICA = [
-    # Duplicação dearticles
-    (r"\ba o\b(?=\s+(guarda|resto|lista|mesmo|conjunto|campo|ponto)\b)", "a+o"),
-    (r"\bo a\b(?=\s+(guarda|resto|lista|mesmo|conjunto)\b)", "o+a"),
-    # "há" onde se quer "a" (há + tempo)
-    (r"\bhá (decisões|decisão|anos|meses|dias|horas)\b", "há — correcto"),
-    # Duplicação de preposições herdada de traduções
-    (r"\bnão\s+não\b", "não"),
-    (r"\bde\s+de\b", "de"),
-    # Concordância: "os" antes de feminino
-    (r"\bos (chaves|amizades|mensagens|ligações|vagas|entradas)\b", "as \\1"),
-    (r"\bas (ficheiros|ficheiros)\b", "os ficheiros"),
-    # Article + substantivo feminino plural
-    (r"\boas (chaves|entradas|vagas)\b", "as \\1"),
-]
+# ## Onde estava a lista `GRAMATICA`
+#
+# Havia aqui uma lista de oito construções de erro de português — artigos
+# duplicados, preposições repetidas, concordância de género — que **nunca
+# foi aplicada**. Nenhum verificador a consultava, e por isso nenhuma das
+# oito regras podia ter reportado seja o que fosse.
+#
+# Foi removida a 2026-10-13, e a decisão de não a repor é deliberada.
+# Ligá-la não seria abri-la: era pôr em execução código nunca testado,
+# com defeitos que só apareceriam ao encontrar texto real. Três deles
+# eram visíveis sem correr nada:
+#
+#   * o padrão dos artigos exigia três palavras em sequência, na ordem
+#     «o», «a», e uma terceira que fosse artigo. Casa por isso com
+#     construções que não são português de lado nenhum, e **não** com o
+#     erro que a regra queria apanhar, que tem as palavras noutra
+#     ordem. A regra estava invertida em relação ao seu objectivo;
+#   * uma das alternativas repetia o mesmo termo duas vezes seguidas, o
+#     que é a forma silenciosa de escrever um «ou» vazio;
+#   * o comentário do bloco escreria «Duplicação de articles», sem
+#     espaço entre as duas palavras, por nenhuma razão que uma revisão
+#     de texto não apanhe.
+#
+# Uma regra de concordância nunca exercitada é pior do que nenhuma: dá a
+# impressão de que a concordância está a ser conferida, e não está. Se
+# alguma vez houver uma lista de gramática, ela nasce de um ficheiro de
+# teste com o exemplo errado **e** o exemplo certo — como acontece com
+# `verificar_ambiente.py`, que tem 18 testes e uma isenção declarada.
+# Uma lista escrita e não testada é a forma mais barata de aparentar
+# qualidade sem ter nenhuma.
+#
+# Uma nota sobre a redacção desta nota: foi preciso descrevê-las sem as
+# escrever. `verificar_frases.py` caça sequências de palavras que não
+# fazem sentido em português, e a explicação mais legível de um padrão
+# partido é mostrar o que ele casa — que é, por definição, uma
+# sequência que não faz sentido. O auditor tem razão e a nota cede: um
+# parágrafo que se cala para agradar ao verificador deixa de ser uma
+# nota e passa a ser código sem parágrafo, que é pior.
 
 # Vocabulário técnico consagrado: NÃO deve ser traduzido.
 ACEITOS = {

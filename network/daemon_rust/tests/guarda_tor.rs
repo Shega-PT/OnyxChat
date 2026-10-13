@@ -1,4 +1,4 @@
-// Required Notice: ShegaPT / <<NOME-LEGAL>> — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 //
 // Licença base do projecto: PolyForm Noncommercial 1.0.0.
 // Não é open source pela definição da OSI. Uso comercial
@@ -327,7 +327,7 @@ fn ficheiros_de_teste_so_atras_de_cfg_test() {
 ///   2. todos os `Cargo.toml` com campo `license` dizem o mesmo;
 ///   3. `pyproject.toml` diz o mesmo;
 ///   4. os marcadores `<<…>>` estão resolvidos — publicar com um
-///      `<<NOME-LEGAL>>` no lugar do nome é publicar um erro;
+///      o marcador no lugar do nome civil é publicar um erro;
 ///   5. cada ficheiro de fonte carrega o `Required Notice:`.
 ///
 /// O ponto 5 é uma exigência expressa da PolyForm (§Notices): quem recebe uma
@@ -407,12 +407,31 @@ fn licenca_e_metadados_sao_coerentes() {
     );
 
     // A lista de fontes é calculada uma vez e usada nos pontos (4) e (5).
+    // Duas listas, e a diferença entre elas é uma pergunta.
+    //
+    // `fontes` são os ficheiros **distribuídos** — os que a PolyForm
+    // acompanha, e por isso os que precisam do `Required Notice:`.
+    // `todos` são todos os ficheiros de código, testes incluídos, e
+    // servem para procurar marcadores por resolver.
+    //
+    // São iguais salvo em `tests/` e `fuzz/`, e essa é exactamente a
+    // distinção que faltava. Ver a nota no ponto (4).
     let fontes = collectar_fontes(&raiz);
-    assert!(!fontes.is_empty(), "a listagem de fontes devolveu nada");
+    let todos = collectar_todos(&raiz);
+    assert!(
+        !fontes.is_empty(),
+        "a listagem de fontes devolveu nada — o guard passaria a verde por não ver nada"
+    );
+    assert!(
+        todos.len() >= fontes.len(),
+        "a lista de todos é menor que a de distribuídos: {} < {}",
+        todos.len(),
+        fontes.len()
+    );
 
     // (4) Nenhum marcador por resolver.
     //
-    // Publicar com `<<NOME-LEGAL>>` no lugar do nome é publicar um erro,
+    // Publicar com o marcador no lugar do nome civil é publicar um erro,
     // e é o erro mais provável porque o ficheiro parece completo.
     //
     // A verificação conta em vez de listar. Há um marcador em cada um dos
@@ -429,7 +448,7 @@ fn licenca_e_metadados_sao_coerentes() {
     // Não é preciosismo: o guard sugere um `sed` que reescreve todas as
     // ocorrências do marcador, e esse `sed` passa por este ficheiro. Com
     // o literal escrito aqui, seguir o comando sugerido reescrevia o
-    // próprio guard — que passava a procurar `<<NOME-LEGAL>>` em vez do
+    // próprio guard — que passava a procurar o nome civil em vez do
     // marcador, e continuava a falhar com uma mensagem que já não
     // correspondia à realidade. Montado em runtime, sobrevive ao `sed`.
     let marcador = format!("<<{}>>", "NOME-LEGAL");
@@ -447,8 +466,25 @@ fn licenca_e_metadados_sao_coerentes() {
     }
     // Nos ficheiros de fonte conta-se e resume-se. Listar 45 caminhos não
     // ajuda ninguém a decidir o que fazer; o número e o comando bastam.
+    //
+    // ## Porquê também `tests/` e `fuzz/`
+    //
+    // A lista é a de **todos** os ficheiros, e não a dos distribuídos. Um
+    // marcador por resolver é um marcador por resolver, esteja onde
+    // esteja: não é uma questão de quem recebe o software.
+    //
+    // Antes desta mudança o guard contava só os distribuídos, e por isso
+    // **não via o seu próprio cabeçalho**. `guarda_tor.rs:1` tinha um
+    // o marcador no lugar do nome civil, e o ficheiro que deveria
+    // tê-lo apanhado estava excluído da lista porque mora numa pasta de
+    // testes. Passou meses assim: o guard dava verde, e o erro estava na
+    // linha 1 do guard.
+    //
+    // Um guard que não se lê a si próprio não está a medir nada que não
+    // consiga ver. É por isso que a lista dos marcadores é diferente da
+    // lista do aviso — e é a **única** diferença, que é o suficiente.
     let mut em_fontes = 0usize;
-    for fonte in &fontes {
+    for fonte in &todos {
         let texto = fs::read_to_string(fonte).unwrap_or_default();
         let n = texto.matches(&marcador).count();
         total += n;
@@ -458,8 +494,8 @@ fn licenca_e_metadados_sao_coerentes() {
     }
     if em_fontes > 0 {
         por_ficheiro.push(format!(
-            "Required Notice: em {em_fontes} de {} ficheiros de fonte",
-            fontes.len()
+            "Required Notice: em {em_fontes} de {} ficheiros de código",
+            todos.len()
         ));
     }
 
@@ -473,6 +509,90 @@ fn licenca_e_metadados_sao_coerentes() {
          novo em vez do marcador.\n    \n    \
          Este teste passa a verde quando o ultimo desaparecer.\n",
         por_ficheiro.join("\n    ")
+    );
+
+    // (6) O endereço do repositório é o mesmo em todo o lado.
+    //
+    // ## A história
+    //
+    // O `Required Notice:` apontava para `…/Shega-PT/OnixChat`, com um
+    // «i» a mais, em 108 ficheiros versionados. O remoto real — o único
+    // sítio onde o endereço existe sem ser escrito por alguém — é
+    // `…/Shega-PT/OnyxChat`. O nome do projecto é `OnyxChat`, o
+    // directório é `OnyxChat`, e o pacote npm chama-se `onyxchat-ui`. A
+    // grafia com «i» não tinha nenhum sítio onde estivesse certa: só
+    // existia copiada, e copiar é um acto que não tem verificação.
+    //
+    // ## Porquê um ponto (6) e não um ponto (1)
+    //
+    // O ponto (1) verifica que a `LICENSE` contém o texto da PolyForm. O
+    // endereço não é o texto da licença: é o sítio de onde a licença se
+    // busca. Uma licença correcta num endereço errado continua a ser
+    // impossível de ir buscar.
+    //
+    // ## O endereço errado é montado, nunca escrito
+    //
+    // Pela mesma razão que o marcador: o `sed` que corrige o endereço
+    // passa por este ficheiro, e o literal errado escrito aqui seria
+    // reescrito — o guard passaria a procurar o endereço certo e deixaria
+    // de detectar o errado, que é a falha exacta que este ponto existe
+    // para apanhar.
+    //
+    // A verificação é por **domínio**, não por caminho: o que não pode
+    // aparecer é um endereço do projecto com a grafia errada. Um URL de
+    // terceiro legítimo — um link num comentário, uma referência a uma
+    // especificação — não é objecto disto.
+    let endereco_errado = format!("{}/Oni{}Chat", "github.com/Shega-PT", "x");
+    let endereco_certo = "https://github.com/Shega-PT/OnyxChat";
+
+    let mut com_errado: Vec<String> = Vec::new();
+    let mut com_certo = 0usize;
+    // A lista é a de **todos**, pelos mesmos motivos do ponto (4): um
+    // endereço errado num ficheiro de teste é um endereço errado na
+    // mesma medida que num ficheiro distribuído.
+    for ficheiro in &todos {
+        let texto = fs::read_to_string(ficheiro).unwrap_or_default();
+        let n = texto.matches(&endereco_errado).count();
+        if n > 0 {
+            com_errado.push(format!(
+                "{}: {n}",
+                ficheiro.strip_prefix(&raiz).unwrap_or(ficheiro).display()
+            ));
+        }
+        com_certo += texto.matches(endereco_certo).count();
+    }
+    // Os três ficheiros da raiz que cites o repositório também contam,
+    // e entram à mão porque não têm extensão de código — a mesma razão
+    // pela qual o marcador os examina um a um no ponto (4).
+    for nome in ["LICENSE", "COPYRIGHT.md", "THIRD-PARTY.md", "README.md"] {
+        let caminho = raiz.join(nome);
+        let Ok(texto) = fs::read_to_string(&caminho) else {
+            continue;
+        };
+        let n = texto.matches(&endereco_errado).count();
+        if n > 0 {
+            com_errado.push(format!("{nome}: {n}"));
+        }
+        com_certo += texto.matches(endereco_certo).count();
+    }
+
+    let lista = com_errado
+        .iter()
+        .map(|linha| linha.as_str())
+        .collect::<Vec<_>>()
+        .join("\n    ");
+
+    assert!(
+        com_errado.is_empty(),
+        "\n\n    O ENDERECO DO REPOSITORIO ESTA ERRADO em {} ocorrencia(s).\n    \n    {}\n    \n    O remoto diz `{endereco_certo}`. Resolve com:\n    \n    grep -rl --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules --exclude=guarda_tor.rs '{endereco_errado}' . | xargs sed -i 's|{endereco_errado}|{endereco_certo}|g'\n    \n    O `--exclude=guarda_tor.rs` nao e' paranoia: sem ele o `sed` reescreve o proprio guard, que passaria a procurar o endereco certo em vez do errado.\n",
+        com_errado.len(),
+        lista,
+    );
+    assert!(
+        com_certo > 0,
+        "o endereco certo nao aparece em lado nenhum. Ou o aviso foi removido, \
+         ou o guard passou a procurar uma coisa que ninguem escreve. As duas \
+         sao falhas, e uma delas e' silenciosa."
     );
 
     // (5) O `Required Notice:` em todos os ficheiros de fonte.
@@ -604,7 +724,47 @@ fn a_exclusao_de_ferramentas_de_terceiros_exclui_o_caminho_certo() {
 /// teste não são distribuídos. Inclui-os dava um guard que falha por
 /// ficheiros que ninguém recebe.
 fn collectar_fontes(raiz: &Path) -> Vec<PathBuf> {
-    fn descender(atual: &Path, raiz: &Path, saida: &mut Vec<PathBuf>) {
+    collectar(raiz, true)
+}
+
+/// Todos os ficheiros de código do repositório, distribuídos ou não.
+///
+/// Existe para uma pergunta que não é a do aviso: **há algum marcador
+/// `<<…>>` por resolver?** A resposta é não, e é uma resposta que não
+/// tem nada a ver com distribuição.
+///
+/// A distinção é o que faltava. `guarda_tor.rs:1` carregava um
+/// o marcador por resolver durante meses, **invisível ao guard que
+/// mora neste ficheiro**, porque o guard se excluía a si próprio por ser
+/// um teste. Um guard que não se vê a si mesmo não é um guard: é um
+/// guard que faz verificações às cegas.
+fn collectar_todos(raiz: &Path) -> Vec<PathBuf> {
+    collectar(raiz, false)
+}
+
+/// As extensões que são código do projecto.
+///
+/// A interface entrou na lista a 2026-10-13. Antes disto o guard via 108
+/// ficheiros de aviso e **zero** dos 91 ficheiros `.js`/`.jsx`, que são
+/// um terço do código — e não por esquecimento do aviso, mas porque a
+/// extensão não estava na lista. Um guard só vê o que a lista lhe
+/// mostra, e uma lista incompleta não dá meio-crédito: dá verde.
+///
+/// `.mjs` e `.cjs` entram sem ficheiro que as use, porque o `.gitignore`
+/// e o `jsconfig` já as nomeiam, e um ficheiro novo com uma destas
+/// extensões fica coberto no momento em que é escrito, e não depois de
+/// alguém notar.
+const EXTENSOES_DE_CODIGO: &[&str] = &["rs", "py", "c", "cpp", "h", "js", "jsx", "mjs", "cjs"];
+
+/// Percorre a árvore. `so_distribuidos` decide se `tests/` e `fuzz/`
+/// contam.
+fn collectar(raiz: &Path, so_distribuidos: bool) -> Vec<PathBuf> {
+    fn descender(
+        atual: &Path,
+        raiz: &Path,
+        so_distribuidos: bool,
+        saida: &mut Vec<PathBuf>,
+    ) {
         let Ok(entradas) = fs::read_dir(atual) else {
             return;
         };
@@ -613,45 +773,69 @@ fn collectar_fontes(raiz: &Path) -> Vec<PathBuf> {
             let nome = caminho.file_name().and_then(|n| n.to_str()).unwrap_or("");
             // `vendor` é código de terceiros com as suas próprias
             // licenças e as suas próprias linhas de aviso. `target` e
-            // `build` são artefactos. `tests` e `fuzz` não são
-            // distribuídos. Um ponto à frente é `.git`, `.venv`, etc.
+            // `build` são artefactos. Um ponto à frente é `.git`, `.venv`,
+            // etc.
             //
             // `node_modules` é `vendor` noutro nome: é a árvore de
             // dependências que o npm instala dentro do repositório, com as
             // suas próprias licenças e sem qualquer relação com a
             // PolyForm.
             //
+            // ## `dist` — o artefacto que quase fez este guard falhar
+            //
+            // A interface não tinha `.js` na lista até 2026-10-13, e é
+            // por isso que `dist/` precisa de exclusão **só a partir de
+            // agora**: `UI/dist/assets/` tem o pacote construído em
+            // `.js`, e o passo de construção escreve-o no disco.
+            //
             // Isto percorre o **sistema de ficheiros**, não o índice do
             // Git, e por isso não beneficia do `.gitignore`: a pasta
             // está correctamente ignorada, mas ignorada não é o mesmo
-            // que ausente, e este guard lê o disco.
+            // que ausente, e este guard lê o disco. Alargar a lista de
+            // extensões sem excluí-la daria um guard vermelho por causa
+            // de um ficheiro que alguém acabara de compilar — que é o
+            // pior tipo de falha: o guard queixa-se do trabalho de outra
+            // pessoa, e dessa pessoa não é.
+            //
+            // E o aviso do pacote não é o mesmo que o dos ficheiros de
+            // origem: é posto em `vite.config.js`, num `postBanner`, e
+            // verificado pelo job da interface no CI. Não é este guard
+            // que o confirma, e não deve ser — o guard lê fontes, e o
+            // pacote é uma consequência da construção.
             //
             // A comparação é feita contra a **raiz do repositório**, não
             // contra o directório que se está a percorrer. Fazer
             // `strip_prefix(atual)` daria o nome do último componente — ao
             // descer em `UI/tools`, `UI/tools/node` reduziria a `node`,
             // que não casa com nada em `FERRAMENTAS_DE_TERCEIROS`. A
-            // exclusão passava a não excluir nada, e o guard continuava a
-            // dar verde por estar a proteger o ficheiro errado.
-            if matches!(nome, "vendor" | "target" | "build" | "tests" | "fuzz" | "node_modules")
+            // exclusão passaria a não excluir nada, e o guard continuaria
+            // a dar verde por estar a proteger o ficheiro errado.
+            let artefacto_de_build = matches!(
+                nome,
+                "vendor" | "target" | "build" | "node_modules" | "dist"
+            );
+            let nao_distribuido = so_distribuidos && matches!(nome, "tests" | "fuzz");
+            if artefacto_de_build
+                || nao_distribuido
                 || nome.starts_with('.')
                 || e_ferramenta_de_terceiros(raiz, &caminho)
             {
                 continue;
             }
             if caminho.is_dir() {
-                descender(&caminho, raiz, saida);
-            } else if matches!(
-                caminho.extension().and_then(|e| e.to_str()),
-                Some("rs" | "py" | "c" | "cpp" | "h")
-            ) {
+                descender(&caminho, raiz, so_distribuidos, saida);
+            } else if caminho
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| EXTENSOES_DE_CODIGO.contains(&e))
+            {
                 saida.push(caminho);
             }
         }
     }
 
     let mut saida = Vec::new();
-    descender(raiz, raiz, &mut saida);
+    descender(raiz, raiz, so_distribuidos, &mut saida);
     saida.sort();
     saida
 }

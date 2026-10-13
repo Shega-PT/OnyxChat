@@ -40,8 +40,14 @@ coverage
 #
 # Confirmação medida em 2026-10-07: com `[0-9][0-9]-*.bin`, um ficheiro
 # `hash-do-fuzzer.bin` era aceite por `git add`; e sem o `**`, um
-# `abcd1234ef567890.bin` não era ignorado. Com estas duas regras, os 57
-# seeds entram e nada mais entra.
+# `abcd1234ef567890.bin` não era ignorado. Com estas duas regras, as
+# sementes versionadas entram e nada mais entra.
+#
+# O número que entra é **50**, não 57: a contagem de 2026-10-07 já não
+# batia com o índice. E o disco tem 173 — a diferença é o que o
+# `cargo fuzz` foi escrevendo, que é exactamente o que estas regras
+# proíbem. `scripts/verificar_estrutura.py` confere as 50, que é a
+# única contagem que não depende de quem executou o que.
 corpus/**
 !corpus/*/
 !corpus/*/[0-9a-f][0-9a-f]-[0-9a-f]*.bin

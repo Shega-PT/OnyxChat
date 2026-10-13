@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 // =====================================================================
 // SessaoContext.jsx — o estado de acesso da aplicação
 // ---------------------------------------------------------------------
@@ -91,7 +97,17 @@ export function SessaoProvider({ children }) {
       .getAccountState()
       .then((resposta) => {
         if (!activo) return;
-        setEstado(resposta?.estado === 'sem-conta' ? 'sem-conta' : 'trancada');
+        // Os três valores do backend traduzem-se um a um. O `default`
+        // deixou de ser `trancada` de propósito: tratar «não sei» como
+        // «está trancada» punha quem tem a conta aberta no ecrã de
+        // entrada, e tratava um valor inventado como se fosse um valor
+        // real. `desconhecido` é a resposta honesta, e é o que o `catch`
+        // abaixo já punha.
+        const estado = resposta?.estado;
+        if (estado === 'sem-conta') setEstado('sem-conta');
+        else if (estado === 'desbloqueada') setEstado('aberta');
+        else if (estado === 'trancada') setEstado('trancada');
+        else setEstado('desconhecido');
       })
       .catch(() => {
         // Sem backend, a honestidade é não saber. Um ecrã de acesso que
@@ -188,14 +204,25 @@ export function SessaoProvider({ children }) {
   /**
    * Exporta a cópia de segurança.
    *
-   * @returns {Promise<{erro: string}|{ficheiro: object}>}
+   * O resultado traz **os dois campos sempre**, e não um tipo por ramo.
+   * A união de tipos — `{erro}` ou `{ficheiro}` — é correcta e é o que a
+   * forma antiga usava, mas o `tsc` só a estreita por discriminação
+   * quando o discriminante é um literal que não pode sobrepor-se, e
+   * `erro: string` sobrepõe-se com tudo. Duas chaves sempre presentes
+   * eliminam a inferência e a leitura fica igual em qualquer ramo.
+   *
+   * O `ficheiro` chega **cifrado**, em base64, e não é aberto aqui: o
+   * ficheiro que a pessoa guarda tem de ser o mesmo que estava no
+   * disco, e não uma versão que passou por aqui.
+   *
+   * @returns {Promise<{erro: string|null, ficheiro: {conteudo: string, modo: string}|null}>}
    */
   const exportar = useCallback(async () => {
     try {
       const ficheiro = await dataAdapter.exportAccount();
-      return { ficheiro };
+      return { erro: null, ficheiro };
     } catch (erro) {
-      return { erro: mensagemDe(erro) };
+      return { erro: mensagemDe(erro), ficheiro: null };
     }
   }, []);
 
@@ -254,8 +281,8 @@ export function SessaoProvider({ children }) {
  *   registar: (dados: {utilizador: string, frase: string}) => Promise<{erro?: string}>,
  *   entrar: (dados: {frase: string}) => Promise<{erro?: string}>,
  *   trancar: () => Promise<void>,
- *   exportar: () => Promise<{erro?: string} | {ficheiro: object}>,
- *   restaurar: (dados: {conteudo: object, frase: string}) => Promise<{erro?: string}>,
+ *   exportar: () => Promise<{erro: string|null, ficheiro: {conteudo: string, modo: string}|null}>,
+ *   restaurar: (dados: {conteudo: string, frase: string}) => Promise<{erro?: string}>,
  *   carregarIdentidade: () => Promise<void>,
  * }}
  */

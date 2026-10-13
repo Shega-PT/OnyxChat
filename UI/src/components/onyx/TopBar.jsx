@@ -1,6 +1,12 @@
-import React from 'react';
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
+import React, { useCallback, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronRight, LogOut, Menu, PanelRight, Plus, Search, Settings2, ShieldCheck, User } from 'lucide-react';
+import { ChevronRight, Download, Lock, Menu, PanelRight, Plus, Search, Settings2, ShieldCheck, User } from 'lucide-react';
 import {
   Menu as DropdownMenu,
   MenuConteudo as DropdownMenuContent,
@@ -14,6 +20,7 @@ import OnyxAvatar from '@/components/onyx/OnyxAvatar';
 import OnyxTooltip from '@/components/onyx/OnyxTooltip';
 import { OnyxIconButton } from '@/components/onyx/OnyxButton';
 import { useOnyxUI } from '@/lib/onyx/onyx-context';
+import { useSessao } from '@/lib/SessaoContext';
 import { useAsync } from '@/lib/onyx/use-async';
 import { dataAdapter } from '@/lib/onyx/data-adapter';
 import { sectionLabelFor } from '@/lib/onyx/nav';
@@ -59,6 +66,66 @@ export default function TopBar({ onOpenNav }) {
   const { identity, openModal, contextLabel, setPanelOpen } = useOnyxUI();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { estado, trancar, exportar } = useSessao();
+  const [ocupado, setOcupado] = useState(false);
+
+  /**
+   * Tranca a sessão e manda para o ecrã de entrada.
+   *
+   * O `setOcupado` existe para o caso em que o `lockAccount` falha: sem
+   * ele, o item fica activo e uma segunda tentativa parece não ter
+   * acontecido. Com ele, o menu mostra que a operação está em curso, e
+   * é o `SessaoContext` — não este ficheiro — que decide o estado final.
+   */
+  const aoTrancar = useCallback(async () => {
+    setOcupado(true);
+    try {
+      await trancar();
+      navigate('/entrar');
+    } finally {
+      setOcupado(false);
+    }
+  }, [trancar, navigate]);
+
+  /**
+   * Descarrega a cópia de segurança.
+   *
+   * O ficheiro que chega do backend é **base64 de um keystore cifrado**,
+   * e é isso que vai para o disco — sem descodificar, sem abrir, sem
+   * olhar. Uma cópia que a interface decifrasse para mostrar o seu
+   * conteúdo seria um ficheiro novo a nascer em memória num sítio onde
+   * ninguém pediu que estivesse.
+   */
+  const aoExportar = useCallback(async () => {
+    setOcupado(true);
+    try {
+      const resultado = await exportar();
+      if (resultado.erro !== null || resultado.ficheiro === null) {
+        openModal({
+          type: 'info',
+          payload: {
+            title: 'Não foi possível exportar',
+            description: resultado.erro ?? 'O sidecar devolveu uma cópia vazia.',
+          },
+        });
+        return;
+      }
+      const bruto = Uint8Array.from(
+        atob(resultado.ficheiro.conteudo),
+        (c) => c.charCodeAt(0),
+      );
+      const url = URL.createObjectURL(new Blob([bruto], { type: 'application/octet-stream' }));
+      const ligacao = document.createElement('a');
+      ligacao.href = url;
+      ligacao.download = 'onyxchat-conta.keystore';
+      ligacao.click();
+      // O object URL mantém o blob vivo até ser revogado; sem isto, a
+      // memória fica com a cópia até alguém abrir o inspector.
+      URL.revokeObjectURL(url);
+    } finally {
+      setOcupado(false);
+    }
+  }, [exportar, openModal]);
 
   return (
     <header className="z-20 flex h-[60px] shrink-0 items-center gap-2 border-b border-onyx-line bg-onyx-surface px-3 md:gap-3 md:px-4">
@@ -147,27 +214,42 @@ export default function TopBar({ onOpenNav }) {
             </DropdownMenuItem>
             <DropdownMenuSeparator className="my-1 bg-onyx-line" />
             {/*
-              Este item deixa de existir na Etapa 4, com a sessão local: o
-              que se faz aqui não é terminar sessão, é fechar o sidecar, e
-              uma acção dessas não pertence a um menu de perfil. A Etapa 4
-              coloca aqui o «Bloquear» e o «Exportar chave», que são as
-              acções que uma identidade tem.
+              O menu de perfil leva acções de **identidade**, não acções
+              de sessão. «Sair da conta» não existe neste projecto: apagar a
+              identidade de alguém porque fechou a janela é uma decisão que
+              a interface nunca toma por si, e o subcomando que faria isso
+              (`user/cli.py`) é explícito sobre não o fazer.
+
+              O que fica são as duas acções que uma identidade tem:
+              trancar e levar a cópia de segurança. Ambas já existem no
+              backend desde a Etapa 5 — `POST /api/conta/trancar` e
+              `GET /api/conta/exportar` — e ambas passam por
+              `SessaoContext`, que é quem sabe se a conta existe.
+
+              Este item já-prometia «Bloquear» e «Exportar chave» e não
+              fazia nada: abria um modal a dizer que chegariam na Etapa 4,
+              que já estava concluída. A lição é a do `Recuperar.jsx` — um
+              botão que existe e não faz nada é pior do que um botão que
+              não existe, porque o primeiro promete.
             */}
-            <DropdownMenuItem
-              onSelect={() => openModal({ type: 'info', payload: {
-                title: 'Sem sessão local ainda',
-                description:
-                  'O bloqueio local, a palavra-passe e a exportação da chave chegam na Etapa 4, com o sistema de credenciais. Até lá, esta janela mostra o estado real do nó.',
-                rows: [
-                  { label: 'Identidade', value: identity?.identifier || '—', mono: true },
-                  { label: 'Estado', value: 'sem bloqueio activo' },
-                ],
-                note: 'A aplicação abre directamente porque o OnyxChat não tem contas — a identidade é uma chave Ed25519 local, não um token de um servidor.',
-              } })}
-              className="cursor-pointer gap-2 rounded text-[12.5px] focus:bg-onyx-surface3 focus:text-onyx-text"
-            >
-              <LogOut className="h-3.5 w-3.5" /> Sessão
-            </DropdownMenuItem>
+            {estado !== 'sem-conta' && (
+              <DropdownMenuItem
+                onSelect={aoTrancar}
+                disabled={ocupado}
+                className="cursor-pointer gap-2 rounded text-[12.5px] focus:bg-onyx-surface3 focus:text-onyx-text disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Lock className="h-3.5 w-3.5" /> Bloquear
+              </DropdownMenuItem>
+            )}
+            {estado === 'aberta' && (
+              <DropdownMenuItem
+                onSelect={aoExportar}
+                disabled={ocupado}
+                className="cursor-pointer gap-2 rounded text-[12.5px] focus:bg-onyx-surface3 focus:text-onyx-text disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" /> Exportar cópia de segurança
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

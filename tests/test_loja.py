@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -710,3 +710,123 @@ def test_o_sqlite_integridade_e_verificada(loja: Loja) -> None:
     loja.registar_pedido(IDENT, "Ana")
     resultado = loja._cx.execute("PRAGMA integrity_check").fetchone()[0]  # noqa: SLF001
     assert resultado == "ok"
+
+
+# ---------------------------------------------------------------------
+# As acções do menu de contexto
+# ---------------------------------------------------------------------
+#
+# As colunas `fixada`, `silenciada` e `bloqueado` estavam no esquema desde o
+# início e eram **lidas** sem nunca serem escritas. A interface mostrava
+# três estados que nada produzia. Estes testes existem para fixar que já
+# os produz — um campo lido e nunca escrito volta a ficar lido e nunca
+# escrito assim que o teste que o cobre é apagado.
+
+
+def test_fixar_poe_a_conversa_no_topo(loja: Loja, com_contacto: str) -> None:
+    """Fixar é uma operação que muda a **ordem**, não só um ícone.
+
+    A lista ordena as fixadas primeiro, e é isso que faz de «fixar» uma
+    acção que vale a pena: se o valor aparecesse e a ordem não mudasse,
+    o botão seria um adorno.
+    """
+    primeira = loja.abrir_conversa(com_contacto)
+    loja.adicionar_mensagem(primeira["id"], "them", "antiga")
+    segundo_contacto = loja.decidir_pedido(
+        loja.registar_pedido("ONYX-1".ljust(64, "b"), "Bruno", "")["id"], "aceite"
+    )["contactoId"]
+    segunda = loja.abrir_conversa(segundo_contacto)
+    loja.adicionar_mensagem(segunda["id"], "them", "recente")
+
+    sem_fixar = [c["id"] for c in loja.conversas()]
+    loja.fixar_conversa(primeira["id"], True)
+
+    assert [c["id"] for c in loja.conversas()] == [primeira["id"]] + [
+        c for c in sem_fixar if c != primeira["id"]
+    ]
+
+
+def test_fixar_e_desfixar(loja: Loja, com_contacto: str) -> None:
+    """O valor é explícito, e não um botão que alterna.
+
+    «Desfixar o que está fixado» e «fixar o que não está» são o mesmo
+    pedido com valores diferentes. Passar o valor de destino é o que
+    permite ao servidor não ter de saber o estado actual para decidir.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    loja.fixar_conversa(conversa["id"], True)
+    assert loja.conversa(conversa["id"])["pinned"] is True
+    loja.fixar_conversa(conversa["id"], False)
+    assert loja.conversa(conversa["id"])["pinned"] is False
+
+
+def test_silenciar_e_dessilenciar(loja: Loja, com_contacto: str) -> None:
+    """Silenciar é por conversa; bloquear é por contacto."""
+    conversa = loja.abrir_conversa(com_contacto)
+    loja.silenciar_conversa(conversa["id"], True)
+    assert loja.conversa(conversa["id"])["muted"] is True
+    loja.silenciar_conversa(conversa["id"], False)
+    assert loja.conversa(conversa["id"])["muted"] is False
+
+
+def test_limpar_o_historico_apaga_as_mensagens(loja: Loja, com_contacto: str) -> None:
+    """A conversa fica; as mensagens vão.
+
+    Perder a conversa seria perder a relação com a pessoa, que é outra
+    coisa e não é esta. O teste verifica as duas metades: as mensagens
+    foram, e a conversa continua a existir com o mesmo contacto.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    loja.adicionar_mensagem(conversa["id"], "them", "segredo antigo")
+    loja.limpar_historico(conversa["id"])
+
+    depois = loja.conversa(conversa["id"])
+    assert depois["messages"] == []
+    assert depois["contactId"] == com_contacto
+
+
+def test_limpar_deixa_a_conversa_sem_nao_lidas(loja: Loja, com_contacto: str) -> None:
+    """Limpar o histórico marca a conversa como lida.
+
+    Sem isto, a conversa ficava com a marca de «não lida» que trazia
+    antes de o histórico ser apagado — e o número ao lado do nome
+    apontava para mensagens que já não existiam.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    loja.marcar_lida(conversa["id"])
+    loja.adicionar_mensagem(conversa["id"], "them", "Chegaste?")
+    assert loja.conversas()[0]["unread"] == 1
+
+    loja.limpar_historico(conversa["id"])
+
+    assert loja.conversas()[0]["unread"] == 0
+
+
+def test_limpar_uma_conversa_que_nao_existe(loja: Loja) -> None:
+    """Apagar o que não existe é `404`, e não um sucesso silencioso."""
+    with pytest.raises(LojaInvalida):
+        loja.limpar_historico("c-inexistente")
+
+
+def test_bloquear_o_contacto(loja: Loja, com_contacto: str) -> None:
+    """O bloqueio é do contacto, e a conversa herda-o.
+
+    O inverso — bloquear a conversa — seria um botão que deixa de
+    funcionar quando a conversa recomeça, que é a forma mais comum de
+    um filtro de ecrã ser confundido com uma regra de negócio.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    loja.bloquear_contacto(com_contacto, True)
+
+    contacto = loja.contactos()[0]
+    assert contacto["blocked"] is True
+    assert loja.conversa(conversa["id"])["contactId"] == com_contacto
+
+    loja.bloquear_contacto(com_contacto, False)
+    assert loja.contactos()[0]["blocked"] is False
+
+
+def test_bloquear_um_contacto_que_nao_existe(loja: Loja) -> None:
+    """Um contacto que não existe não pode ser bloqueado."""
+    with pytest.raises(LojaInvalida):
+        loja.bloquear_contacto("x-inexistente", True)

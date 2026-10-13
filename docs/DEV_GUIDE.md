@@ -420,9 +420,6 @@ ctest --test-dir crypto/c_cpp/build
 
 # 5. Tor — verificação de compilação de tor_arti.rs (458 crates, ~7 min)
 ./scripts/memoria.sh --pico -- cargo check -p onyxchatd --features tor-real
-
-# 5. Tor — verificação de compilação de tor_arti.rs (458 crates, ~7 min)
-./scripts/memoria.sh --pico -- cargo check -p onyxchatd --features tor-real
 ```
 
 Ou, num comando só — e é o caminho recomendado, porque aplica o gate a
@@ -473,10 +470,12 @@ cargo vectors
 #      --no-default-features --features docs
 ```
 
-O gerador escreve **quatro** coisas, todas derivadas dos vectors:
+O gerador escreve o que está no bloco abaixo, tudo derivado dos vectors:
+os quatro JSON de `tests/vectors/` (a fonte única de verdade), o
+`docs/test_vectors.md` legível, e as sementes dos seis corpora de fuzzing.
 
 ```text
-tests/vectors/{camadas,pipeline,handshake}.json   fonte única de verdade
+tests/vectors/{camadas,pipeline,handshake,identidade}.json  fonte única de verdade
 docs/test_vectors.md                             forma legível (GERADO)
 fuzz/corpus/<alvo>/NN-<hex>.bin                  seeds do cargo-fuzz
 ```
@@ -636,8 +635,14 @@ consagrados (`nonces`, `padding`, `handshake`, `relay`, `discovery`,
 ### 4.4 C/C++
 
 * Sem alocação dinâmica nas camadas (saída calculada por índice).
-* `sodium_memzero` / `explicit_bzero` em buffers de material sensível —
-  **ainda por fazer**: `crypto/c_cpp` não chama nenhuma das duas.
+* `sodium_memzero` / `explicit_bzero` em buffers de material sensível.
+  `crypto/c_cpp` chama a primeira: `onyx_limpar()` em `k9_chacha.c` é
+  exactamente `sodium_memzero`, e corre nos caminhos de erro de K9 e de
+  K4 (`transposition.cpp`). O que **não** é limpo, por decisão
+  declarada: os caminhos de sucesso e os buffers de **entrada**, que
+  pertencem ao chamador. Limpar um buffer de entrada seria escrever por
+  cima de memória que o chamador continua a usar. Ver
+  [`key_management.md`](key_management.md) §Zeroização.
 * Erros via `int` (constantes `ONYX_ERR_*`), nunca por valor de retorno
   ambíguo.
 

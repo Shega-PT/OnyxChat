@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -232,7 +232,7 @@ def test_tabela_de_estados_tor() -> None:
 
 
 # ---------------------------------------------------------------------
-# Rede (Etapa 7) — comandos 0x03..0x08
+# Rede (etapa de rede) — comandos 0x03..0x08
 # ---------------------------------------------------------------------
 
 
@@ -421,7 +421,7 @@ def test_fechar_resposta_inesperada(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------
-# Handshake (Etapa 7) — comandos 0x09..0x0C
+# Handshake (etapa de rede) — comandos 0x09..0x0C
 # ---------------------------------------------------------------------
 
 

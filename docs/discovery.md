@@ -121,14 +121,18 @@ serviço com um contrato mínimo de duas operações.
   `http.server` da stdlib. Ponto de entrada por `__main__`, que sobe em
   `127.0.0.1:8789` (porta fixa, sem opções de linha de comando);
   para outras interfaces/portas chamar `criar_servidor(host, porta)`.
-* **Cliente:** `consultar_descoberta(servidor, id)` em
-  `server/discovery_server.py`, exposta pelo subcomando
-  `onyxchat descobrir` em `user/cli.py`. **Não** existe um cliente de
-  discovery em `messenger/` na implementação actual — uma versão
-  anterior deste documento apontava para lá em erro.
-* **`PLANEADO` (F2.1):** a resolução `ID → .onion` passa a estar
-  disponível como função reutilizável em `messenger/`, para que `ligar`
-  possa aceitar um ID hex em modo directo e resolver o `.onion` antes de
-  emitir `LIGAR` ao daemon (que não tem cliente HTTP). Ver
-  [`ipc_spec.md`](ipc_spec.md) §`destino`.
-* **Testes:** `tests/test_discovery.py`.
+* **Cliente da linha de comandos:** `consultar_descoberta(servidor, id)`
+  em `server/discovery_server.py`, exposta pelo subcomando
+  `onyxchat descobrir` em `user/cli.py`.
+* **Cliente do mensageiro:** `messenger/descoberta.py` — módulo
+  próprio, com `classificar_destino()` (decide o modo a partir da forma do
+  destino) e `resolver_ou_usar()` (consulta o servidor e devolve o
+  `.onion`, ou aceita um destino já resolvido). `DestinoInvalido` é a
+  excepção para o que não é ID hex nem `.onion` v3.
+* **Porque dois clientes e não um:** o daemon Rust **não tem cliente
+  HTTP** — falaria em vez de resolver, e a falha seria `0x0D`
+  indistinguível de um endereço inválido. A resolução vive no cliente
+  Python e acontece **antes** de emitir `LIGAR`. Metter um cliente HTTP
+  dentro do daemon que só fala Tor seria o erro de composição que o
+  projecto evita.
+* **Testes:** `tests/test_discovery.py`, `tests/test_descoberta.py`.

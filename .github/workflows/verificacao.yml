@@ -350,3 +350,34 @@ jobs:
               exit 1
             fi
             echo "dist/index.html sem recursos externos"
+
+      - name: o `dist` leva o aviso de licença
+        # A PolyForm Noncommercial §Notices exige que quem recebe «a copy
+        # of any part» leve os termos **e** as linhas `Required Notice:`
+        # que o titular forneceu. `dist/` é a parte que sai da máquina:
+        # é o que o sidecar serve em `127.0.0.1` e o que alguém copia
+        # para um disco externo.
+        #
+        # A verificação existe porque o aviso **desaparece em silêncio**.
+        # `postBanner` aplica o texto depois da minificação, e o passo de
+        # remoção de comentários leva o `banner` sem deixar rasto — o
+        # aviso continuaria no código-fonte, o build continuaria a dar
+        # verde, e ninguém repararia até alguém copiar o pacote e ficar
+        # com um ficheiro que não diz de onde veio.
+        #
+        # O aviso é procurado no HTML e no JS porque são as duas partes
+        # que um browser recebe: quem abre a pasta leva um deles.
+        run: |
+            falhou=0
+            for ficheiro in UI/dist/index.html UI/dist/assets/*.js; do
+              [ -e "$ficheiro" ] || continue
+              if ! grep -q 'Required Notice: ShegaPT' "$ficheiro"; then
+                echo "sem aviso de licença: $ficheiro"
+                falhou=1
+              fi
+            done
+            if [ "$falhou" -ne 0 ]; then
+              echo "o aviso é posto em vite.config.js (postBanner) e em index.html"
+              exit 1
+            fi
+            echo "o dist leva o aviso em todas as partes que um browser recebe"

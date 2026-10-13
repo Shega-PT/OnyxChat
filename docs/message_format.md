@@ -262,13 +262,19 @@ a falha mais concreta que o projecto tinha.
   o replay. O `0700`/`0600` é a defesa, e um atacante com escrita nessa
  _directoria_ já não é um atacante de disco: é o utilizador.
 
-Limitação documentada: o estado anti-replay é **em memória** — depois
-de um reinício do daemon, mensagens antigas poderiam ser aceites
-novamente dentro da janela de TTL do transporte. Isto é uma decisão de
-âmbito (o sistema não persiste histórico de mensagens, por filosofia).
-A capacidade fixa acrescenta uma segunda limitação: com mais de 4096
-mensagens dentro do TTL, as mais antigas saem da janela e deixam de ser
-rejeitadas como replay.
+A segunda limitação — a que se segue à persistência — é a capacidade
+fixa: com mais de 4096 mensagens dentro do TTL, as mais antigas saem da
+janela e deixam de ser rejeitadas como replay. É um tecto, não uma falha:
+`min(contagem, disponíveis, CAPACIDADE)` protege a leitura de um
+ficheiro adulterado, e o custo é uma janela de replay que só se abre
+depois de 4096 mensagens dentro de 10 minutos.
+
+> Este parágrafo estava `em memória` até 2026-10-13, e contradizia as
+> três secções acima — que descrevem a persistência, a `fsync` e o
+> `rename` como decisões tomadas. Tinha ficado da fase em que o registo
+> ainda não era gravado, e sobreviveu à implementação porque **ninguém
+> lê o fim de um ficheiro à procura de uma afirmação que já não é
+> verdade**.
 
 ---
 

@@ -23,11 +23,52 @@ clonado. Publicar o nome civil é uma decisão que se toma uma vez, antes
 do primeiro commit público, e que não tem reversão prática.
 
 > **Nome preenchido.** O nome civil está escrito neste ficheiro, no
-> cabeçalho do `LICENSE` e no `Required Notice:` de cada ficheiro de
-> fonte. O teste de guarda `licenca_e_metadados_sao_coerentes` verifica
-> que nenhum marcador `<<…>>` ficou por resolver e falha de propósito se
-> algum aparecer — é a razão pela qual a matriz aparece vermelha se
-> alguém voltar a usar um marcador.
+> cabeçalho do `LICENSE`, no `Required Notice:` de cada ficheiro de
+> fonte e no aviso que acompanha o pacote construído.
+>
+> A verificação é o teste de guarda **`licenca_e_metadados_sao_coerentes`**,
+> em [`network/daemon_rust/tests/guarda_tor.rs`](network/daemon_rust/tests/guarda_tor.rs).
+> Aponta-se o ficheiro porque ele ser procurado **pelo nome** não é o
+> suficiente: durante meses foi exactamente esse o problema — o teste
+> existe, funciona, e mesmo assim não se encontrava quem o procurasse
+> num `grep` com os filtros errados.
+>
+> O que ele verifica hoje:
+>
+> | Verificação | Onde |
+> | --- | --- |
+> | a `LICENSE` contém o texto da PolyForm | ponto (1) |
+> | todos os `Cargo.toml` com campo `license` dizem o mesmo | ponto (2) |
+> | o `pyproject.toml` diz o mesmo | ponto (3) |
+> | nenhum marcador ficou por resolver, em `tests/` e `fuzz/` incluídos | ponto (4) |
+> | cada ficheiro de fonte carrega o `Required Notice:` — incluindo os 91 `.js`/`.jsx` | ponto (5) |
+> | o endereço do repositório é o mesmo em todos os ficheiros | ponto (6) |
+>
+> ## O guard que não via o seu próprio ficheiro
+>
+> Até 2026-10-13 o guard excluía `tests/` da contagem de marcadores —
+> a exclusão é correcta para o **aviso**, porque ficheiros de teste não
+> são distribuídos — e a consequência foi que `guarda_tor.rs:1` carregava
+> um marcador por resolver na linha 1, invisível ao guard que mora
+> nesse ficheiro.
+>
+> Passou meses assim. O guard dava verde, e o erro estava no seu próprio
+> cabeçalho.
+>
+> A correcção foi **separar as duas perguntas**: o aviso é uma questão
+> de distribuição, o marcador é uma questão de higiene. São quase a mesma
+> lista de ficheiros e não podem ser a mesma, porque a diferença entre
+> elas — `tests/` e `fuzz/` — é exactamente onde o marcador estava.
+>
+> ## O pacote construído
+>
+> A PolyForm fala de quem recebe «uma cópia de **qualquer parte**» do
+> software. A parte que sai da máquina não são os ficheiros de origem:
+> é `UI/dist/`, que o sidecar serve em `127.0.0.1`. O aviso desse
+> pacote é posto em [`UI/vite.config.js`](UI/vite.config.js) num
+> `postBanner`, e é verificado pelo job da interface no CI — **não** por
+> este guard, porque o guard lê fontes e o pacote é uma consequência da
+> construção.
 
 ## A empresa que ainda não existe
 

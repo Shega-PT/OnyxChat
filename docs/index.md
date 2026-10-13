@@ -123,6 +123,7 @@ consome apenas esta secção e nada mais.
 | [`message_format.md`](message_format.md) | envelope binário: layout, região assinada, versionamento, anti-replay | Rust, Python |
 | [`handshake.md`](handshake.md) | transcript canónico, `FRIEND_REQUEST`/`ACCEPT`/`REJECT`, anti-replay, anti-downgrade | Rust, Python |
 | [`ipc_spec.md`](ipc_spec.md) | protocolo local Python↔daemon: framing, comandos, erros, timeouts | Rust, Python |
+| [`sidecar.md`](sidecar.md) | protocolo local interface↔sidecar: 26 rotas, política de origens, erros | Python, JavaScript |
 | [`p2p.md`](p2p.md) | frames ponto a ponto: tipos, validação, rate-limit, timeouts | Rust |
 | [`relay.md`](relay.md) | transporte opcional: mailbox, mensagens, retenção | Rust, Python |
 | [`discovery.md`](discovery.md) | bootstrap `ID → .onion`: rotas, validação, TTL | Python |

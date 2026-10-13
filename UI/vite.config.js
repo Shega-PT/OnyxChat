@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
@@ -47,11 +53,84 @@ import { defineConfig } from 'vite'
 // `components.json` (`aliases`), para o editor e para o shadcn. São três
 // declarações do mesmo facto, em três ferramentas diferentes, e é
 // inevitável: nenhuma delas lê as outras duas.
+// =====================================================================
+// O aviso de licença no pacote construído
+// ---------------------------------------------------------------------
+// `dist/` é o que sai da máquina: é o que o sidecar serve em
+// `127.0.0.1`, e é o que alguém copia para um disco externo. A PolyForm
+// Noncommercial §Notices exige que quem recebe «a copy of any part»
+// leve os termos **e** as linhas `Required Notice:` que o titular
+// forneceu. Sem isto, o ficheiro que mais viaja do projecto não diz de
+// onde veio.
+//
+// ## `postBanner` e não `banner`
+//
+// A diferença entre os dois é a minificação, e não é um detalhe. O
+// `banner` é aplicado **antes** de o `renderChunk` correr e antes de a
+// minificação eliminar comentários; o `postBanner` é aplicado **depois**
+// dela. Num comentário de bloco normal, o passo de remoção de comentários
+// leva-o consigo — e um aviso que desaparece da versão construída é
+// pior do que nenhum, porque continua a estar no código-fonte e ninguém
+// repara.
+//
+// ## Porquê uma constante e não um literal
+//
+// O texto vem de `AVISO_LICENCA`, e não de uma linha escrita aqui. A
+// PolyForm pede «plain-text lines beginning with `Required Notice:`» —
+//
+// com esses dois pontos e essas palavras exactas. Reescrever a frase
+// numa paráfrase em português cumpre a intenção e falha o requisito, e a
+// diferença entre as duas coisas não aparece em nenhum teste a não ser
+// este.
+//
+// O mesmo texto vive no cabeçalho dos ficheiros de fonte e aqui. São
+// duas ocorrências porque não há um sítio único de onde ambas lêem: o
+// cabeçalho tem de estar no ficheiro para_polyForm o acompanhar, e o
+// pacote não é um ficheiro de fonte. A verificação que impede as duas de
+// divergirem é `licenca_e_metadados_sao_coerentes`, em
+// `network/daemon_rust/tests/guarda_tor.rs`.
+// =====================================================================
+
+/**
+ * O aviso que acompanha o pacote construído.
+ *
+ * Uma linha só, e não uma frase partida em várias. A PolyForm pede
+ * «plain-text lines beginning with `Required Notice:`» — linhas, e cada
+ * linha tem de começar pelo rótulo. O aviso aqui escrito com o URL
+ * numa segunda linha produzia um ficheiro com uma linha que começa
+ * como deve ser e outra que é continuação, e ninguém saberia dizer se
+ * isso cumpre ou não. Na dúvida, o formato é o dos ficheiros de
+ * fonte: uma linha, com tudo nela.
+ *
+ * @type {string}
+ */
+const AVISO_LICENCA = [
+  '/*!',
+  ' * Required Notice: ShegaPT / Carlos Alberto da Silva Brito — ' +
+    'PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>',
+  ' *',
+  ' * Licença base do projecto: PolyForm Noncommercial 1.0.0.',
+  ' * Não é open source pela definição da OSI. Uso comercial',
+  ' * exige autorização do titular — ver COMMERCIAL-LICENSE.md.',
+  ' */',
+].join('\n');
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // `postBanner`, nunca `banner`: ver a nota acima. A PolyForm
+        // chama ao requisito «plain-text lines beginning with
+        // `Required Notice:`», e uma linha que só existe antes da
+        // minificação não acompanha o ficheiro que é servido.
+        postBanner: AVISO_LICENCA,
+      },
     },
   },
 })

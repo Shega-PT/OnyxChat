@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -78,9 +78,40 @@ FORA_DA_BUSCA = {
     "tests/test_verificar_comentarios.py",
 }
 
-# Documentos de terceiro vendorizado: o inglês é a língua original.
-DOCUMENTOS_ESTRANGEIROS = {"README", "LICENSE", "LICENSE.txt", "CHANGELOG",
-                           "NOTICE", "AUTHORS"}
+# ## Onde estava a lista `DOCUMENTOS_ESTRANGEIROS`
+#
+# Havia aqui um conjunto com `README`, `LICENSE`, `LICENSE.txt`,
+# `CHANGELOG`, `NOTICE` e `AUTHORS`, meant para isentar da auditoria os
+# documentos de terceiro vendorizado, em que o inglês é a língua original.
+# **Nenhum verificador o consultava.**
+#
+# Foi removido a 2026-10-13, e removê-lo foi melhor do que o ligar.
+#
+# A lista foi escrita como se fosse de um projecto cujo `README` e cujo
+# `CHANGELOG` viessem em inglês. Neste não vêm: o `README.md` da raiz
+# está em português, a `LICENSE` tem o cabeçalho em português, e o
+# `CHANGELOG.md` também. Os três que existem na lista são exactamente os
+# três documentos mais lidos do projecto — e tê-los de fora da auditoria
+# de português tê-los-ia de fora de propósito.
+#
+# Dos seis nomes, `AUTHORS`, `NOTICE` e `LICENSE.txt` não existem no
+# repositório. A lista apontava para três ficheiros que não há, o que
+# mostra que nunca foi conferida contra a árvore: uma lista de exclusões
+# que ninguém testou é uma lista de exclusões que ninguém sabe o que
+# exclui.
+#
+# ## A regra que a lista devia ter expressado
+#
+# A excepção real é por **origem**, não por nome: o inglês é legítimo
+# onde o texto é de terceiro, e o filtro que a implementa de facto é o de
+# directório — `IGNORADOS`, que apanha `vendor` e `node_modules`. Um
+# ficheiro de terceiro que aparecesse na raiz, com o nome de um dos seis,
+# seria exemptado pela lista e auditado pelo filtro: as duas regras
+# discordariam, e a mais fraca ganharia porque ninguém a lê.
+#
+# Se algum dia um documento terceiro em inglês entrar na raiz, a
+# excepção que se quer é uma entrada em `IGNORADOS`, não uma excepção
+# por nome de ficheiro.
 
 
 def ficheiros() -> list[Path]:

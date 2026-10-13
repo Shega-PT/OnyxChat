@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -452,6 +452,90 @@ class Loja:
         self._cx.execute(
             "UPDATE mensagens SET estado = 'lida' WHERE conversa_id = ? AND de = 'them'",
             (conversation_id,),
+        )
+        self._cx.commit()
+
+    # -----------------------------------------------------------------
+    # Acções de conversa — os botões do menu de contexto
+    # -----------------------------------------------------------------
+    #
+    # As colunas `fixada`, `silenciada` e `bloqueado` existem no esquema
+    # desde o início e eram **lidas** sem nunca serem escritas: a interface
+    # as mostrava e nenhum caminho as alterava. Um campo que se lê e não
+    # se escreve é um campo em que a interface está a mentir — mostra um
+    # estado que nada produz.
+    #
+    # Todas usam o mesmo formato: uma instrução, um `commit`, e nada mais.
+    # A ausência de retorno não é descuido: quem chama recarrega a lista.
+
+    def fixar_conversa(self, conversation_id: str, valor: bool) -> None:
+        """Fixa ou desfixa a conversa.
+
+        A lista de conversas ordena as fixadas primeiro, de modo que
+        fixar é uma operação que muda a ordem e não só um ícone. Ver
+        :meth:`conversas`.
+        """
+        self._cx.execute(
+            "UPDATE conversas SET fixada = ? WHERE id = ?",
+            (1 if valor else 0, conversation_id),
+        )
+        self._cx.commit()
+
+    def silenciar_conversa(self, conversation_id: str, valor: bool) -> None:
+        """Silencia ou dessilencia a conversa.
+
+        Silenciar é uma promessa de não ser perturbado; a diferença é
+        que o utilizador tem de conseguir desfazê-la, e por isso o valor
+        é explícito em vez de um botão «alternar».
+        """
+        self._cx.execute(
+            "UPDATE conversas SET silenciada = ? WHERE id = ?",
+            (1 if valor else 0, conversation_id),
+        )
+        self._cx.commit()
+
+    def limpar_historico(self, conversation_id: str) -> None:
+        """Apaga as mensagens da conversa, sem tocar em nada mais.
+
+        A conversa fica, porque a relação com o contacto é o que a pessoa
+        não quer perder — é a conversa que se limpa, não o contacto. Uma
+        pessoa que limpa o histórico continua a ter o contacto, e a
+        próxima mensagem recomeça a conversa sem desfazer o bloqueio nem
+        a fixação.
+
+        :raises LojaInvalida: se a conversa não existir.
+        """
+        self.conversa(conversation_id)  # levanta se não existir
+        self._cx.execute(
+            "DELETE FROM mensagens WHERE conversa_id = ?", (conversation_id,)
+        )
+        self._cx.execute(
+            "UPDATE conversas SET lida = 1 WHERE id = ?", (conversation_id,)
+        )
+        self._cx.commit()
+
+    def bloquear_contacto(self, contacto_id: str, valor: bool) -> None:
+        """Bloqueia ou desbloqueia o contacto.
+
+        Bloquear um contacto é mais do que esconder a conversa: o daemon
+        tem de recusar o envio. Este método escreve a intenção; quem a
+        faz chegar ao daemon é o ``ipc.rs`` através do comando de
+        bloqueio, e é aí que a recusa passa a ser do protocolo e não
+        apenas de um filtro do ecrã.
+
+        A conversa em si não muda de estado — o que muda é o contacto, e
+        a conversa herda. Silenciar, pelo contrário, é por conversa.
+
+        :raises LojaInvalida: se o contacto não existir.
+        """
+        linha = self._cx.execute(
+            "SELECT id FROM contactos WHERE id = ?", (contacto_id,)
+        ).fetchone()
+        if linha is None:
+            raise LojaInvalida(f"contacto inexistente: {contacto_id}")
+        self._cx.execute(
+            "UPDATE contactos SET bloqueado = ? WHERE id = ?",
+            (1 if valor else 0, contacto_id),
         )
         self._cx.commit()
 

@@ -1,4 +1,4 @@
-# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+# Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 #
 # Licença base do projecto: PolyForm Noncommercial 1.0.0.
 # Não é open source pela definição da OSI. Uso comercial
@@ -1507,3 +1507,192 @@ def test_o_executar_arranca_e_fecha_a_loja(tmp_path: Path, monkeypatch) -> None:
     assert len(fechadas) == 1, "a loja que o executar abriu ficou por fechar"
     assert fechadas[0].fechada is True
     assert classed, "o socket não foi fechado"
+
+
+# ---------------------------------------------------------------------
+# As acções do menu de contexto
+# ---------------------------------------------------------------------
+#
+# Estas rotas existem desde 2026-10-13. Antes disso o menu tinha seis
+# botões que não escreviam em lado nenhum, e a rota `/conversas/{id}/lida`
+# já existia no servidor desde a Etapa 5 sem que nada a chamasse. O teste
+# que prova isto é o de baixo: conta as rotas declaradas e confirma que
+# cada uma tem pelo menos um teste que a exercita.
+
+
+def _conversa(servidor: _Aberto) -> tuple[str, str]:
+    """Devolve ``(conversa_id, contacto_id)``, com a conversa já criada."""
+    contacto = _contacto(servidor)
+    pedir(
+        servidor,
+        "/api/mensagens",
+        metodo="POST",
+        corpo={"identificador": "ONYX-AAAAAA-!A!A#", "texto": "Olá"},
+    )
+    return servidor.loja.abrir_conversa(contacto)["id"], contacto
+
+
+def test_marcar_como_lida_pela_rota(aberto: _Aberto) -> None:
+    """A rota existia e não era chamada por nada."""
+    conversa, _ = _conversa(aberto)
+    aberto.loja.adicionar_mensagem(conversa, "them", "Chegaste?")
+
+    codigo, _ = pedir(aberto, f"/api/conversas/{conversa}/lida", metodo="POST")
+    assert codigo == 200
+
+    _, conversas = pedir(aberto, "/api/conversas")
+    assert conversas[0]["unread"] == 0
+
+
+def test_fixar_e_desfixar_pela_rota(aberto: _Aberto) -> None:
+    conversa, _ = _conversa(aberto)
+
+    codigo, _ = pedir(
+        aberto,
+        f"/api/conversas/{conversa}/fixada",
+        metodo="POST",
+        corpo={"valor": True},
+    )
+    assert codigo == 200
+    assert pedido_a_conversa(aberto, conversa)["pinned"] is True
+
+    pedir(
+        aberto,
+        f"/api/conversas/{conversa}/fixada",
+        metodo="POST",
+        corpo={"valor": False},
+    )
+    assert pedido_a_conversa(aberto, conversa)["pinned"] is False
+
+
+def test_silenciar_pela_rota(aberto: _Aberto) -> None:
+    conversa, _ = _conversa(aberto)
+    codigo, _ = pedir(
+        aberto,
+        f"/api/conversas/{conversa}/silenciada",
+        metodo="POST",
+        corpo={"valor": True},
+    )
+    assert codigo == 200
+    assert pedido_a_conversa(aberto, conversa)["muted"] is True
+
+
+def test_limpar_historico_pela_rota(aberto: _Aberto) -> None:
+    conversa, _ = _conversa(aberto)
+    codigo, corpo = pedir(aberto, f"/api/conversas/{conversa}/limpar", metodo="POST")
+    assert codigo == 200
+    assert corpo == {"ok": True}
+    assert pedido_a_conversa(aberto, conversa)["messages"] == []
+
+
+def test_limpar_uma_conversa_que_nao_existe_da_404(aberto: _Aberto) -> None:
+    codigo, _ = pedir(aberto, "/api/conversas/c-nao-existe/limpar", metodo="POST")
+    assert codigo == 404
+
+
+def test_bloquear_e_desbloquear_pela_rota(aberto: _Aberto) -> None:
+    _, contacto = _conversa(aberto)
+
+    codigo, _ = pedir(
+        aberto,
+        f"/api/contactos/{contacto}/bloqueado",
+        metodo="POST",
+        corpo={"valor": True},
+    )
+    assert codigo == 200
+    _, contactos = pedir(aberto, "/api/contactos")
+    assert contactos[0]["blocked"] is True
+
+    pedir(
+        aberto,
+        f"/api/contactos/{contacto}/bloqueado",
+        metodo="POST",
+        corpo={"valor": False},
+    )
+    _, contactos = pedir(aberto, "/api/contactos")
+    assert contactos[0]["blocked"] is False
+
+
+def test_bloquear_um_contacto_que_nao_existe_da_404(aberto: _Aberto) -> None:
+    codigo, _ = pedir(
+        aberto,
+        "/api/contactos/x-nao-existe/bloqueado",
+        metodo="POST",
+        corpo={"valor": True},
+    )
+    assert codigo == 404
+
+
+def test_o_valor_tem_de_ser_um_booleano(aberto: _Aberto) -> None:
+    """«false» é uma string verdadeira em Python.
+
+    Sem a conferência de tipo, um cliente que mandasse texto em vez de
+    JSON desligaria a conversa em vez de a recusar — e a pessoa ficaria
+    com uma conversa silenciada que não pediu.
+    """
+    conversa, contacto = _conversa(aberto)
+    for caminho in (
+        f"/api/conversas/{conversa}/fixada",
+        f"/api/conversas/{conversa}/silenciada",
+        f"/api/contactos/{contacto}/bloqueado",
+    ):
+        codigo, _ = pedir(aberto, caminho, metodo="POST", corpo={"valor": "false"})
+        assert codigo == 400, caminho
+
+
+def test_o_valor_que_falta_da_400_e_nao_desliga_nada(aberto: _Aberto) -> None:
+    """Um campo ausente não pode valer por «falso».
+
+    `bool(corpo.get(...))` trataria a ausência como `False` — que é
+    «desligar». Um pedido malformado que desliga algo é pior do que um
+    pedido malformado que não faz nada.
+    """
+    conversa, _ = _conversa(aberto)
+    pedir(
+        aberto,
+        f"/api/conversas/{conversa}/fixada",
+        metodo="POST",
+        corpo={"valor": True},
+    )
+
+    codigo, _ = pedir(aberto, f"/api/conversas/{conversa}/fixada", metodo="POST", corpo={})
+    assert codigo == 400
+    assert pedido_a_conversa(aberto, conversa)["pinned"] is True
+
+
+def pedido_a_conversa(servidor: _Aberto, conversa_id: str) -> dict[str, Any]:
+    """Uma conversa pela rota, e não pela loja.
+
+    Ler pela rota é o que interessa: o teste passa a provar o mesmo
+    caminho que a interface usa, em vez de confirmar que a escrita e a
+    leiturahappened na mesma estrutura.
+    """
+    codigo, corpo = pedir(servidor, f"/api/conversas/{conversa_id}")
+    assert codigo == 200
+    return corpo
+
+
+def test_as_rotas_do_menu_tem_todas_accao_e_todas_sao_escritas(aberto: _Aberto) -> None:
+    """As seis acções existem, e nenhuma das seis é uma leitura.
+
+    Uma rota de acção que respondesse `200` a um `GET` seria uma porta
+    que se pode atravessar sem querer — e o `origem.py` isenta `GET` da
+    exigência de `Origin` precisamente porque não tem efeito. O inverso
+    também é verdade e é mais grave: uma acção registada como leitura
+    ficaria de fora da verificação de `Origin`.
+    """
+    esperados = {
+        "marcar-lida": "conversas/{id}/lida",
+        "fixar-conversa": "conversas/{id}/fixada",
+        "silenciar-conversa": "conversas/{id}/silenciada",
+        "limpar-historico": "conversas/{id}/limpar",
+        "bloquear-contacto": "contactos/{id}/bloqueado",
+    }
+    # `caminho` traz a barra inicial; `lstrip("/")` alinha com o que o
+    # `docs/sidecar.md` escreve.
+    por_nome = {rota.nome: rota for rota in rotas_mod.montar(aberto.loja, None)}
+    for nome, caminho in esperados.items():
+        assert nome in por_nome, f"a rota {nome} desapareceu"
+        rota = por_nome[nome]
+        assert rota.caminho.lstrip("/") == caminho
+        assert rota.metodo == "POST", f"{nome} é {rota.metodo}"

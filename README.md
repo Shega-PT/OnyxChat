@@ -86,9 +86,14 @@ Rust, Tor embutido, P2P directo, relay opcional, discovery
 cifrado, test vectors multi-linguagem, property tests, fuzzing,
 especificações e modelos.
 
-`PLANEADO`: routing nodes, rede de transporte descentralizada, discovery
-descentralizado. `CONCEITO`: Fake-IP, multimédia, mitigação de metadados,
-identificadores de algoritmo por camada.
+A lista completa e autoritativa do que falta está em
+[`docs/roadmap.md`](docs/roadmap.md) §PLANEADO — **doze itens**. Em
+resumo: routing nodes · transporte descentralizado · discovery
+descentralizado · alimentar cada ecrã pelo backend · impressão de
+identidade ligada à chave real · K1 derivada no caminho por omissão ·
+relay por `.onion` · Argon2id na conta · chaves de sessão fora do `argv`.
+`CONCEITO`: Fake-IP, multimédia, mitigação de metadados, identificadores
+de algoritmo por camada.
 
 > **Cobertura de linhas não é 100% em Rust — é 99,38%** (medido em
 > 2026-10-07). Das 45 linhas em falta, 6 são alcançáveis e estão por

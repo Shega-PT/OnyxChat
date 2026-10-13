@@ -79,7 +79,6 @@ mensagens». Os próprios participantes fornecem os endpoints.
 | `crypto/rust` (`crypto_core`) | Rust | K1, K5, K7, espelho de K9, Ed25519, `Segredo`+zeroize, CSPRNG |
 | `crypto/c_cpp` | C/C++ | K4 (transposição), K9 em produção (libsodium) |
 | `crypto/python_lua/lua` | Lua | K2, K3, K6, K8 **em produção** (embutidas no daemon) |
-| `crypto/python_lua/lua` | Lua | K2, K3, K6, K8 em produção, embutidas no daemon |
 | `network/daemon_rust` (`onyxchatd`) | Rust | orquestra o pipeline, IPC UDS, Tor, P2P, handshake, relay |
 | `messenger/` | Python | cliente IPC, envelope, chaves, keystore cifrado |
 | `user/` | Python | CLI/TUI e gestão de identidade local |

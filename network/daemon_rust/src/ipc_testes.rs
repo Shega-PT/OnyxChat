@@ -1,4 +1,4 @@
-// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnixChat>
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
 //
 // Licença base do projecto: PolyForm Noncommercial 1.0.0.
 // Não é open source pela definição da OSI. Uso comercial
@@ -927,7 +927,7 @@ fn constantes_do_protocolo() {
 }
 
 // ----------------------------------------------------------------
-// Utilitários da Etapa 7 (rede + handshake)
+// Utilitários da etapa de rede (rede + handshake)
 // ----------------------------------------------------------------
 
 /// Os quatro valores devolvidos por `par_ligado`.

@@ -1,3 +1,9 @@
+// Required Notice: ShegaPT / Carlos Alberto da Silva Brito — PolyForm Noncommercial 1.0.0 <https://github.com/Shega-PT/OnyxChat>
+//
+// Licença base do projecto: PolyForm Noncommercial 1.0.0.
+// Não é open source pela definição da OSI. Uso comercial
+// exige autorização do titular — ver COMMERCIAL-LICENSE.md.
+
 import React from 'react';
 import { Plus, Search } from 'lucide-react';
 import { usarToast as useToast } from '@/lib/shadcn';
@@ -18,9 +24,6 @@ const FILTERS = [
   { id: 'verificadas', label: 'Verificadas' },
 ];
 
-/** Nada a fazer — usado enquanto as acções do menu ainda não escrevem. */
-const semAccao = () => {};
-
 /**
  * Painel lateral da lista de conversas.
  *
@@ -29,11 +32,15 @@ const semAccao = () => {};
  * linha continua sem saber nada sobre o que é uma conversa, e a vista
  * continua a ser a dona das suas acções.
  *
- * A maioria das acções ainda não escreve em lado nenhum — pertencem ao
- * adaptador, que ganha implementação real na Etapa 5 e na demonstração
- * altera só o estado local. Estão isoladas em props opcionais com
- * alternativa inerte, para que a lista não dependa de a vista saber quais
- * estão implementadas.
+ * As seis acções do menu **escrevem** e são obrigatórias: em 2026-10-13
+ * eram opcionais com uma alternativa inerte (`semAccao`) e ninguém as
+ * passava, o que deixava seis botões desenhados que não faziam nada. Um
+ * botão que existe e não tem efeito é pior do que um botão que não
+ * existe — o primeiro promete. As props deixaram de ter omissão, e o
+ * `Conversations.jsx` passou a dizer o que cada uma faz.
+ *
+ * Todas recebem a **conversa** e não o `id`; ver a nota em
+ * `ConversationContextItems.jsx` para o porquê.
  */
 export default function ConversationList({
   conversations = [],
@@ -45,21 +52,22 @@ export default function ConversationList({
   filter = 'todas',
   onFilterChange,
   onNew = undefined,
-  onMarcarLida = semAccao,
-  onSilenciar = semAccao,
-  onFixar = semAccao,
-  onVerIdentidade = semAccao,
-  onLimparHistorico = semAccao,
-  onBloquear = semAccao,
+  onMarcarLida,
+  onSilenciar,
+  onFixar,
+  onVerIdentidade,
+  onLimparHistorico,
+  onBloquear,
   className = undefined,
 }) {
   const { toast } = useToast();
 
   /**
    * Copia o identificador da conversa, anunciando o resultado nos dois
-   * sentidos. Esta é a única acção do menu que **está** implementada: não
-   * precisa de backend, e serve de referência para o que as outras vão
-   * precisar de fazer.
+   * sentidos. É a única acção do menu que **não precisa de backend**: não
+   * escreve nada, e por isso não recarrega a lista nem precisa de
+   * confirmação. Serve de referência para a forma das outras — que
+   * escrevem, e por isso têm de dizer o que correram mal.
    */
   const copiarIdentificador = (conversation) => {
     const valor = conversation.contact?.identifier || conversation.id;

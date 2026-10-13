@@ -32,7 +32,7 @@ Ed25519, conteúdo cifrado fim-a-fim.
 
 ---
 
-## As cinco áreas de segurança
+## As quatro áreas de segurança
 
 O OnyxChat distingue explicitamente quatro áreas diferentes — confundir
 umas com outras é a origem dos erros mais comuns em avaliação:
@@ -192,11 +192,11 @@ favorável.
 | Forward secrecy | ✘ | **não** — declarado em [`threat_model.md`](threat_model.md) §Limitações 8. A semente é reconstruível a partir de duas chaves de longa duração |
 | Paridade da derivação Rust↔Python | ✔ | ✔ vector congelado nas duas pontas + teste de guarda `derivacao_da_amizade_bate_entre_rust_e_python` |
 | Zeroização de segredos | parcial | ✔ Rust: `Segredo` com `Drop` zeroize · ✔ C: `onyx_limpar` (= `sodium_memzero`) nos caminhos de erro de K4/K9 · ✘ os caminhos de sucesso e os buffers de entrada não são limpos, por pertencerem ao chamador |
-| Protecção contra page-out | ✔ | **parcial** — `mlockall` é `PLANEADO` (F0c); swapfile `0600` já é do ambiente, não do projecto |
+| Protecção contra page-out | ✔ | **parcial** — `mlockall(MCL_CURRENT\|MCL_FUTURE)` no arranque (`paginas.rs`), com degradação explícita quando `RLIMIT_MEMLOCK` é insuficiente; swapfile `0600` já é do ambiente, não do projecto. Não protege contra `root`, forense de disco nem *cold-boot* |
 | Isolamento do backend Tor | ✔ | ✔ teste de guarda: `arti::` só em `tor_arti.rs` |
 | Falha explícita sem Tor | ✔ | ✔ `construir_backend` devolve `Err` sem a feature — não degrada em silêncio |
 | Paridade entre linguagens | ✔ | ✔ test vectors partilhados (`testing.md`) |
-| Cobertura de linhas 100% | ✔ | ✔ llvm-cov/gcovr/coverage.py |
+| Cobertura de linhas | parcial | ✔ 100% em Python e C/C++ · **99,38% em Rust** — 6 das 45 linhas em falta são alcançáveis e estão por testar, declaradas uma a uma em [`testing.md`](testing.md) §Cobertura. Cobertura mostra execução, não correcção |
 | **Ausência total de metadados** | **não pretendida** | ver `privacy_model.md` |
 | **Segurança global vs observador total** | **não pretendida** | depende do Tor |
 | **Resistência a root / cold-boot** | **não pretendida** | ver `threat_model.md` §A10 |
