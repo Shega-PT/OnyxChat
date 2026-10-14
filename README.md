@@ -20,6 +20,7 @@ servidor. Ver [`docs/SYS_GUIDE.md`](docs/SYS_GUIDE.md).
 | desenvolver | [`docs/DEV_GUIDE.md`](docs/DEV_GUIDE.md) |
 | saber o que é prometido (e o que não é) | [`docs/threat_model.md`](docs/threat_model.md) |
 | ver o estado actual | [`docs/roadmap.md`](docs/roadmap.md) |
+| pôr um nó de rede a correr numa placa de 5 € | [OnyxMiniNode](https://github.com/Shega-PT/OnyxMiniNode) |
 | o índice completo | [`docs/index.md`](docs/index.md) |
 
 ---
@@ -77,6 +78,42 @@ nonces são aleatórios por mensagem. Norma completa em
 
 ---
 
+## Nós de rede com um ESP32
+
+Quando a ligação directa entre dois hidden services falha, é preciso um
+ponto de encontro. Hoje esse ponto é um servidor.
+
+Há uma segunda opção: um **ESP32 DEVKIT V1** — uma placa de cerca de
+cinco euros, que já traz antena, processador e Wi-Fi — com firmware
+próprio que fala o mesmo protocolo de relay. Chama-se
+[OnyxMiniNode](https://github.com/Shega-PT/OnyxMiniNode), vive num
+repositório próprio sob MIT, e está ligado a este como *submodule*.
+
+Não é um proxy, não encaminha, não vê o conteúdo de nada e não tem
+chaves. É uma caixa com um prazo de validade, e é isso que um relay
+tem de ser. O que se ganha é **densidade**: quantos mais pontos de
+encontro existirem, mais probabilidade há de dois pares se
+encontrarem directamente — e é a ligação directa que não expõe o
+endereço IP de ninguém.
+
+O que não é, e convém ler antes de comprar uma placa:
+
+- **não é um relay em `.onion`** — continua a ser o item `PLANEADO`
+  que `docs/relay.md` §O relay em `.onion` **não** funciona descreve;
+- **não é um nó de encaminhamento** — `roadmap.md` §PLANEADO ainda os
+  descreve como inexistentes;
+- **não substitui o Tor** — expõe o endereço IP de quem se liga a ele,
+  exactamente como o relay em Python;
+- **não serve mensagens grandes** — um frame acima de 4 KB leva
+  `PayloadGrandeDemais`, porque 320 KB de RAM não dão para mais.
+
+A licença é MIT e o repositório não pede autorização a ninguém, porque
+um relay não tem segredos para proteger. A regra está escrita em
+[`docs/architecture.md`](docs/architecture.md) §A licença segue a
+fronteira.
+
+---
+
 ## Estado
 
 `IMPLEMENTADO`: pipeline K1→K9, envelope assinado, handshake com versão
@@ -84,7 +121,9 @@ autenticada, anti-replay e anti-downgrade, identidade Ed25519, daemon
 Rust, Tor embutido, P2P directo, relay opcional, discovery
 `ID → .onion`, IPC autenticado por uid, cliente Python com keystore
 cifrado, test vectors multi-linguagem, property tests, fuzzing,
-especificações e modelos.
+especificações e modelos, e um relay de ESP32 em
+[OnyxMiniNode](https://github.com/Shega-PT/OnyxMiniNode) (MIT,
+*submodule*, com CI próprio).
 
 A lista completa e autoritativa do que falta está em
 [`docs/roadmap.md`](docs/roadmap.md) §PLANEADO — **doze itens**. Em

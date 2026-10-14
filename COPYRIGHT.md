@@ -87,6 +87,35 @@ escrito. Mostra-o a um advogado em Portugal antes de emitir a primeira
 licença comercial a um terceiro, porque é a partir daí que os contratos
 começam a existir.
 
+## O `OnyxMiniNode` tem licença diferente
+
+`OnyxMiniNode/` é um *submodule* e tem a sua própria licença: **MIT**,
+com o mesmo titular. Todo o resto deste repositório é PolyForm
+Noncommercial, e a divergência é deliberada.
+
+A regra que a justifica está escrita em
+[`docs/architecture.md`](docs/architecture.md) §A licença segue a
+fronteira, e cabe numa frase:
+
+> **O que tem segredos é PolyForm. O que é transporte cego é livre.**
+
+A PolyForm existe para proteger o pipeline K1→K9 e o protocolo — o que
+não pode ser desfeito se alguém fechar o código. Um firmware de relay
+não tem nenhum dos dois: nunca vê texto em claro, nunca participa do
+handshake, nunca toca numa chave, e não tem raiz de confiança dentro
+de si que valha a pena proteger.
+
+Duas consequências que convém ler:
+
+- **Não há divergência de titularidade.** O submodule é do mesmo
+  titular, sob a mesma `AUTHORIZED.md`. O que muda são os termos de uso,
+  e essa é a parte que o MIT abre.
+- **Quem reutilizar o firmware não precisa de pedir licença.** É a
+  intenção: um relay mais widespread torna a rede mais densa, e rede
+  mais densa é mais ligações directas, e mais ligações directas é
+  menos endereços IP expostos. O `README.md` do submodule repete o
+  argumento em duas frases.
+
 ## Contribuições — o que acontece quando alguém contribui
 
 A `CONTRIBUTING.md` exige cessão de direitos de autor a favor do

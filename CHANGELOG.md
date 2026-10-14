@@ -12,6 +12,46 @@ constrói por cima dele e só tarde descobre que não havia lá nada.
 
 ---
 
+## [Não publicado]
+
+Trabalhos que ainda não têm versão. A secção não existia até haver o
+que pôr nela — um `CHANGELOG` com uma secção vazia é um `CHANGELOG` que
+convida a encher de promessas, e o que está aqui é o que está feito.
+
+### Adicionado — relay de ESP32
+
+| Item | Onde |
+| --- | --- |
+| Firmware de relay para ESP32 DEVKIT V1, ligado como *submodule* | [`OnyxMiniNode/`](https://github.com/Shega-PT/OnyxMiniNode) — repositório próprio, **MIT** |
+| Implementação do protocolo de [`docs/relay.md`](docs/relay.md) byte a byte | `src/frame.cpp`, `src/sessao.cpp`, `src/caixa.cpp` do submodule |
+| SHA-256 com o **acelerador de hardware** do ESP32, via mbedTLS | `src/mailbox.cpp` §Onde está o acelerador |
+| 55 casos de teste de host, sem placa e sem ESP-IDF | `pio test -e native` no submodule |
+| CI próprio do submodule: compilar, testar, mapa, higiene | `.github/workflows/portoes.yml` do submodule |
+
+### Adicionado — regra que decide a licença por componente
+
+| Item | Onde |
+| --- | --- |
+| «O que tem segredos é PolyForm. O que é transporte cego é livre.» | [`docs/architecture.md`](docs/architecture.md) §A licença segue a fronteira |
+| A regra aplicada ao `OnyxMiniNode`, com a aritmética da RAM | [`COPYRIGHT.md`](COPYRIGHT.md) §O `OnyxMiniNode` tem licença diferente |
+| O submodule na tabela dos três: discovery, relay, routing | [`docs/architecture.md`](docs/architecture.md) §Discovery ≠ Routing |
+| O que o OnyxMiniNode **não** resolve, item a item | [`docs/roadmap.md`](docs/roadmap.md) §O que o OnyxMiniNode não resolve |
+| As implementações do protocolo e os seus limites | [`docs/relay.md`](docs/relay.md) §Quem implementa este protocolo |
+
+### Adicionado — o que este repositório aprendeu com o submodule
+
+Três exclusões que só a existência de um repositório com licença
+diferente tornou necessárias, e cada uma com um teste:
+
+| Item | Onde |
+| --- | --- |
+| `ARVORE_INDEPENDENTE`: o guard de licença não desce a uma árvore MIT | `network/daemon_rust/tests/guarda_tor.rs`, com dois testes |
+| `IGNORADOS_ARVORE`: a contagem de ficheiros não inclui os de outro repositório | `scripts/verificar_estrutura.py` — 2 905, e não 2 917 |
+| `CAMINHOS_IGNORADOS`: os auditores de texto não varrem outro repositório | `scripts/verificar_ambiente.py` |
+| `submodules: false` declarado nos quatro `checkout` | `.github/workflows/` — o CI não vê o firmware, e é isso que se quer |
+
+---
+
 ## [0.1.0] — 2026-10-13
 
 - **Autor:** ShegaPT (pseudónimo)

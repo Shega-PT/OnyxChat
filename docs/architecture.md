@@ -204,19 +204,37 @@ arti (`DEV_GUIDE.md` §2.3).
 
 ## Discovery ≠ Routing
 
+Três coisas que se confundem com frequência, e que não são a mesma:
+
 ```text
-DISCOVERY (existe hoje)          ROUTING (PLANEADO)
-────────────────────────         ─────────────────────────────
-Onyx-ID → .onion, com TTL        transportar dados entre
-função: encontrar o endpoint     participantes por nós
-não guarda mensagens             intermédios
-não guarda conversações
-não controla sessões
-não decifra nada
+DISCOVERY (existe)         RELAY (existe)          ROUTING (PLANEADO)
+──────────────────         ───────────────         ──────────────────────
+Onyx-ID → .onion,          leva um envelope de     transportar dados entre
+com TTL                    A para B                participantes por nós
+                                                     intermédios
+
+função: encontrar          função: ser o ponto     função: decidir por onde
+o endpoint                 de encontro             vão as mensagens
+
+não guarda mensagens       guarda 300 s, para      não guarda nada
+não guarda conversações    entregar
+não controla sessões       não controla sessões
+não decifra nada           não decifra nada        não decifra nada
 ```
 
 O discovery server é **infraestrutura de bootstrap**, não servidor
 central de comunicação. Ver [`discovery.md`](discovery.md).
+
+O relay é transporte com ponto de encontro. O
+[OnyxMiniNode](https://github.com/Shega-PT/OnyxMiniNode) é um relay, e
+**não** é routing: não decide por onde vai nada, não descobre
+ninguém, e o `CAIXA` sai para quem subscreveu aquela mailbox e para
+ninguém mais. Um MiniNode não satisfaz o item de routing do
+`roadmap.md`, e continua a não satisfazer.
+
+A distinção é prática, não semântica: um sistema pode ter um, os três,
+ou nenhum, e cada um resolve um problema diferente. Confundi-los
+faz um `CONCEITO` parecer `IMPLEMENTADO`.
 
 ---
 
@@ -250,6 +268,45 @@ A regra de confiança é simples:
 > discovery, relay, infraestrutura Tor e nós intermediários.
 > A confiança criptográfica existe **entre os endpoints**.
 
+### A licença segue a fronteira
+
+A PolyForm Noncommercial protege o que não pode ser desfeito se alguém
+fechar o código: a implementação do pipeline K1→K9, o protocolo, as
+derivação de chaves. Numa palavra — **o que tem segredos**.
+
+Um relay não tem nenhum dos dois. [`threat_model.md`](threat_model.md)
+§A2 diz o que um relay não deve poder obter — texto em claro, chaves
+K1/K5/K9, conteúdo de conversas, participação no handshake — e um
+relay não chega perto de nenhum desses. Não existe raiz de confiança
+dentro de um firmware de relay que valha a pena proteger.
+
+Daí a regra, e ela é mais geral do que o caso que a motivou:
+
+> **O que tem segredos é PolyForm. O que é transporte cego é livre.**
+
+Isto não é uma excepção para o firmware de um nó, é a mesma frase de
+cima reescrita em termos de licença. Aplica-se ao discovery, ao
+sidecar, ao relay em Python e ao [OnyxMiniNode](https://github.com/Shega-PT/OnyxMiniNode),
+que é um firmware de relay para ESP32, ligado como *submodule* sob MIT.
+
+### O que a licença NÃO decide
+
+Vale a pena dizer, porque o inverso também não é verdade:
+
+- **A licença não é a segurança.** Um relay corre em código de outra
+  pessoa, com ou sem PolyForm. O que o relay não vê é o que o
+  pipeline garante, e essa garantia não depende de quem escreveu o
+  relay.
+- **MIT não torna um relay seguro nem inseguro.** Torna o *software*
+  reutilizável por quem quiser, o que é uma coisa boa e é uma coisa
+  diferente.
+- **A fronteira não é o mesmo que a fronteira de rede.** Um
+  `OnyxMiniNode` é um relay **na rede local**, alcançável por quem
+  estiver na mesma rede. Isso é um risco de exposição, não de
+  integridade, e está em [`threat_model.md`](threat_model.md) — o qual
+  cobre o que um relay malicioso pode fazer — e a PolyForm nunca
+  teve, nem nunca terá, meio de o impedir: um relay malicioso
+  escreve-se sem ler a licença de ninguém.
 ---
 
 ## Código organizado por responsabilidade

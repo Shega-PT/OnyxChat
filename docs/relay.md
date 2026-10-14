@@ -219,6 +219,52 @@ as mensagens seguem o pipeline normal e chegam intactas.
 
 ---
 
+## Quem implementa este protocolo
+
+O protocolo acima é uma especificação, e há mais do que uma coisa que
+a cumpre. Todas as implementações falam os mesmos bytes; o que
+diverge é a capacidade, e nunca o formato.
+
+| Implementação | Onde | Limites | Para quê |
+| --- | --- | --- | --- |
+| `relay_server.py` | este repositório | 64 pendentes, 65 692 B/frame | a referência, e a que os testes E2E usam |
+| `p2p.rs` | este repositório | é o **cliente**, não o servidor | liga-se ao relay quando o directo falha |
+| [OnyxMiniNode](https://github.com/Shega-PT/OnyxMiniNode) | *submodule*, MIT | 12 pendentes, 4 096 B/frame | um relay numa placa de 5 euros, na rede local |
+
+### O OnyxMiniNode, e o que ele não é
+
+Um ESP32 DEVKIT V1 com firmware próprio, ligado a este repositório
+como *submodule*. Implementa este documento byte a byte, com três
+limites menores — porque tem 320 KB de RAM utilizáveis, e não um
+servidor.
+
+O que ele **não** é, e é a parte que importa ler:
+
+- **Não é um relay em `.onion`.** Um relay abre um TCP directo, e um
+  endereço `.onion` não é resolvido por esse caminho. Ver §O relay em
+  `.onion` **não** funciona — e um MiniNode não muda isso.
+- **Não é um nó de encaminhamento.** `roadmap.md` §PLANEADO ainda os
+  descreve como inexistentes, e continuam.
+- **Não é discovery, e não é Tor.** Continua a expor o endereço IP de
+  quem se liga a ele, exactamente como o relay em Python.
+- **Não fala por este repositório.** A especificação é esta; o
+  submodule implementa-a e tem a sua própria documentação.
+
+Os limites menores não são um protocolo diferente: o cliente já sabe o
+que fazer com `0x03 PayloadGrandeDemais` e com `0x04 SemEspaco`, e
+continua a funcionar. A consequência prática é uma só, e o
+`README.md` do submodule diz qual é — **uma mensagem com mais de 4 KB
+não passa por um MiniNode**. Para texto nunca chega a acontecer.
+
+### Porque é que o submodule tem licença diferente
+
+Porque a PolyForm protege o que tem segredos e um relay não tem
+nenhum. A regra está escrita em [`architecture.md`](architecture.md)
+§A licença segue a fronteira, e aplica-se a este caso sem ser um caso
+especial.
+
+---
+
 ## Observações finais
 
 * O discovery server **nunca** fala com o relay: um mapeia

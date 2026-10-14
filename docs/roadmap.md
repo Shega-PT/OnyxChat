@@ -170,3 +170,28 @@ Os três itens de rede que ficam `PLANEADO` — routing nodes, transporte
 descentralizado, discovery descentralizado — têm todos secção normativa
 que os descreve. É essa diferença, e não a proximidade com o código, que
 separa as duas tabelas.
+
+### O que o OnyxMiniNode não resolve
+
+Existe um [relay de ESP32](https://github.com/Shega-PT/OnyxMiniNode)
+ligado a este repositório como *submodule*, sob MIT. Ele implementa o
+protocolo de [`relay.md`](relay.md) byte a byte, e é tentador concluir
+que resolve os três itens de rede acima. **Não resolve nenhum**, e a
+distinção é a mesma que [`architecture.md`](architecture.md)
+§Discovery ≠ Routing desenha:
+
+| | OnyxMiniNode é | Não é |
+| --- | --- | --- |
+| contra *routing nodes* | um relay com ponto de encontro | um nó que decide por onde vão as mensagens |
+| contra *transporte descentralizado* | **uma** implementação, e parcial | a rede — o item continua `PLANEADO` |
+| contra *relay por `.onion`* | um relay em `192.168.x.x` | um relay alcançável por hidden service |
+
+O item *transporte descentralizado* é o único que se pode dar por
+avançado, e mesmo assim só com uma implantação multi-nó. A célula do
+`roadmap.md` que diz «depende de routing nodes**» continua verdadeira:
+sem routing nodes, o que se obtém é mais relays a fazer rendezvous, e
+não uma malha que encaminhe.
+
+Isto está escrito aqui e não no `README.md` do submodule porque é uma
+afirmação sobre **este** repositório, e é aqui que quem lê o `roadmap.md`
+a encontra.

@@ -766,3 +766,39 @@ descartável entre execuções.
 | [`architecture.md`](architecture.md) | estrutura técnica por módulo |
 | [`testing.md`](testing.md) | estratégia de testes detalhada |
 | [`roadmap.md`](roadmap.md) | estado do projecto |
+| [`../OnyxMiniNode`](https://github.com/Shega-PT/OnyxMiniNode) | o firmware do relay de ESP32 — repositório próprio, MIT |
+
+## 9.1 O submodule
+
+`OnyxMiniNode/` é um *submodule* apontado por `.gitmodules`. Três
+coisas que um `clone` dá mal e que convém saber antes de estranhar:
+
+**O CI não o clona.** Os quatro `actions/checkout` trazem
+`submodules: false`, declarado explicitamente nos quatro. A
+consequência vale mais que o mecanismo: **nenhum portão deste
+repositório vê o firmware.** O mapa não o desce
+(`scripts/verificar_estrutura.py` §IGNORADOS_ARVORE), os auditores de
+texto não o leem (`git ls-files` não desce a submodules), e o guard de
+licença não o examina
+(`network/daemon_rust/tests/guarda_tor.rs` §ARVORE_INDEPENDENTE). A
+garantia de que o firmware compila e passa nos testes vive no CI do
+submodule, e é lá que ela é verificada.
+
+**Para o ter localmente:**
+
+```bash
+git clone --recurse-submodules https://github.com/Shega-PT/OnyxChat.git
+# ou, num clone já feito:
+git submodule update --init --recursive
+```
+
+**O `Estrutura.txt` deste repositório lista `OnyxMiniNode/` como uma
+linha de directório.** Uma linha de directório não afirma existência de
+ficheiros, e é por isso que ela continua correcta com o submodule
+clonado e sem ele. Os ficheiros do submodule estão no
+`Estrutura.txt` **dele**, com o seu próprio verificador.
+
+**A especificação do protocolo não está no submodule.** É
+[`relay.md`](relay.md), aqui. Se os dois divergirem, quem está certo é
+este repositório — ver `architecture.md` §Onde está o porquê da licença
+diferente, no `Estrutura.txt`.
