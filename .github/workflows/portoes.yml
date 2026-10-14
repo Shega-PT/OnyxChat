@@ -162,6 +162,7 @@ jobs:
               scripts/verificar_requisitos.sh \
               scripts/verificar_seguranca.sh \
               scripts/medir-arti.sh \
+              scripts/interface-visual.py \
               UI/tools/instalar.sh \
               UI/tools/onyxchat
             do
@@ -182,7 +183,7 @@ jobs:
                 'Corrige com:  git update-index --chmod=+x <ficheiro>'
               exit 1
             fi
-            echo 'os 9 executáveis têm o bit no índice'
+            echo 'os 10 executáveis têm o bit no índice'
 
       - name: o que está e o que não está versionado
         # A pendência «por versionar» que este portão imprime não é

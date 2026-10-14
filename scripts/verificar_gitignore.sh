@@ -42,6 +42,15 @@ IGNORADOS=0
 VISIVEIS=0
 FALHAS=0
 
+#: Os executáveis que este programa verificou, para o relatório final.
+#: É um array e não um contador porque a ordem não interessa e o Git
+#: não tem contadores incrementáveis — e porque o relatório tem de
+#: contar sozinho. Um número escrito à mão no `printf` fica errado no
+#: dia em que alguém acrescenta um script e não o actualiza, e um
+#: relatório que diz «9 executáveis» quando verifica dez é um relatório
+#: que mente sem ninguém dar por isso.
+EXECUTAVEIS=()
+
 # ---------------------------------------------------------------------
 # (caminho, tem de ser ignorado: "sim" | "nao")
 # ---------------------------------------------------------------------
@@ -405,6 +414,11 @@ echo
 # no índice — e cada linha diz o que o script é para o utilizador.
 verificar_execucavel() {
   local rel="$1" razao="$2"
+  # A conta vai para o array, e o `printf` do fim lê o tamanho do array.
+  # Escrever o número à mão é o que produz um relatório que diz «9» e
+  # verifica dez — e um relatório que mente é pior do que um que não
+  # existe, porque ninguém o confronta.
+  EXECUTAVEIS+=("$rel")
 
   if [[ ! -e "$rel" ]]; then
     printf '  \033[1;31mFALHA\033[0m %-58s %s\n' "$rel" "não existe"
@@ -444,6 +458,11 @@ verificar_execucavel "scripts/verificar_gitignore.sh" \
   "este próprio verificador"
 verificar_execucavel "scripts/verificar_requisitos.sh" \
   "USER_GUIDE.md §1.1.1 manda correr ./scripts/verificar_requisitos.sh"
+# `interface-visual.js` **não** entra: é invocado com `gjs <ficheiro>`
+# e por isso não precisa do bit. Pedi-lo seria exigir o bit a um
+# ficheiro que o Git não tem e que ninguém lhe vai dar.
+verificar_execucavel "scripts/interface-visual.py" \
+  "abre o servidor, a interface e a janela de avaliação visual"
 # `verificar_seguranca.sh` entrava no `testar.sh` e no workflow
 # `seguranca.yml` como `./scripts/verificar_seguranca.sh`, e não estava
 # nesta lista. Um clone que lhe tirasse o bit transformava a auditoria de
@@ -479,7 +498,8 @@ if (( FALHAS == 0 )); then
   # lembrar de actualizar.
   printf '\033[0;32m%s\033[0m — %d artefactos, %d fontes, %d executáveis, %d pendência(s), %d por versionar\n' \
     "todas as verificações passam" \
-    "${#ARTEFACTOS[@]}" "${#FONTES[@]}" 9 "${#PENDENCIAS[@]}" "$POR_VERSIONAR"
+    "${#ARTEFACTOS[@]}" "${#FONTES[@]}" "${#EXECUTAVEIS[@]}" \
+    "${#PENDENCIAS[@]}" "$POR_VERSIONAR"
   exit 0
 fi
 printf '\033[1;31m%d falha(s)\033[0m\n' "$FALHAS"
