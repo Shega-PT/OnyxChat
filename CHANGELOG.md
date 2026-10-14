@@ -87,7 +87,7 @@ diferente tornou necessárias, e cada uma com um teste:
 | Tor embutido (`BackendTor` + arti), com falha explícita sem a *feature* | `tor.rs`, `tor_arti.rs` |
 | P2P directo e transporte opcional por relay | [`p2p.md`](docs/p2p.md), [`relay.md`](docs/relay.md) |
 | Discovery `ID → .onion` com TTL | [`discovery.md`](docs/discovery.md) |
-| IPC local sobre UDS, autenticado por `SO_PEERCRED` | [`ipc_spec.md`](docs/ipc_spec.md) |
+| IPC local sobre UDS, autenticado por `SO_PEERCRED` | [`ipc.md`](docs/ipc.md) |
 | Sidecar HTTP em `127.0.0.1` sobre o socket Unix | `server/`, [`sidecar.md`](docs/sidecar.md) |
 
 ### Adicionado — interface
@@ -144,7 +144,7 @@ o Markdown continua bem formado e o leitor vê uma linha igual às outras.
 | Alegação falsa | Onde estava | A verdade |
 | --- | --- | --- |
 | `mlockall` por fazer | quatro documentos | implementado desde a fase F |
-| `pub_de_hex()` é código morto | [`ipc_spec.md`](docs/ipc_spec.md) | chamado em `ipc.rs:879` |
+| `pub_de_hex()` é código morto | [`ipc.md`](docs/ipc.md) | chamado em `ipc.rs:879` |
 | anti-replay só em memória | [`message_format.md`](docs/message_format.md) | persiste, com `fsync` e `rename` |
 | não há cliente de discovery em `messenger/` | [`discovery.md`](docs/discovery.md) | `messenger/descoberta.py` |
 | zeroização em C por fazer | [`DEV_GUIDE.md`](docs/DEV_GUIDE.md) | `sodium_memzero` em `k9_chacha.c` |

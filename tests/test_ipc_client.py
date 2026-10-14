@@ -7,7 +7,7 @@
 """test_ipc_client.py — cliente UDS do daemon (messenger.ipc_client).
 
 Usa um servidor IPC falso (`tests/apoio.py`) com resposta programável
-para cobrir o protocolo completo de ``docs/ipc_spec.md``: framing,
+para cobrir o protocolo completo de ``docs/ipc.md``: framing,
 ENCODE/DECODE, estados, códigos de erro e falhas de transporte — sem
 depender do daemon compilado.
 """

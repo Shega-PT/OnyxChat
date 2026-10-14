@@ -18,7 +18,7 @@ WebSocket — e apontada a partir do sítio errado.
 
 | Documento | Especifica |
 | --- | --- |
-| [`ipc_spec.md`](ipc_spec.md) | o protocolo Python↔daemon, pelo socket Unix |
+| [`ipc.md`](ipc.md) | o protocolo Python↔daemon, pelo socket Unix |
 | `sidecar.md` | o protocolo HTTP, entre a interface e o sidecar |
 
 São **duas fronteiras diferentes** com sistemas de segurança diferentes, e
@@ -35,7 +35,7 @@ O sidecar é um servidor HTTP em `127.0.0.1:8787` que serve duas coisas:
 
 Ele não fala Tor, não fala com o relay e não conhece o pipeline. Fala com
 o `onyxchatd` **pelo socket Unix** e traduz pedidos em comandos IPC —
-[`ipc_spec.md`](ipc_spec.md) §Comandos. A separação é deliberada: o
+[`ipc.md`](ipc.md) §Comandos. A separação é deliberada: o
 sidecar é a única peça que conhece os dois lados, e é a única que pode
 escrever na loja de conversas.
 

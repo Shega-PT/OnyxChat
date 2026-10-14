@@ -9,7 +9,9 @@
 // ---------------------------------------------------------------------
 // Fonte única de verdade: os JSON escritos em `tests/vectors/`. Este
 // exemplo também escreve `docs/test_vectors.md` como forma legível dos
-// mesmos dados (Resumo §25 e §47).
+// mesmos dados. Este ficheiro gera `docs/test_vectors.md` e não o
+// escreve à mão — uma referência a um documento que vive fora do
+// repositório é uma referência que ninguém consegue seguir.
 //
 // Saídas:
 //   tests/vectors/camadas.json   — KATs por camada (input/key/params/
@@ -441,13 +443,13 @@ fn main() {
 
     let camadas_json = serde_json::to_string_pretty(&json!({
         "versao": "1",
-        "descricao": "KATs por camada (input/key/parameters/expected) — Resumo §25",
+        "descricao": "KATs por camada (input/key/parameters/expected)",
         "camadas": camadas,
     }))
     .expect("JSON camadas");
     let pipeline_json = serde_json::to_string_pretty(&json!({
         "versao": "1",
-        "descricao": "Vetores fim-a-fim K1..K9 + envelope — Resumo §47",
+        "descricao": "Vetores fim-a-fim K1..K9 + envelope",
         "vetores": vetores,
     }))
     .expect("JSON pipeline");

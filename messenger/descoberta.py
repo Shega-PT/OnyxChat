@@ -10,7 +10,7 @@ Porquê este módulo existe
 -------------------------
 
 O comando ``LIGAR`` aceita dois tipos de destino, e a validação é
-**dependente do modo** (norma em ``docs/ipc_spec.md`` §``destino``):
+**dependente do modo** (norma em ``docs/ipc.md`` §``destino``):
 
 ======================  ==========================================
 Modo                    ``destino`` aceite

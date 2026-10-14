@@ -661,7 +661,7 @@ código com um porque, actualize o comentário e o spec.
 | Alterar uma camada K1–K9 | `crypto/rust/src/`, `crypto/c_cpp/`, `crypto/python_lua/` | `pipeline.md` §K<n> |
 | Alterar o envelope | `network/daemon_rust/src/envelope.rs`, `messenger/envelope.py` | `message_format.md` |
 | Alterar o handshake | `network/daemon_rust/src/handshake.rs`, `messenger/ipc_client.py` | `handshake.md` |
-| Alterar o protocolo IPC | `network/daemon_rust/src/ipc.rs`, `messenger/ipc_client.py` | `ipc_spec.md` |
+| Alterar o protocolo IPC | `network/daemon_rust/src/ipc.rs`, `messenger/ipc_client.py` | `ipc.md` |
 | Alterar frames P2P | `network/daemon_rust/src/p2p.rs` | `p2p.md` |
 | Alterar o relay | `server/relay_server.py`, `network/daemon_rust/src/p2p.rs` | `relay.md` |
 | Alterar o discovery | `server/discovery_server.py` | `discovery.md` |

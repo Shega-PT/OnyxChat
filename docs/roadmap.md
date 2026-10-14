@@ -42,7 +42,7 @@ CONCEITO      →  investigação, sem especificação formal
 | P2P directo (hidden service ↔ hidden service) | `p2p.rs` |
 | Transporte por relay opcional | [`relay.md`](relay.md), `relay_server.py` |
 | Discovery `ID → .onion` com TTL | [`discovery.md`](discovery.md), `discovery_server.py` |
-| IPC local UDS (autenticado por uid) | [`ipc_spec.md`](ipc_spec.md), `ipc.rs` |
+| IPC local UDS (autenticado por uid) | [`ipc.md`](ipc.md), `ipc.rs` |
 | Cliente Python (mensageiro, keystore cifrado) | `messenger/`, `user/` |
 | Interface React completa (sistema de design, 11 ecrãs, 45 componentes) | [`../UI/README.md`](../UI/README.md) |
 | Modo de demonstração com aviso visível e interruptor | [`../UI/README.md`](../UI/README.md) §Modo de demonstração |
@@ -65,7 +65,7 @@ CONCEITO      →  investigação, sem especificação formal
 | Índice e ordem de leitura | [`index.md`](index.md) |
 | Estrutura técnica | [`architecture.md`](architecture.md) |
 | Modelos de ameaça/segurança/privacidade | [`threat_model.md`](threat_model.md), [`security_model.md`](security_model.md), [`privacy_model.md`](privacy_model.md) |
-| Especificações de protocolo | `pipeline.md`, `message_format.md`, `handshake.md`, `ipc_spec.md`, `sidecar.md`, `p2p.md`, `relay.md`, `discovery.md` |
+| Especificações de protocolo | `pipeline.md`, `message_format.md`, `handshake.md`, `ipc.md`, `sidecar.md`, `p2p.md`, `relay.md`, `discovery.md` |
 
 ---
 
@@ -77,7 +77,7 @@ ler o PLANEADO a seguir.
 
 | Item | Onde | Nota |
 | --- | --- | --- |
-| `destino` por ID hex: validação no relay e resolução `ID → .onion` no cliente | [`ipc_spec.md`](ipc_spec.md) §`destino`, [`discovery.md`](discovery.md) §Implementação | **resolvido.** `ipc.rs` compara `pub_de_hex(destino)` com a pública do par e devolve `ERR_DESTINO_INVALIDO` quando não coincide; `messenger/descoberta.py` aceita ID hex ou `.onion` v3 e rejeita o resto. `pub_de_hex()` **não** é código morto, ao contrário do que este roadmap afirmava até 2026-10-07: é `ipc.rs` que a chama nesse caminho |
+| `destino` por ID hex: validação no relay e resolução `ID → .onion` no cliente | [`ipc.md`](ipc.md) §`destino`, [`discovery.md`](discovery.md) §Implementação | **resolvido.** `ipc.rs` compara `pub_de_hex(destino)` com a pública do par e devolve `ERR_DESTINO_INVALIDO` quando não coincide; `messenger/descoberta.py` aceita ID hex ou `.onion` v3 e rejeita o resto. `pub_de_hex()` **não** é código morto, ao contrário do que este roadmap afirmava até 2026-10-07: é `ipc.rs` que a chama nesse caminho |
 | Integração contínua | [`DEV_GUIDE.md`](DEV_GUIDE.md) §3.6, [`testing.md`](testing.md) §Os portões de entrega | **resolvido em 2026-10-07.** `.github/workflows/portoes.yml` corre os oito portões em cada push e `verificacao.yml` corre a mesma matriz de `testar.sh`, mais os jobs de Tor e de fuzzing agendados e o job da interface. O CI **não** mede memória — os tectos são uma verdade local, medida no cgroup — e corre com `ONYXCHAT_SEM_CGROUP=1`, que o `testar.sh` declara em cada passo. O Node vem de `UI/tools/onyxchat instalar`, com o SHA-256 fixado em `UI/tools/versoes.txt`, e não de `setup-node`. **Os workflows ainda não foram executados**: só o YAML e a existência dos comandos estão verificados |
 | Segurança da cadeia de fornecimentos | [`security_model.md`](security_model.md) §5, [`../SECURITY.md`](../SECURITY.md), [`threat_model.md`](threat_model.md) §A sétima fronteira | **resolvido em 2026-10-07.** `scripts/verificar_seguranca.sh` corre cinco camadas — segredos (`gitleaks`), advisories de Rust (`cargo audit`) e de JavaScript (`npm audit` contra `seguranca-excepcoes.toml`), licenças (`cargo deny` com `deny.toml`) e os próprios workflows (`zizmor`) — **com o mesmo script** localmente e no CI, e com `--exigir` a transformar uma ferramenta ausente em falha. À primeira execução encontrou **4 advisories reais**, todos com razão verificável no código e data de revisão. O `tailwindcss-animate` estava em `dependencies` sendo um plugin de compilação. E os `uses:` dos workflows, que eu tinha escrito com tag mutável contra a regra do próprio projecto, passaram a SHA de commit |
 | Auditoria integral da documentação | [`testing.md`](testing.md) §Os portões de entrega, [`DEV_GUIDE.md`](DEV_GUIDE.md) §1.2 | **resolvido em 2026-10-07.** **Máquina:** 15 ocorrências da locução proibida, em documentos e comentários, reescritas — um pico de RAM é propriedade do *build*, e a máquina só decide se cabe. Imposto por `verificar_ambiente.py`, com 18 testes e isenção em bloco para a única citação da frase proibida. **Verdades:** `UI/README.md` afirmava «Etapa 4 de 7» com a Etapa 5 marcada como concluída 340 linhas abaixo, e «`bridge-adapter.js` ainda recusa» com 22 métodos implementados; corrigidos, com a Etapa 7 explicitamente `PLANEADO`. **Contagens:** o verificador de estrutura passou a conferir a aritmética dos documentos, e apanhou quatro números errados. **`.gitignore`:** `node_modules/` na raiz não estava ignorado — um `npm install` por engano versionava 14 000 ficheiros |

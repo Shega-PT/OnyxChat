@@ -469,7 +469,7 @@ def test_ligar_direto_com_id_resolve_via_discovery(
     assert f"ligado (direto) a {ONION_TESTE}" in capsys.readouterr().out
     pedido = pedidos[0]
     assert pedido[0] == 0x05  # CMD_LIGAR
-    # Framing do corpo de LIGAR (docs/ipc_spec.md §Pedidos):
+    # Framing do corpo de LIGAR (docs/ipc.md §Pedidos):
     #   [modo:1][len_ep:2][ep][len_dest:2][dest][pub_propria:32][pub_par:32]
     # Logo, com o byte do comando em pedido[0], o endpoint começa em 4.
     tam_endpoint = int.from_bytes(pedido[2:4], "little")

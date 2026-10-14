@@ -6,7 +6,7 @@
 
 """ipc_client.py — cliente Unix Domain Socket para o daemon ``onyxchatd``.
 
-Implementa o contrato de ``docs/ipc_spec.md``:
+Implementa o contrato de ``docs/ipc.md``:
 
 * transporte **UDS** local, caminho ``$ONYXCHAT_SOCKET`` ou
   ``/tmp/onyxchat-{uid}.sock``;
@@ -55,7 +55,7 @@ MIN_CORPO = 65_692 + 4 * 32
 MAX_PAYLOAD = max(MAX_PAYLOAD, MIN_CORPO)
 
 # ---------------------------------------------------------------------
-# Comandos (docs/ipc_spec.md §Pedidos)
+# Comandos (docs/ipc.md §Pedidos)
 # ---------------------------------------------------------------------
 CMD_HELLO = 0x00
 CMD_ENCODE = 0x01
@@ -142,7 +142,7 @@ TAM_CORPO_ACEITE = 177
 #: (``versao(1)‖`` prefixado; 81 bytes no total).
 TAM_CORPO_RECUSA = 81
 
-#: Nomes dos códigos de erro do daemon (ipc_spec.md §Códigos de erro).
+#: Nomes dos códigos de erro do daemon (ipc.md §Códigos de erro).
 NOMES_ERRO = {
     0x01: "ComandoDesconhecido",
     0x02: "PayloadMalformado",
@@ -366,7 +366,7 @@ class ClienteIpc:
     def _hello(self, ligacao: socket.socket) -> None:
         """Executa o ``HELLO`` obrigatório e valida a versão do daemon.
 
-        ``docs/ipc_spec.md`` §Protocolo de versão: toda a ligação abre
+        ``docs/ipc.md`` §Protocolo de versão: toda a ligação abre
         com ``[0x00][versao]`` e o daemon responde ``OK ‖ versao ‖
         build`` ou ``ERRO 0x12``.
 

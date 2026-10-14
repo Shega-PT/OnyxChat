@@ -6,7 +6,7 @@
 
 """test_e2e_daemon.py — integração com o daemon Rust compilado.
 
-Cobre a ponte real Python ↔ ``onyxchatd``: framing do ``docs/ipc_spec.md``,
+Cobre a ponte real Python ↔ ``onyxchatd``: framing do ``docs/ipc.md``,
 roundtrip ENCODE→DECODE, rejeições no daemon (assinatura e tag AEAD),
 rejeição local no ``Pipeline`` e falhas de transporte. Os testes são
 *saltados* se o binário não estiver compilado (``cargo build``), para

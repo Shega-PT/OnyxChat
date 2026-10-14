@@ -111,6 +111,11 @@ fraco-com-alternativa, e nenhum pacote vendorizado é copyleft. A
 PolyForm Noncommercial é compatível com tudo o que está no repositório.
 
 O que fica declarado: esta auditoria olha para as **licenças declaradas**
-na data indicada. Uma dependência nova pode mudar isso — daí o `cargo
-deny` estar recomendado no roadmap como verificação contínua em vez de
-auditoria pontual.
+na data indicada. Uma dependência nova pode mudar isso.
+
+É por isso que o `cargo deny` não é uma recomendação futura: corre em
+cada push desde 2026-10-07, em `scripts/verificar_seguranca.sh`, contra
+o `deny.toml`, e o `roadmap.md` §Segurança da cadeia de fornecimentos
+regista-o como resolvido. Uma linha que dizia «recomendado no roadmap»
+num documento cujo próprio roadmap já o tinha resolvido é o tipo de
+divergência que ninguém lê e todos herdam.

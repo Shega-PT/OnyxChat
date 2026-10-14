@@ -122,7 +122,7 @@ consome apenas esta secção e nada mais.
 | [`pipeline.md`](pipeline.md) | as 9 camadas K1→K9: entrada, chave, operação, saída, inversa, limites | Rust, Python, C/C++, Lua |
 | [`message_format.md`](message_format.md) | envelope binário: layout, região assinada, versionamento, anti-replay | Rust, Python |
 | [`handshake.md`](handshake.md) | transcript canónico, `FRIEND_REQUEST`/`ACCEPT`/`REJECT`, anti-replay, anti-downgrade | Rust, Python |
-| [`ipc_spec.md`](ipc_spec.md) | protocolo local Python↔daemon: framing, comandos, erros, timeouts | Rust, Python |
+| [`ipc.md`](ipc.md) | protocolo local Python↔daemon: framing, comandos, erros, timeouts | Rust, Python |
 | [`sidecar.md`](sidecar.md) | protocolo local interface↔sidecar: 26 rotas, política de origens, erros | Python, JavaScript |
 | [`p2p.md`](p2p.md) | frames ponto a ponto: tipos, validação, rate-limit, timeouts | Rust |
 | [`relay.md`](relay.md) | transporte opcional: mailbox, mensagens, retenção | Rust, Python |
@@ -210,7 +210,7 @@ Aceitar o desconhecido seria transformar a tolerância numa falha aberta.
 | Artefacto | Leitura | Escrita | Onde |
 | --- | --- | --- | --- |
 | Keystore | v1 e v2 | v2 | `messenger/storage.py`, [`key_management.md`](key_management.md) |
-| IPC `HELLO` | mesma major, minor diferente | a local | [`ipc_spec.md`](ipc_spec.md) §Protocolo de versão |
+| IPC `HELLO` | mesma major, minor diferente | a local | [`ipc.md`](ipc.md) §Protocolo de versão |
 | Envelope | versões na lista de suporte | a mais recente | [`message_format.md`](message_format.md) §Versionamento |
 | Handshake | versões na lista de suporte | a mais recente | [`handshake.md`](handshake.md) §Transcript |
 

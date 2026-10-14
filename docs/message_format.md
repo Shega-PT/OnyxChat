@@ -166,7 +166,7 @@ compatíveis, e o aparecimento de um layout incompatível é uma decisão de
 
 O IPC é diferente e **tem** `major`/`minor`, porque é um protocolo vivo
 com clientes e daemons em máquinas diferentes. Ver
-[`ipc_spec.md`](ipc_spec.md) §Protocolo de versão.
+[`ipc.md`](ipc.md) §Protocolo de versão.
 
 ### Tolerância
 

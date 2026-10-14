@@ -10,7 +10,7 @@
 // Todas as operações públicas do `crypto_core` devolvem
 // `Result<_, CryptoError>` em vez de fazer `panic` com `.expect()`:
 // o daemon Rust recebe estes erros via IPC e devolve um status de erro
-// ao cliente Python (conforme `docs/ipc_spec.md`), nunca rebentando.
+// ao cliente Python (conforme `docs/ipc.md`), nunca rebentando.
 // =====================================================================
 
 use std::fmt;

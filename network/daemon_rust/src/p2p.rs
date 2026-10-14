@@ -210,7 +210,7 @@ impl fmt::Display for ErroP2P {
 }
 
 impl ErroP2P {
-    /// Código de erro IPC (`docs/ipc_spec.md`).
+    /// Código de erro IPC (`docs/ipc.md`).
     pub fn para_ipc(&self) -> u8 {
         match self {
             ErroP2P::Io(_) | ErroP2P::Fechada | ErroP2P::Desalinhado | ErroP2P::SemLigacao => 0x0A,

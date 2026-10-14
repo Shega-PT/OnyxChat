@@ -7,12 +7,13 @@ daemon. Tudo o que chega da rede é um *frame*; tudo o que sai para a
 rede é um *frame*. Nenhum byte é interpretado sem validação de
 comprimento, e nenhum erro transporta conteúdo.
 
-A rede é **não confiável** (Resumo §31): o par pode enviar comprimentos
+A rede é **não confiável** (`architecture.md` §Fronteiras de
+confiança): o par pode enviar comprimentos
 falsos, frames truncados ou a mais. O daemon responde com códigos de
 erro estruturados, fecha ligações inutilizáveis e nunca paniqueia.
 
 Os frames são entregues ao cliente local pelo comando `RECEBER`
-(`docs/ipc_spec.md`) como `tipo(1B) ‖ corpo`.
+(`docs/ipc.md`) como `tipo(1B) ‖ corpo`.
 
 ## Transporte e enquadramento
 
@@ -67,7 +68,7 @@ do IPC local, do handshake e do relay:
 | resposta a `PING` que não é `PONG`          | `0x11 Relay` (erro estruturado)                       |
 
 Toda a mensagem de erro é só metadados (código + tamanho + nome do
-campo): nunca corpo de frame, chaves ou nonces (Resumo §56).
+campo): nunca corpo de frame, chaves ou nonces.
 
 ## Timeouts
 
@@ -149,7 +150,7 @@ apenas o hash da mailbox, os tamanhos e os bytes cifrados.
 
 | Documento              | Conteúdo                                     |
 | ---------------------- | -------------------------------------------- |
-| [`ipc_spec.md`](ipc_spec.md)      | comandos locais (`ENVIAR`/`RECEBER`/`LIGAR`) |
+| [`ipc.md`](ipc.md)      | comandos locais (`ENVIAR`/`RECEBER`/`LIGAR`) |
 | [`handshake.md`](handshake.md)    | corpos e assinaturas dos frames `0x10..0x12`  |
 | [`message_format.md`](message_format.md) | envelope do frame `CHAT`               |
 | [`relay.md`](relay.md)            | transporte de fallback e mailbox             |

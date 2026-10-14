@@ -262,10 +262,11 @@ da forma, e `resolver_ou_usar()` consulta o servidor e devolve o `.onion`.
 
 `pub_de_hex()` **não** é código morto, e é a `validar_destino()` que o
 chama nesse caminho. Uma versão anterior deste parágrafo afirmava o
-contrário, e o [`roadmap.md`](roadmap.md) regista a correcção desde
-2026-10-07; o texto aqui ficou por actualizar, e é a razão de o portão de
-documento existir: um `PLANEADO` que já tem código custa mais caro do que
-uma omissão, porque quem o lê constrói por cima dele.
+contrário, e o [`roadmap.md`](roadmap.md) regista a correcção. A forma
+da frase é a mesma que o resto do projecto usa para os factos que já
+foram falsos: escreve-se o que é verdade e diz-se porque é que se
+escreve. Um documento que apaga o erro fica com um documento que parece
+nunca ter duvidado, e um leitor novo não sabe o que perguntar.
 
 ### Modo `relay` com `destino` vazio
 

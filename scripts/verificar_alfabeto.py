@@ -57,7 +57,7 @@ PERMITIDOS_EXTRA = set(
 #
 # Tirá-los não é uma questão de conforming: sem `─` e `│` os diagramas
 # de arquitectura em `docs/architecture.md` desmoronam; sem `‖` a
-# notação de concatenação do protocolo em `docs/ipc_spec.md` fica
+# notação de concatenação do protocolo em `docs/ipc.md` fica
 # ilegível; sem `≡` e `∈` as tabelas de equivalence criptográfica perdem
 # o sentido.
 # As chaves são **um carácter de cada vez**: `DELIBERADOS` é consultado

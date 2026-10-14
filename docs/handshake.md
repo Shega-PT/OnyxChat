@@ -312,6 +312,9 @@ antes de existirem chaves partilhadas.
 * O discovery server nunca participa no handshake: apenas entrega
   `ID → .onion` (`discovery.md`).
 * Nonces do handshake são aleatórios (16 bytes) e nunca reutilizados.
-* Referência histórica: a génese destas melhorias está no ficheiro
-  `Resumo.md`, no directório *acima* do projecto (documento de trabalho
-  — a especificação normativa deste protocolo é este documento).
+* A especificação normativa deste protocolo é **este documento**.
+  Houve, em 2026-10, uma remissão para um `Resumo.md` que vivia um
+  directório acima do repositório e que ninguém conseguia resolver a
+  partir de um `clone`. Foi removida: uma referência que não sai do
+  repositório não é uma referência, e um leitor que a seguisse era
+  metade do caminho para um erro.

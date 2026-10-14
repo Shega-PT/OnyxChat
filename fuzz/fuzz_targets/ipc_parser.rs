@@ -8,7 +8,7 @@
 // ipc_parser — fuzz do protocolo local UDS (Python ↔ Rust)
 // ---------------------------------------------------------------------
 // Fronteira: `processar_sessao` recebe o corpo de um pedido vindo do
-// socket Unix (docs/ipc_spec.md §Pedidos) — a fronteira de confiança
+// socket Unix (docs/ipc.md §Pedidos) — a fronteira de confiança
 // entre o cliente Python e o daemon.
 //
 // Duas passagens por construção:

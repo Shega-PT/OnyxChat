@@ -43,13 +43,13 @@ pub fn gerar_markdown(
          `cargo run -p onyxchatd --example gerar_vetores` a partir de \
          `tests/vectors/*.json` — **não editar à mão**. Os JSON são a \
          fonte única de verdade; este documento é a forma legível dos \
-         mesmos dados (Resumo §25 e §47).\n>\n\
+         mesmos dados.\n>\n\
          > Consumidores: `network/daemon_rust/tests/vetores.rs` (Rust), \
          `tests/test_vectors.py` (Python), \
          `crypto/c_cpp/tests/test_vectors.c` (C/C++, K4+K9) e as \
          camadas Lua através do Rust (`mlua`). Todas as implementações \
          têm de produzir exatamente os mesmos bytes.\n\n\
-         ---\n\n## Vetores por camada (Resumo §25)\n\n\
+         ---\n\n## Vetores por camada\n\n\
          Cada vector tem `input`, `key`/parâmetros e `expected output`.\n\n",
     );
     for e in camadas {
@@ -73,7 +73,7 @@ pub fn gerar_markdown(
         ));
     }
 
-    md.push_str("---\n\n## Vetores fim-a-fim (Resumo §47)\n\n");
+    md.push_str("---\n\n## Vetores fim-a-fim\n\n");
     for v in vetores {
         md.push_str(&format!(
             "### Vector {}\n\n**Input:**\n\n```text\n{}\nhex: {}\n```\n",

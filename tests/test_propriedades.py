@@ -487,7 +487,7 @@ class TestEnquadramentoRelay:
 
 
 # =====================================================================
-# Interpretação de respostas IPC (docs/ipc_spec.md)
+# Interpretação de respostas IPC (docs/ipc.md)
 # =====================================================================
 
 

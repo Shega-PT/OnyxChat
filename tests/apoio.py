@@ -6,7 +6,7 @@
 
 """apoio.py — utilitários partilhados dos testes (não é código de produto).
 
-Fornece um **servidor IPC falso** (protocolo do ``docs/ipc_spec.md`` com
+Fornece um **servidor IPC falso** (protocolo do ``docs/ipc.md`` com
 resposta programável) e construtores de envelopes válidos, para que os
 testes da camada Python não dependam do daemon compilado (o E2E com o
 daemon real vive em ``test_e2e_daemon.py``).
@@ -79,7 +79,7 @@ def servidor_falso(
     simula o daemon a morrer sem responder.
 
     Como o daemon real, o servidor **exige o ``HELLO``** como primeiro
-    pedido (``docs/ipc_spec.md`` §Protocolo de versão): responde-o
+    pedido (``docs/ipc.md`` §Protocolo de versão): responde-o
     internamente e só depois aplica ``resposta`` ao comando do teste.
 
     ``anunciar`` escreve um cabeçalho a declarar este comprimento e

@@ -904,7 +904,7 @@ fn constantes_do_protocolo() {
     assert_eq!(ESTADO_ERRO, 0x01);
     assert_eq!(MIN_CORPO_ENCODE, 128);
     assert_eq!(MIN_CORPO_DECODE, 128 + TAM_MINIMO);
-    // 0x01..0x09 consecutivos conforme docs/ipc_spec.md.
+    // 0x01..0x09 consecutivos conforme docs/ipc.md.
     assert_eq!(ERR_COMANDO_DESCONHECIDO, 0x01);
     assert_eq!(ERR_PAYLOAD_MALFORMADO, 0x02);
     assert_eq!(ERR_CHAVE_INVALIDA, 0x03);
@@ -967,7 +967,7 @@ fn cmd(comando: u8, resto: &[u8]) -> Vec<u8> {
 }
 
 /// Resto do corpo do `LIGAR 0x05` (sem o byte de comando, que
-/// `cmd` acrescenta) conforme docs/ipc_spec.md.
+/// `cmd` acrescenta) conforme docs/ipc.md.
 /// Endereço `.onion` **bem formado** (56 caracteres base32).
 ///
 /// A validação de `destino` é estrita de propósito, por isso os
@@ -1373,7 +1373,7 @@ fn ligacao_relay_contra_falso_relay() {
 }
 
 // ----------------------------------------------------------------
-// Matriz do `destino` (F2.1) — `docs/ipc_spec.md` §`destino`
+// Matriz do `destino` (F2.1) — `docs/ipc.md` §`destino`
 // ----------------------------------------------------------------
 //
 // O objectivo é provar três coisas distintas:

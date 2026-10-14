@@ -19,7 +19,9 @@
 
 ## Princípio central: cada instância é cliente e servidor
 
-Cada instalação é, simultaneamente:
+Uma instalação é cliente e servidor ao mesmo tempo: quem recebe é
+quem envia, e nenhum dos lados é primário. É isso que permite que
+duas instâncias se falem sem que nenhuma esteja a priori no servidor.
 
 Este mapa é um resumo. O índice completo, com o papel de cada
 ficheiro, está em `../Estrutura.txt`, e é conferido contra a árvore
@@ -259,7 +261,7 @@ Python client  ──►  UDS  ──►  Rust daemon  ──►  Tor  ──►
 ```
 
 Cada fronteira tem: formato, validação, erros, timeout, limites e
-comportamento perante dados inválidos. Ver `ipc_spec.md`
+comportamento perante dados inválidos. Ver `ipc.md`
 Fronteira de confiança (fronteira local) e [`p2p.md`](p2p.md) (fronteira rede).
 
 A regra de confiança é simples:
@@ -341,7 +343,7 @@ Vale a pena dizer, porque o inverso também não é verdade:
 | [`message_format.md`](message_format.md) | envelope |
 | [`handshake.md`](handshake.md) | troca de chaves |
 | [`key_management.md`](key_management.md) | ciclo de vida das chaves |
-| [`ipc_spec.md`](ipc_spec.md) | protocolo local |
+| [`ipc.md`](ipc.md) | protocolo local |
 | [`discovery.md`](discovery.md) | bootstrap `ID → .onion` |
 | [`p2p.md`](p2p.md) | frames ponto a ponto e limites |
 | [`relay.md`](relay.md) | transporte opcional |

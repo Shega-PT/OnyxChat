@@ -333,7 +333,7 @@ def _cmd_ligar(argumentos: argparse.Namespace) -> int:
 
     Em modo directo, um ID hex é resolvido em ``.onion`` pelo cliente antes
     de emitir ``LIGAR``: o daemon não tem cliente de discovery e recusaria
-    um ID. Ver ``messenger/descoberta.py`` e ``docs/ipc_spec.md``
+    um ID. Ver ``messenger/descoberta.py`` e ``docs/ipc.md``
     §``destino``.
     """
     modo = MODOS[argumentos.modo]

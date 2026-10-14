@@ -49,7 +49,7 @@ pub enum EstadoTor {
 }
 
 impl EstadoTor {
-    /// Código reportado pelo IPC (`docs/ipc_spec.md` §`ESTADO`).
+    /// Código reportado pelo IPC (`docs/ipc.md` §`ESTADO`).
     pub fn para_ipc(self) -> u8 {
         match self {
             EstadoTor::Parado => 0x00,
@@ -86,7 +86,7 @@ impl fmt::Display for ErroTor {
 }
 
 impl ErroTor {
-    /// Código de erro IPC correspondente (`docs/ipc_spec.md`).
+    /// Código de erro IPC correspondente (`docs/ipc.md`).
     pub fn para_ipc(&self) -> u8 {
         match self {
             // Sem backend ativo → 0x0B; destino malformado → 0x0D.

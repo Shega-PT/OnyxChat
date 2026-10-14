@@ -7,7 +7,7 @@
 // =====================================================================
 // ipc.rs — servidor Unix Domain Socket + protocolo do daemon
 // ---------------------------------------------------------------------
-// Implementa `docs/ipc_spec.md`:
+// Implementa `docs/ipc.md`:
 //   * enquadramento `[u32 LE comprimento][carga útil]` (≤ 16 MiB);
 //   * sessão começa com `0x00 HELLO` (versão explícita) — pedidos
 //     anteriores são rejeitados com `0x02`;
@@ -81,7 +81,7 @@ pub fn limite_carga() -> usize {
 pub const MAX_PAYLOAD: usize = orcamento::orcamento_padrao();
 
 /// Comando HELLO: primeiro pedido da sessão — declara a versão do
-/// protocolo e recebe a versão/build do daemon (`ipc_spec.md` §HELLO).
+/// protocolo e recebe a versão/build do daemon (`ipc.md` §HELLO).
 pub const CMD_HELLO: u8 = 0x00;
 /// Comando ENCODE: cifrar mensagem → envelope.
 pub const CMD_ENCODE: u8 = 0x01;
@@ -113,7 +113,7 @@ pub const ESTADO_OK: u8 = 0x00;
 /// Estado de resposta: erro estruturado.
 pub const ESTADO_ERRO: u8 = 0x01;
 
-// Códigos de erro (docs/ipc_spec.md).
+// Códigos de erro (docs/ipc.md).
 /// Comando fora da tabela de comandos.
 pub const ERR_COMANDO_DESCONHECIDO: u8 = 0x01;
 /// Corpo curto demais para o comando.
@@ -427,7 +427,7 @@ fn processar_encode(pedido: &[u8]) -> Vec<u8> {
     };
     let mensagem = &pedido[MIN_CORPO_ENCODE..];
     // Limite ANTES de UTF-8 e de cifrar: rejeição barata e cedo
-    // (`docs/ipc_spec.md` §Validação — campo acima do limite → 0x09).
+    // (`docs/ipc.md` §Validação — campo acima do limite → 0x09).
     if mensagem.len() > crate::envelope::MAX_PLAINTEXT {
         return resposta_erro(ERR_PAYLOAD_GRANDE_DEMAIS, "mensagem acima de MAX_PLAINTEXT");
     }
@@ -688,7 +688,7 @@ impl Estado {
 }
 
 // ---------------------------------------------------------------------
-// Comandos de rede (docs/ipc_spec.md §Comandos de rede)
+// Comandos de rede (docs/ipc.md §Comandos de rede)
 // ---------------------------------------------------------------------
 
 /// `ESTADO 0x03` → `tor:1B ‖ ligado:1B ‖ amigos:u16 LE ‖ onion UTF-8`.
@@ -807,7 +807,7 @@ type ErroDestino = (u8, &'static str);
 /// canónico (a pública em hex minúsculo), para que não haja duas formas
 /// de descrever o mesmo par dentro do processo.
 ///
-/// A regra (normativa em `docs/ipc_spec.md` §`destino`):
+/// A regra (normativa em `docs/ipc.md` §`destino`):
 ///
 /// * **directo** — exige `xxxx.onion`. O daemon **não** tem cliente de
 ///   discovery; resolver um ID hex para um `.onion` é responsabilidade
@@ -985,7 +985,7 @@ fn processar_fechar(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------
-// Comandos de handshake (docs/ipc_spec.md §Comandos de handshake)
+// Comandos de handshake (docs/ipc.md §Comandos de handshake)
 // ---------------------------------------------------------------------
 
 /// Serializa as chaves de uma amizade: `k1‖k5_p‖k9_p‖k5_par‖k9_par‖pub`.
@@ -1307,7 +1307,7 @@ pub fn prender(caminho: &Path) -> io::Result<std::os::unix::net::UnixListener> {
 ///
 /// Comparador puro (testável sem sockets) usado por
 /// [`servir_com_paragem`] antes de atender: outro uid → a ligação é
-/// descartada **sem resposta** (`ipc_spec.md` §Transporte). O caminho
+/// descartada **sem resposta** (`ipc.md` §Transporte). O caminho
 /// do socket já é `0600`; isto é a defesa em profundidade que impede o
 /// IPC de ser fronteira de confiança ambígua (Resumo §31).
 fn par_do_uid_proprio(uid_par: u32) -> bool {
@@ -1346,7 +1346,7 @@ fn uid_do_par(fluxo: &std::os::unix::net::UnixStream) -> Option<u32> {
 /// buffer do limite, e o daemon é morto pelo OOM killer.
 ///
 /// 32 é generoso para o uso real. O cliente Python abre uma ligação
-/// por pedido (`docs/ipc_spec.md`), e os testes E2E usam duas a três
+/// por pedido (`docs/ipc.md`), e os testes E2E usam duas a três
 /// em simultâneo. Um limite alto deixaria passar o caso legítimo sem
 /// deixar passar o ataque, e um baixo criaria um risco de negação de
 /// serviço — que é o mesmo problema pelo outro lado.

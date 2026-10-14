@@ -91,7 +91,7 @@ REGRAS: list[tuple[str, str]] = [
     # `mesma` **não** está aqui, e é deliberado: «a mesma máquina» é um
     # termo técnico — é o que define a ameaça A8, «outro utilizador do
     # mesmo computador» — e existe em `threat_model.md`,
-    # `key_management.md`, `ipc_spec.md` e `server/origem.py`. A regra
+    # `key_management.md`, `ipc.md` e `server/origem.py`. A regra
     # proíbe a referência ao ambiente de quem escreve, não a palavra.
     (r"\b(?:esta|estaque|nesta|nestaque|minha)\s+m[áa]quina\b",
      "referência à máquina de quem escreve"),

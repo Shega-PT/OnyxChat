@@ -1,5 +1,9 @@
 # OnyxChat
 
+[![portões](https://github.com/Shega-PT/OnyxChat/actions/workflows/portoes.yml/badge.svg?label=port%C3%B5es)](https://github.com/Shega-PT/OnyxChat/actions/workflows/portoes.yml)
+[![verificação](https://github.com/Shega-PT/OnyxChat/actions/workflows/verificacao.yml/badge.svg?label=verifica%C3%A7%C3%A3o)](https://github.com/Shega-PT/OnyxChat/actions/workflows/verificacao.yml)
+[![segurança](https://github.com/Shega-PT/OnyxChat/actions/workflows/seguranca.yml/badge.svg?label=seguran%C3%A7a)](https://github.com/Shega-PT/OnyxChat/actions/workflows/seguranca.yml)
+
 Mensageiro **end-to-end, peer-to-peer, com Tor embutido**, que protege
 cada mensagem com um **pipeline híbrido de 9 camadas** (digitais +
 analógicas) e assinaturas Ed25519 de estabilização de identidade.
@@ -7,6 +11,13 @@ analógicas) e assinaturas Ed25519 de estabilização de identidade.
 Não é «um mensageiro que usa Tor» — é uma **arquitetura de comunicação
 P2P privada** em que cada instância é, ao mesmo tempo, cliente e
 servidor. Ver [`docs/SYS_GUIDE.md`](docs/SYS_GUIDE.md).
+
+> Os três distintivos são reais e estão ligados aos workflows que
+> existem — mas **os workflows ainda não foram executados**. O que
+> está verificado é o YAML e a existência dos comandos, e
+> [`docs/roadmap.md`](docs/roadmap.md) §Integração contínua regista-o
+> como tal. Um distintivo que ainda não viu uma execução não diz
+> nada sobre o código; diz sobre o CI.
 
 ---
 

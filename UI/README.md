@@ -262,7 +262,7 @@ Esta é a parte que exige atenção antes de mostrar a interface a alguém.
 
 O backend OnyxChat **não tem** API HTTP pública, nem WebSocket, nem
 serviço que um browser possa usar de fora. A interface de cliente do
-`onyxchatd` é um *socket Unix* binário (`docs/ipc_spec.md`), e um browser
+`onyxchatd` é um *socket Unix* binário (`docs/ipc.md`), e um browser
 não abre sockets Unix.
 
 A **Etapa 5** resolveu isso sem expor nada: `server/sidecar.py` é um

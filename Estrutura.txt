@@ -64,7 +64,7 @@ confere-o em cada push.
 ├─ architecture.md          # Onde vive cada responsabilidade
 ├─ pipeline.md              # As nove camadas K1→K9, com parâmetros
 ├─ message_format.md        # Envelope binário: versão, nonces, payload
-├─ ipc_spec.md              # Contrato IPC Python ↔ Rust (framing, códigos)
+├─ ipc.md                   # Contrato IPC Python ↔ Rust (framing, códigos)
 ├─ sidecar.md               # Contrato HTTP local: 26 rotas, origens, erros
 ├─ handshake.md             # Handshake de amizade e ciclo de vida das chaves
 ├─ key_management.md        # Derivação, rotação e eliminação de chaves

@@ -81,6 +81,6 @@
       "parametros": "chave=000102..1f, nonce=000102030405060708090a0b"
     }
   ],
-  "descricao": "KATs por camada (input/key/parameters/expected) — Resumo §25",
+  "descricao": "KATs por camada (input/key/parameters/expected)",
   "versao": "1"
 }

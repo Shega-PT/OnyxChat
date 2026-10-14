@@ -8,7 +8,7 @@
 // erros.rs — erro unificado do pipeline K1→K9 do daemon
 // ---------------------------------------------------------------------
 // Concentra todas as falhas possíveis de cifrar/decifrar e a conversão
-// para os códigos de estado do protocolo IPC (`docs/ipc_spec.md`):
+// para os códigos de estado do protocolo IPC (`docs/ipc.md`):
 //
 //   EnvelopeInvalido   → 0x06   AssinaturaInvalida → 0x04
 //   DecifragemFalhou   → 0x05   CifragemFalhou     → 0x07
@@ -65,7 +65,7 @@ pub enum ErroPipeline {
 }
 
 impl ErroPipeline {
-    /// Código de erro IPC (`docs/ipc_spec.md`) e legenda estável.
+    /// Código de erro IPC (`docs/ipc.md`) e legenda estável.
     ///
     /// `em_cifragem` distingue a semântica do erro Lua: durante ENCODE
     /// é uma falha interna de cifragem (0x07); durante DECODE indica

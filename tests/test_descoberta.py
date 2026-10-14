@@ -6,7 +6,7 @@
 
 """testes de ``messenger/descoberta.py`` — resolução de destino P2P.
 
-Cobre a matriz de ``docs/ipc_spec.md`` §``destino``:
+Cobre a matriz de ``docs/ipc.md`` §``destino``:
 
 * classificação estrita de ``.onion`` e de ID hex;
 * ``directo`` resolve o ID via discovery; ``relay`` não consulta;

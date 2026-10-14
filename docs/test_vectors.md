@@ -1,12 +1,12 @@
 # Test vectors
 
-> **Gerado automaticamente** por `cargo run -p onyxchatd --example gerar_vetores` a partir de `tests/vectors/*.json` — **não editar à mão**. Os JSON são a fonte única de verdade; este documento é a forma legível dos mesmos dados (Resumo §25 e §47).
+> **Gerado automaticamente** por `cargo run -p onyxchatd --example gerar_vetores` a partir de `tests/vectors/*.json` — **não editar à mão**. Os JSON são a fonte única de verdade; este documento é a forma legível dos mesmos dados.
 >
 > Consumidores: `network/daemon_rust/tests/vetores.rs` (Rust), `tests/test_vectors.py` (Python), `crypto/c_cpp/tests/test_vectors.c` (C/C++, K4+K9) e as camadas Lua através do Rust (`mlua`). Todas as implementações têm de produzir exatamente os mesmos bytes.
 
 ---
 
-## Vetores por camada (Resumo §25)
+## Vetores por camada
 
 Cada vector tem `input`, `key`/parâmetros e `expected output`.
 
@@ -92,7 +92,7 @@ output:    c697cba1097ad02ed3ec1e0d6d90cb2ed51ad4e0f6c833ee3f1dee
 
 ---
 
-## Vetores fim-a-fim (Resumo §47)
+## Vetores fim-a-fim
 
 ### Vector 001
 
