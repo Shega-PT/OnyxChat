@@ -76,6 +76,29 @@ jobs:
           # não pode usar. É o que o `zizmor` exige em cada `checkout`,
           # e `zizmor --offline` é o que o transformou em regra.
           persist-credentials: false
+          # `submodules` está declarado apesar de `false` ser o
+          # omissão, e a razão é a mesma que fez `persist-credentials`
+          # ser declarado apesar de ser preciso: uma omissão que muda
+          # de significado com o tempo é uma omissão que ninguém
+          # repara.
+          #
+          # `OnyxMiniNode/` é um submodule sob MIT, com o seu próprio
+          # repositório e o seu próprio CI. O CI do OnyxChat não o
+          # clona, e a consequência é deliberada e vale a pena dizer
+          # em voz alta: **os portões daqui nunca veem o firmware.**
+          #
+          # Três auditorias do projecto percorrem o disco e não o
+          # índice do Git — `verificar_ambiente.py` e
+          # `verificar_estrutura.py` entre elas — e as duas excluem
+          # `OnyxMiniNode` por código, não por `.gitignore`. Ainda
+          # assim, deixar o submodule fora do CI é o que garante que
+          # nenhum portão daqui pode passar a depender, por acidente,
+          # de conteúdo de outro repositório.
+          #
+          # A garantia de que o firmware compila e passa nos testes
+          # vive no workflow do próprio submodule. As duas coisas são
+          # verdade, e nenhuma delas finge ser a outra.
+          submodules: false
 
       - name: Python da máquina
         # O runner já traz Python, mas a versão exacto não é

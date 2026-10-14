@@ -74,7 +74,16 @@ IGNORADOS = {
 #: não como uma cadeia: `{"UI/tools/node"} & {"UI", "tools", "node"}` é
 #: vazio, e foi exactamente isso que fez a primeira versão deste
 #: programa varrer 2 369 ficheiros do Node sem os excluir.
-CAMINHOS_IGNORADOS = {("UI", "tools", "node")}
+#:
+#: `OnyxMiniNode` é o firmware de um nó de transporte, ligado como
+#: submodule e sob MIT. Sem esta entrada, este programa varre a
+#: documentação **dele** e julga-a pelas regras deste projecto — o que
+#: é proteger a prosa de outra pessoa, que é a mesma coisa que o
+#: `UI/tools/node` abaixo. A diferença é que aqui a prosa é nossa, mas
+#: pertence a outro repositório, com o seu próprio CI a fazer essa
+#: auditoria. Um portão que atravessasse a fronteira daria a quem
+#: escreve no submodule um erro vindo de um ficheiro que nunca abriu.
+CAMINHOS_IGNORADOS = {("UI", "tools", "node"), ("OnyxMiniNode",)}
 
 #: As frases que apanha. Um `\b` à volta de «máquina» não chega:
 #: o que interessa é a locução inteira, não a palavra solta.

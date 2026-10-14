@@ -1,0 +1,3 @@
+[submodule "OnyxMiniNode"]
+	path = OnyxMiniNode
+	url = https://github.com/Shega-PT/OnyxMiniNode.git

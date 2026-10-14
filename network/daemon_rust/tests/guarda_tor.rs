@@ -655,6 +655,70 @@ fn e_ferramenta_de_terceiros(raiz: &Path, caminho: &Path) -> bool {
         .any(|base| texto == *base || texto.starts_with(&format!("{base}/")))
 }
 
+/// Directório com repositório e licença próprios, dentro deste.
+///
+/// `OnyxMiniNode/` é o firmware de um nó de transporte para ESP32, ligado
+/// como *submodule*, sob **MIT**. Não é código de terceiros — é nosso,
+/// com a licença que escolhemos para ele — e a distinção não é
+/// capricho: `FERRAMENTAS_DE_TERCEIROS` significa «isto não é nosso», e
+/// quem lesse o nome acrescentar-lhe o submodule acabaria a silenciar o
+/// guard para código nosso, que é exactamente o inverso do que um guard
+/// deve poder fazer.
+///
+/// ## Porque é que a licença difere
+///
+/// A PolyForm protege o que não pode ser desfeito se alguém fechar o
+/// código: a implementação do pipeline criptográfico e o protocolo. Um
+/// relay não tem nenhum dos dois — nunca vê texto em claro, nunca
+/// participa no handshake, nunca toca numa chave (`threat_model.md`
+/// §A2, «Relay malicioso», cujo *Não deve obter* é exactamente este
+/// caso). Não existe raiz de confiança dentro de um firmware de relay
+/// que valha a pena proteger, e a licença segue a fronteira de confiança
+/// que `architecture.md` §Fronteiras de confiança já desenhava.
+///
+/// A consequência para este guard é concreta: os ficheiros do submodule
+/// recebem a exigência da MIT §"The above copyright notice ... shall be
+/// included in all copies", não a PolyForm §Notices. Pôr um
+/// `Required Notice:` num ficheiro MIT seria tão incorrecto quanto
+/// pôr um cabeçalho MIT num ficheiro PolyForm — e é por isso que esta
+/// exclusão é uma regra, e não um remendo para o guard ficar verde.
+///
+/// ## A alternativa que não foi escolhida
+///
+/// Nenhuma: a outra solução era pôr `Required Notice:` em todos os
+/// ficheiros do firmware e aceitar que a PolyForm o cobrisse. Isso
+/// obrigaria a pedir licença a quem quisesse reutilizar o firmware, que
+/// é o oposto do que um componente de transporte quer ser, e não
+/// resolveria a nenhum problema: a PolyForm não tem raiz de confiança
+/// para proteger aqui.
+///
+/// ## Porque é que não basta o `.gitignore`
+///
+/// `collectar()` percorre o **sistema de ficheiros**, não o índice do
+/// Git. Um submodule correctamente ignorado continua a estar no disco,
+/// e ignorado não é o mesmo que ausente. Sem esta lista, o guard
+/// desce lá dentro, não encontra `Required Notice:` em nenhum ficheiro
+/// C++, e falha — que é o que acontecia antes desta linha existir.
+const ARVORE_INDEPENDENTE: &[&str] = &["OnyxMiniNode"];
+
+/// O caminho está dentro de uma árvore com repositório e licença
+/// próprios?
+///
+/// A comparação é por **caminho relativo**, pelas mesmas razões de
+/// `e_ferramenta_de_terceiros` e com o mesmo risco: feita contra o
+/// directório corrente em vez da raiz, `strip_prefix` reduziria
+/// `OnyxMiniNode` a `OnyxMiniNode` mas `OnyxMiniNode/src` a `src`, e a
+/// exclusão ficaria escrita e inerte.
+fn e_arvore_independente(raiz: &Path, caminho: &Path) -> bool {
+    let Ok(relativo) = caminho.strip_prefix(raiz) else {
+        return false;
+    };
+    let texto = relativo.to_string_lossy().replace('\\', "/");
+    ARVORE_INDEPENDENTE
+        .iter()
+        .any(|base| texto == *base || texto.starts_with(&format!("{base}/")))
+}
+
 /// A exclusão de ferramentas de terceiros funciona de facto.
 ///
 /// A primeira vez que o guard apanhou a árvore do Node foi quando esta
@@ -709,6 +773,82 @@ fn a_exclusao_de_ferramentas_de_terceiros_exclui_o_caminho_certo() {
     assert!(!e_ferramenta_de_terceiros(
         Path::new("/outro"),
         Path::new("/repo/UI/tools/node")
+    ));
+}
+
+/// A exclusão da árvore independente funciona de facto.
+///
+/// O mesmo argumento do teste anterior, aplicado ao submodule: se esta
+/// exclusão só se exercitasse com o submodule presentemente checkoutado,
+/// seria uma exclusão que falha em silêncio em qualquer clone feito com
+/// `--no-recurse-submodules` — que é precisamente como o CI do OnyxChat
+/// clona, e por isso exactamente quando ninguém está a olhar.
+///
+/// E o que este teste protege é mais do que o guard: uma exclusão escrita
+/// por engano com um `starts_with` largo excluiria `OnyxMiniNode-antigo/`,
+/// que é nosso e leva `Required Notice:`, e o guard passaria a verde sem
+/// estar a proteger nada.
+#[test]
+fn a_exclusao_da_arvore_independente_exclui_o_caminho_certo() {
+    let raiz = Path::new("/repo");
+
+    // O caminho que tem de ser excluído.
+    assert!(e_arvore_independente(raiz, Path::new("/repo/OnyxMiniNode")));
+    // E tudo o que está dentro dele — as extensões que interessam são
+    // exactamente as que o guard ia acusar.
+    assert!(e_arvore_independente(
+        raiz,
+        Path::new("/repo/OnyxMiniNode/src/main.cpp")
+    ));
+    assert!(e_arvore_independente(
+        raiz,
+        Path::new("/repo/OnyxMiniNode/src/mailbox.cpp")
+    ));
+    assert!(e_arvore_independente(
+        raiz,
+        Path::new("/repo/OnyxMiniNode/scripts/verificar_estrutura.py")
+    ));
+    assert!(e_arvore_independente(
+        raiz,
+        Path::new("/repo/OnyxMiniNode/docs/protocolo.md")
+    ));
+
+    // O que **não** pode ser excluído.
+    assert!(!e_arvore_independente(
+        raiz,
+        Path::new("/repo/OnyxMiniNode-antigo/notes.md")
+    ));
+    assert!(!e_arvore_independente(raiz, Path::new("/repo/src")));
+    assert!(!e_arvore_independente(raiz, Path::new("/repo/Cargo.toml")));
+
+    // Um caminho fora da raiz não é de ninguém.
+    assert!(!e_arvore_independente(
+        Path::new("/outro"),
+        Path::new("/repo/OnyxMiniNode/src/main.cpp")
+    ));
+}
+
+/// As duas exclusões não podem ser trocadas uma na outra.
+///
+/// Este teste existe porque as duas constantes nomeiam coisas
+/// diferentes, e a diferença é a que impede alguém de as baralhar.
+///
+/// `ARVORE_INDEPENDENTE` diz «isto é nosso, com outra licença», e
+/// `FERRAMENTAS_DE_TERCEIROS` diz «isto não é nosso». Passar uma
+/// lista pela função da outra faria o guard ficar verde por motivo e por
+/// acidente — que é a forma mais cara de um guard deixar de medir o que
+/// diz medir. A cada exclusão nomeada há uma explicação escrita, e a
+/// explicação é o que separa uma regra de um remendo.
+#[test]
+fn as_duas_exclusoes_nao_confundem_uma_a_outra() {
+    let raiz = Path::new("/repo");
+
+    // O Node é de terceiros e não é uma árvore independente.
+    assert!(!e_arvore_independente(raiz, Path::new("/repo/UI/tools/node")));
+    // O MiniNode é uma árvore independente e não é uma ferramenta.
+    assert!(!e_ferramenta_de_terceiros(
+        raiz,
+        Path::new("/repo/OnyxMiniNode/src/main.cpp")
     ));
 }
 
@@ -819,6 +959,7 @@ fn collectar(raiz: &Path, so_distribuidos: bool) -> Vec<PathBuf> {
                 || nao_distribuido
                 || nome.starts_with('.')
                 || e_ferramenta_de_terceiros(raiz, &caminho)
+                || e_arvore_independente(raiz, &caminho)
             {
                 continue;
             }

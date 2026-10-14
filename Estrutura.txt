@@ -29,6 +29,11 @@ confere-o em cada push.
 ├─ .cargo/config.toml       # Perfis e aliases (`cargo release-tor`, …)
 ├─ pyproject.toml           # Metadados e ferramental do Python
 ├─ .gitignore               # O que **não** é versionado; ver §Gerados
+├─ .gitmodules              # Liga `OnyxMiniNode/`, o firmware de um nó de
+│                           # transporte, ligado como submodule
+├─ OnyxMiniNode/            # Submodule: firmware ESP32 de um relay OnyxChat,
+│                           # sob **MIT** — ver §Onde está o porquê da licença
+│                           # diferente, no fim deste ficheiro
 ├─ SECURITY.md             # Onde reportar uma vulnerabilidade
 ├─ seguranca-excepcoes.toml # Advisories aceites, com razão e data de revisão
 ├─ deny.toml                # Licenças proibidas: a PolyForm não admite copyleft
@@ -315,3 +320,46 @@ ficheiros Rust que não constam de lado nenhum.
 Cada uma destas linhas é agora conferida por
 `scripts/verificar_estrutura.py`, que falha se um ficheiro aqui deixar
 de existir — que é o que teria apanhado a versão anterior.
+
+Onde está o porquê da licença diferente
+---------------------------------------------------------------------
+`OnyxMiniNode/` é o único directório deste repositório sob **MIT**. Todo
+o resto é PolyForm Noncommercial. A linha entre os dois não é uma
+preferência de quem escolheu — é a regra de confiança que
+`architecture.md` §Fronteiras de confiança já escrevia:
+
+> Todo componente de transporte é considerado **não confiável** —
+> discovery, relay, infraestrutura Tor e nós intermediários. A
+> confiança criptográfica existe **entre os endpoints**.
+
+O PolyForm existe para proteger o que não pode ser desfeito se alguém
+fechar o código: a implementação do pipeline K1→K9 e o protocolo. Um
+relay não tem nenhum dos dois — `threat_model.md` §A2 diz o que um
+relay não deve poder obter (texto em claro, chaves K1/K5/K9, conteúdo
+de conversas, o handshake) e um firmware de relay não chega perto de
+nenhum desses. Não existe raiz de confiança lá dentro para proteger.
+
+Três consequências concretas, e as três estão verificadas por código:
+
+1. **`network/daemon_rust/tests/guarda_tor.rs`** exclui
+   `OnyxMiniNode` da lista de ficheiros que exigem
+   `Required Notice:`, numa constante própria
+   (`ARVORE_INDEPENDENTE`) e não na das ferramentas de terceiros
+   (`FERRAMENTAS_DE_TERCEIROS`). Pôr um aviso PolyForm num ficheiro
+   MIT seria tão incorrecto quanto o inverso. Sem a exclusão, o guard
+   falhava — que é como a exclusão foi descoberta.
+
+2. **`scripts/verificar_ambiente.py`** e
+   **`scripts/verificar_estrutura.py`** não percorrem o submodule.
+   As duas leem o disco e não o índice do Git, e o `.gitignore` não as
+   protege. Sem a exclusão, a primeira varria a documentação de outro
+   repositório pelas regras deste projecto.
+
+3. **Os workflows trazem `submodules: false` declarado.** A garantia de
+   que o firmware compila e passa nos testes vive no CI do próprio
+   submodule. Nenhum portão deste repositório pode depender, por
+   acidente, de conteúdo de outro.
+
+A entrada `OnyxMiniNode/` acima é uma linha de directório, e uma linha
+de directório não afirma existência de nada — por isso continua
+correcta com o submodule clonado e sem ele, que é como o CI o tem.

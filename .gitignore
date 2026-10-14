@@ -165,6 +165,37 @@ htmlcov/
 *.log
 .DS_Store
 Thumbs.db
+
+# ---------------------------------------------------------------------
+# PlatformIO — a família de artefactos do firmware do submodule
+# ---------------------------------------------------------------------
+# `OnyxMiniNode/` tem o seu próprio `.gitignore`, e é excepção à regra
+# de que esta lista não repete o que um `.gitignore` aninhado já
+# resolve. A diferença face ao `node_modules/` acima é que aqui o
+# submodule **não está clonado** na maioria dos contextos: o CI do
+# OnyxChat faz `checkout` com `submodules: false`, e um clone feito com
+# `--no-recurse-submodules` — que é o modo por omissão desde o Git
+# 2.38 — também não o traz. Nestes casos o `.gitignore` aninhado não
+# existe, e quem decides compilar o firmware a partir de um directório
+# de trabalho onde ele **está** clonado fica protegido por esse
+# `.gitignore` e quem o faz a partir de um onde não está, não.
+#
+# Estes padrões são **defesa**, pela mesma razão que o `node_modules/`
+# da raiz o é: o `pio run` escreve o `.pio/` onde o `platformio.ini`
+# está, e um `git add -A` a seguir publicaria objectos, mapas de
+# ligação e configuração gerada, dependentes do caminho onde o
+# repositório foi clonado e impossíveis de reproduzir.
+#
+# Não há `!OnyxMiniNode/**` em nenhum lado: o submodule é
+# uma entrada de índice com modo `160000`, e um `.gitignore` que a
+# mencionasse sem querer transformá-la num directório normal seria a
+# forma mais rápida de perder o código do submodule sem dar por isso.
+# A excepção é não mentioning.
+.pio/
+*.elf
+*.bin
+*.map
+*.hex
 desktop.ini
 # Core dumps. Ancorado à raiz e com sufixo numérico, porque `core.*` sem
 # âncora apanhava `crypto/c_cpp/vendor/libsodium/include/sodium/core.h` —

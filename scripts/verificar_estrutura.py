@@ -82,6 +82,23 @@ IGNORADOS = {
     ".pytest_cache", ".hypothesis", ".venv", "build",
 }
 
+#: Directórios que não fazem parte desta árvore, por pertencerem a outro
+#: repositório. `OnyxMiniNode` é o firmware de um nó de transporte, ligado
+#: como submodule e sob MIT — ver `network/daemon_rust/tests/guarda_tor.rs`
+#: §ARVORE_INDEPENDENTE, que é a mesma regra pelo mesmo motivo.
+#:
+#: Aqui a consequência é mais discreta do que nos auditores de texto, e
+#: por isso vale a pena escrevê-la: `ficheiros_reais()` alimenta a
+#: contagem «ficheiros na árvore» que este programa imprime, e sem esta
+#: entrada essa contagem passou de 2 905 para 2 917 ao acrescentar o
+#: submodule — ou seja, passou a contar como seus ficheiros de outro
+#: projecto. Nenhum portão falhou por isso: o mapa só é confrontado com o
+#: que ele afirma, não com o que existe a mais. O que estava errado era
+#: o número que o programa imprime, que é a mesma coisa que este
+#: ficheiro denuncia: um mapa que responde com confiança a uma pergunta
+#: cuja resposta já não é a verdadeira.
+IGNORADOS_ARVORE = {"OnyxMiniNode"}
+
 # Nome de ficheiro ou directório, com ponto de extensão ou barra final.
 _NOME = re.compile(r"[\w.][\w./+-]*")
 _TIL = "~"
@@ -397,12 +414,21 @@ def afirmacoes() -> list[Afirmacao]:
 
 
 def ficheiros_reais() -> set[str]:
-    """Todos os ficheiros da árvore, relativos à raiz do repositório."""
+    """Todos os ficheiros da árvore, relativos à raiz do repositório.
+
+    Percorre o **disco**, não o índice do Git, e por isso o
+    `.gitignore` não o protege: um directório correctamente ignorado
+    continua a estar lá, e ignorado não é o mesmo que ausente. É por
+    isso que a exclusão de `OnyxMiniNode` é feita aqui, em código, e
+    não no `.gitignore` — do mesmo modo que `IGNORADOS` existe para os
+    artefactos de construção.
+    """
     achados: set[str] = set()
     for p in RAIZ.rglob("*"):
         if not p.is_file():
             continue
-        if set(p.relative_to(RAIZ).parts) & IGNORADOS:
+        partes = set(p.relative_to(RAIZ).parts)
+        if partes & IGNORADOS or partes & IGNORADOS_ARVORE:
             continue
         achados.add(str(p.relative_to(RAIZ)))
     return achados
