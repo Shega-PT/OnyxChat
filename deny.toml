@@ -75,6 +75,28 @@ allow = [
 # separada: `MIT OR GPL-3.0` é uma licença copyleft com uma saída
 # permissiva, e sem esta lista passaria. Não é uma hipótese — é a forma
 # mais comum de umbrella licence.
+#
+# ## A LGPL está recusada aqui e aceitada em `tools/ffmpeg/` — de propósito
+#
+# Esta lista avalia **crates do registry**. O FFmpeg não é um crate: é
+# um executável que o projecto compila de fonte versionada, com a
+# receita em `tools/ffmpeg/build.sh` e o SHA-256 da fonte em
+# `tools/ffmpeg/versoes.txt`. A excepção está escrita e justificada em
+# `THIRD-PARTY.md` §Componentes compilados de fonte, ao lado da
+# `libsodium` — que é o mesmo padrão.
+#
+# **Acrescentar `LGPL-2.1-or-later` a esta lista seria o erro.** A
+# lista não distingue crates de componentes vendorizados, e admiti-la
+# aqui transformaria a excepção de *um* componente nomeado numa
+# excepção da **categoria** — passaria a valer para qualquer
+# dependência LGPL que alguém acrescentasse depois. A regra é mais
+# valiosa intacta e a excepção mais valiosa estreita.
+#
+# E a garantia não é o `THIRD-PARTY.md`, que é um documento: é
+# `tools/ffmpeg/build.sh`, que recusa apagar o executável se
+# `ffmpeg -buildconf` não trouxer `--disable-gpl`. A licença
+# LGPG-2.1-or-later que daí resulta é **verificada pelo binário**.
+#
 deny = [
     "GPL-1.0", "GPL-2.0", "GPL-3.0",
     "AGPL-1.0", "AGPL-3.0",

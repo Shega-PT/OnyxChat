@@ -1,0 +1,111 @@
+# =====================================================================
+# tools/ffmpeg/versoes.txt — o `ffmpeg` que é *compilado* de fonte
+# ---------------------------------------------------------------------
+# Este ficheiro é a **única** fonte de verdade sobre qual código entra
+# no binário do `onyxchatd`. O `fetch.sh` lê-o, descarrega a **fonte**,
+# e o `build.sh` compila-a com uma receita fixa.
+#
+# ## Não é um binário pré-compilado, e isso é a decisão
+#
+# A primeira versão deste ficheiro apontava para um executável já
+# pronto. Foi descartado, e o motivo está em `docs/media.md` §Dependências
+# e em `THIRD-PARTY.md` §Componentes compilados de fonte:
+#
+# * os builds estáticos de `ffmpeg` mais fáceis de encontrar são **GPL
+#   v3**, e o `deny.toml` recusa GPL porque uma dependência copyleft
+#   torna a licença do projecto impossível de cumprir;
+# * um binário de terceiros tem de ser **confiado**; um binário que nós
+#   compilamos a partir de fonte com sumário fixado tem de ser
+#   **verificado** — e a garantia passa a ser a receita de compilação,
+#   que está neste repositório e é visível.
+#
+# A garantia que substitui a confiança no artefacto é esta: o
+# `build.sh` termina por correr `ffmpeg -buildconf` e **recusa** se a
+# configuração não trouxer `--disable-gpl`. É o binário a declarar a
+# sua própria licença, e não o manifesto a dizer que a tem.
+#
+# ## Porque o sumário está aqui e não é descarregado
+#
+# A mesma razão que `UI/tools/versoes.txt`, e o mesmo argumento: quem
+# emite o pacote e quem o entrega é a mesma entidade, e um ficheiro que
+# muda sem que nada no repositório mude deixa o `git diff` vazio. Um
+# sumário escrito aqui fixa o artefacto **por conteúdo**.
+#
+# ## A excepção, e onde ela está justificada
+#
+# Compilar a fonte com `--disable-gpl` dá **LGPL-2.1-or-later**, que o
+# `deny.toml` também recusa. A excepção, com justificação, está em
+# `THIRD-PARTY.md` §Componentes compilados de fonte — ao lado da
+# `libsodium`, que é o mesmo padrão: uma regra, uma excepção
+# documentada, e o mínimo possível fora dela.
+#
+# `deny.toml` **não** foi alterado. A lista avalia crates do registry,
+# e isto não é um crate: é um executável que compilamos de fonte
+# versionada, o mesmo que a `libsodium`. Mexer na lista tornaria a
+# excepção maior do que é — passaria a admitir LGPL em **qualquer**
+# dependência, em vez de num componente nomeado e justificado.
+#
+# ## O mínimo que fica fora da regra
+#
+# A receita de `build.sh` é `--disable-gpl --disable-nonfree
+# --disable-everything` seguido de uma lista de `--enable` explícita.
+# Consequências, que são o que interessa:
+#
+# * **Nenhum codec GPL**: `libx264`, `libx265` e `libvpx` com `vpx`
+#   patentado ficam de fora. O que fica é VP8, VP9 e AV1, cujas
+#   bibliotecas (`libvpx`, `libaom`) são BSD.
+# * **Nenhuma biblioteca não-livre.** `--disable-nonfree` é redundante
+#   depois de `--disable-gpl` e está lá para sobreviver a quem leia só
+#   uma das duas linhas.
+# * **Nada de rede** (`--disable-network`): o `ffmpeg` deste projecto
+#   nunca fala com a rede. `docs/threat_model.md` §A2 é sobre um relay
+#   malicioso; um executável embebido com cliente HTTP dentro é
+#   superfície que ninguém pediu.
+#
+# ## Formato
+#
+#   <plataforma-independent> | <url> | <sha256 da fonte> | <versão>
+#
+# ## Actualizar
+#
+#  1. Apontar para a release em <https://ffmpeg.org/releases/>.
+#  2. Copiar o SHA-256 de `ffmpeg-<versão>.tar.xz` — o FFmpeg **não**
+#     publica sumários sidecar, ao contrário do Node. É por isso que o
+#     valor é de quem calculou, não de quem publica.
+#  3. `tools/ffmpeg/fetch.sh`
+#  4. `tools/ffmpeg/build.sh`
+#  5. `cargo build -p onyxchatd` — o `build.rs` embete o executável.
+# =====================================================================
+
+# O código-fonte. Não há entradas por plataforma porque o `ffmpeg` é
+# portátil e a receita é a mesma em todas: é o mesmo que a
+# `crypto/c_cpp/vendor/libsodium`, que também não é por plataforma.
+ffmpeg = 9.0.2 | https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz | 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e | 9.0.2
+
+# --- o que a receita liga ---------------------------------------------
+#
+# Isto não é o manifesto do artefacto: é a **receita**, e o `build.sh`
+# é que a aplica. Está aqui para que a receita seja visível num ficheiro
+# que as pessoas lêem, e não só numa linha de shell num script.
+#
+# ## Codecos e formatos
+#
+# | `--enable` | Para quê | Licença da biblioteca |
+# | --- | --- | --- |
+# | `libopus` | **é o áudio**: `docs/media.md` §7.1 | BSD |
+# | `libvpx` | VP8/VP9, se vier codec de vídeo comprimido | BSD |
+# | `muxer=mp4`, `muxer=matroska`, `muxer=webm` | contentores do modo não-streaming | — (interno) |
+#
+# ## Captura
+#
+# | `--enable` | Para quê | Biblioteca |
+# | --- | --- | --- |
+# | `indev=x11grab` | ecrã em X11 | `libX11` + `libxcb` |
+# | `indev=pipewiregrab` | ecrã em Wayland | `libpipewire` |
+# | `indev=alsa` | microfone | `libasound` |
+# | `indev=pulse` | microfone, alternativa | `libpulse` |
+#
+# **Estas bibliotecas não estão em `tools/ffmpeg/`.** O `build.sh` recusa
+# com uma mensagem que diz exactamente o que falta e onde o obter, em
+# vez de producir um `ffmpeg` que compila e não captura — que é a falha
+# mais cara, porque só aparece em produção.

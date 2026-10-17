@@ -830,3 +830,272 @@ def test_bloquear_um_contacto_que_nao_existe(loja: Loja) -> None:
     """Um contacto que não existe não pode ser bloqueado."""
     with pytest.raises(LojaInvalida):
         loja.bloquear_contacto("x-inexistente", True)
+
+
+# ---------------------------------------------------------------------
+# Transferências de media (`docs/media.md` §4)
+# ---------------------------------------------------------------------
+
+
+def _transferencia(loja: Loja, conversa: str, *, de: str = "them", **mudar) -> dict:
+    """Regista uma transferência e devolve-a montada.
+
+    Os valores por omissão formam um caso a sério: 204 fatias, que é o
+    que dá um vídeo de 10 MB. É o número grande que torna a eliminação
+    errada **visível** — com duas transferências, apagar uma tem de
+    deixar a outra intacta.
+    """
+    campos = {
+        "id": "a" * 32,
+        "tipo": "video",
+        "codec": "matroska",
+        "formato": "matroska",
+        "nome": "praia.mkv",
+        "total_bytes": 204 * 49125,
+        "total_pedacos": 204,
+        "bytes_por_pedaco": 49125,
+        "duracao_s": 42,
+        "sha256": bytes(range(32)),
+        "completo": False,
+    }
+    campos.update(mudar)
+    return loja.registar_transferencia(conversa, de, **campos)
+
+
+def test_o_manifesto_fica_registado(loja: Loja, com_contacto: str) -> None:
+    """O manifesto é o que a interface lê para mostrar «[vídeo] 42/204»."""
+    conversa = loja.abrir_conversa(com_contacto)
+    t = _transferencia(loja, conversa["id"])
+
+    assert t["id"] == "a" * 32
+    assert t["tipo"] == "video"
+    assert t["totalPedacos"] == 204
+    assert t["completo"] is False
+    assert loja.transferencia("a" * 32) == t
+
+
+def test_o_manifesto_reenviado_nao_duplica(loja: Loja, com_contacto: str) -> None:
+    """O mesmo `id` actualiza a linha, e é o que faz a retoma funcionar.
+
+    Um receptor que reenvia o manifesto recebe outra vez as mesmas 204
+    fatias declaradas; sem isto, a lista de media da conversa mostrava
+    o mesmo vídeo duas vezes.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"])
+    _transferencia(loja, conversa["id"], total_pedacos=205)
+
+    assert len(loja.transferencias(conversa["id"])) == 1
+    assert loja.transferencia("a" * 32)["totalPedacos"] == 205
+
+
+def test_reenviar_o_manifesto_nao_desfaz_a_completude(loja: Loja, com_contacto: str) -> None:
+    """Um manifesto reenviado não volta a pôr um ficheiro pronto a meio.
+
+    Reverter seria devolver o ficheiro a um estado que já não existe na
+    máquina — e a interface passaria a oferecer para tocar algo que já
+    não tem todas as fatias.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"])
+    loja.marcar_transferencia_completa("a" * 32)
+    _transferencia(loja, conversa["id"])
+
+    assert loja.transferencia("a" * 32)["completo"] is True
+
+
+def test_as_fatias_sao_mensagens(loja: Loja, com_contacto: str) -> None:
+    """Uma fatia é uma linha de `mensagens` ligada por `transferencia_id`."""
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"])
+
+    m = loja.adicionar_mensagem(
+        conversa["id"], "them", "ONX1…", envelope=b"cipher", transferencia_id="a" * 32
+    )
+    assert m["mediaId"] == "a" * 32
+    assert loja.contar_pedacos("a" * 32) == 1
+
+
+def test_uma_fatia_de_uma_transferencia_inexistente_e_recusada(
+    loja: Loja, com_contacto: str
+) -> None:
+    """Apontar a uma transferência que não existe deixaria órfã a linha."""
+    conversa = loja.abrir_conversa(com_contacto)
+
+    with pytest.raises(LojaInvalida, match="transferência inexistente"):
+        loja.adicionar_mensagem(
+            conversa["id"], "them", "ONX1…", envelope=b"x", transferencia_id="b" * 32
+        )
+
+
+def test_a_conta_so_conta_as_desta_transferencia(loja: Loja, com_contacto: str) -> None:
+    """Duas transferências e texto pelo meio, e a conta é de cada uma.
+
+    A primeira implementação filtrava por
+    `conversa_id AND envelope IS NOT NULL` e devolvia o mesmo número
+    para as duas — que não era o número de nenhuma.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"])
+    _transferencia(loja, conversa["id"], id="b" * 32, nome="outro.mkv")
+
+    for i in range(3):
+        loja.adicionar_mensagem(
+            conversa["id"], "them", f"ONX1 {i}", envelope=b"x", transferencia_id="a" * 32
+        )
+        loja.adicionar_mensagem(
+            conversa["id"], "them", f"ONX1 {i}", envelope=b"y", transferencia_id="b" * 32
+        )
+    # Texto normal, encriptado como qualquer outra mensagem.
+    loja.adicionar_mensagem(conversa["id"], "them", "olá", envelope=b"z")
+
+    assert loja.contar_pedacos("a" * 32) == 3
+    assert loja.contar_pedacos("b" * 32) == 3
+
+
+def test_a_conta_nunca_passa_o_total(loja: Loja, com_contacto: str) -> None:
+    """Mais linhas do que `total_pedacos` é um reenvio, não mais progresso."""
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"], total_pedacos=2)
+
+    for i in range(5):
+        loja.adicionar_mensagem(
+            conversa["id"], "them", f"ONX1 {i}", envelope=b"x", transferencia_id="a" * 32
+        )
+
+    assert loja.contar_pedacos("a" * 32) == 2
+
+
+def test_eliminar_apaga_as_fatias_e_nada_mais(loja: Loja, com_contacto: str) -> None:
+    """Apagar um vídeo **não** pode levar o texto nem outro vídeo.
+
+    Esta é a propriedade que a primeira implementação violava: o
+    `DELETE` filtrava por `conversa_id AND envelope IS NOT NULL`, e
+    apagava tudo o que tivesse `envelope` — texto encriptado incluído.
+    """
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"])
+    _transferencia(loja, conversa["id"], id="b" * 32, nome="outro.mkv")
+
+    for i in range(4):
+        loja.adicionar_mensagem(
+            conversa["id"], "them", f"ONX1 {i}", envelope=b"x", transferencia_id="a" * 32
+        )
+        loja.adicionar_mensagem(
+            conversa["id"], "them", f"ONX1 {i}", envelope=b"y", transferencia_id="b" * 32
+        )
+    texto = loja.adicionar_mensagem(conversa["id"], "them", "olá", envelope=b"z")
+
+    loja.eliminar_transferencia("a" * 32)
+
+    assert loja.contar_pedacos("b" * 32) == 4, "a outra transferência foi-se"
+    restantes = loja.conversa(conversa["id"])["messages"]
+    assert not [m for m in restantes if m["mediaId"] == "a" * 32], "as fatias ficaram"
+    assert len(restantes) == 5, "4 fatias de `b` mais o texto"
+    assert [m for m in restantes if m["id"] == texto["id"]][0]["text"] == "olá"
+    with pytest.raises(LojaInvalida):
+        loja.transferencia("a" * 32)
+
+
+def test_as_transferencias_filtram_por_completude(loja: Loja, com_contacto: str) -> None:
+    """A pergunta da interface é «o que posso tocar?»."""
+    conversa = loja.abrir_conversa(com_contacto)
+    _transferencia(loja, conversa["id"])
+    _transferencia(loja, conversa["id"], id="b" * 32, nome="pronto.mkv")
+    loja.marcar_transferencia_completa("b" * 32)
+
+    assert [t["id"] for t in loja.transferencias(conversa["id"], completas=True)] == [
+        "b" * 32
+    ]
+    assert [t["id"] for t in loja.transferencias(conversa["id"], completas=False)] == [
+        "a" * 32
+    ]
+    assert len(loja.transferencias(conversa["id"], completas=None)) == 2
+
+
+def test_uma_loja_antiga_ganha_a_coluna(tmp_path: Path, com_contacto: str) -> None:
+    """Uma loja criada antes de `transferencia_id` ainda abre.
+
+    `CREATE TABLE IF NOT EXISTS` **não** acrescenta colunas, e é
+    silencioso: sem a migração, `adicionar_mensagem` falha com
+    `no such column` e a loja não abre — ou seja, a Actualização
+    apaga a conta do utilizador.
+    """
+    caminho = tmp_path / "velha.db"
+
+    # A loja antiga é o `ESQUEMA` de **uma versão atrás**: o mesmo, sem
+    # a coluna e sem a referência a ela. Derivá-la do `ESQUEMA` real em
+    # vez de a escrever à mão é o que mantém o teste honesto — uma
+    # escrita à mão envelhece e passa a testar um esquema que já não
+    # existe, que é a forma mais comum de um teste de migração deixar de
+    # proteger o que diz proteger.
+    from server.loja import ESQUEMA
+
+    esquema_velho = ESQUEMA.replace(
+        """    envelope      BLOB,
+    -- A que transferência esta linha pertence, quando é uma fatia.
+    -- `NULL` é o caso comum — texto — e é o que impede a eliminação de
+    -- uma transferência de levar o texto com ela. Ver
+    -- `eliminar_transferencia`.
+    transferencia_id TEXT REFERENCES transferencias(id) ON DELETE CASCADE""",
+        "    envelope      BLOB",
+    )
+    assert "transferencia_id" not in esquema_velho, "o esquema não é o de antes"
+
+    import sqlite3
+
+    antigo = sqlite3.connect(caminho)
+    antigo.executescript(esquema_velho)
+    antigo.execute(
+        "INSERT INTO contactos VALUES ('a-velho', ?, 'im', 'Ana', 'desligado',"
+        " NULL, 0, 0, 1.0)",
+        (IDENT,),
+    )
+    antigo.execute(
+        "INSERT INTO conversas (id, contacto_id, criada_em)"
+        " VALUES ('c-velha', 'a-velho', 1.0)"
+    )
+    antigo.execute(
+        "INSERT INTO mensagens VALUES ('m-velha', 'c-velha', 'me', 'antes',"
+        " 1.0, 'enviada', x'00')"
+    )
+    antigo.commit()
+    antigo.close()
+
+    with Loja(caminho) as migrada:
+        colunas = {
+            linha["name"]
+            for linha in migrada._cx.execute("PRAGMA table_info(mensagens)").fetchall()
+        }
+        assert "transferencia_id" in colunas
+
+        # E o texto antigo continua lá, com `mediaId` a `None` — que é
+        # o que o protege de uma eliminação de transferência.
+        linha = migrada._cx.execute(
+            "SELECT texto, transferencia_id FROM mensagens"
+        ).fetchone()
+        assert linha["texto"] == "antes"
+        assert linha["transferencia_id"] is None
+
+        # E a media funciona nessa loja: a tabela das transferências
+        # também tem de ter aparecido, ou `registar_transferencia`
+        # falharia com `no such table`.
+        t = migrada.registar_transferencia(
+            "c-velha",
+            "them",
+            id="c" * 32,
+            tipo="audio",
+            codec="opus",
+            formato="ogg",
+            nome="a.opus",
+            total_bytes=10,
+            total_pedacos=1,
+            bytes_por_pedaco=49125,
+            duracao_s=1,
+            sha256=bytes(32),
+        )
+        migrada.adicionar_mensagem(
+            "c-velha", "them", "ONX1", envelope=b"y", transferencia_id="c" * 32
+        )
+        assert migrada.contar_pedacos("c" * 32) == 1
+        assert t["nome"] == "a.opus"

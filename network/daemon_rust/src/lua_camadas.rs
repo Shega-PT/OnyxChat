@@ -399,12 +399,10 @@ mod tests {
         // função com `k` diferente; uma diferença que variasse por
         // posição significaria que uma das duas trata certos bytes à
         // maneira dela — que é a divergência que G6 eliminou.
-        const DIFERENCA: u8 = (crate::pipeline::DESLOCAMENTO_K2
-            - crate::pipeline::DESLOCAMENTO_K8) as u8;
+        const DIFERENCA: u8 =
+            (crate::pipeline::DESLOCAMENTO_K2 - crate::pipeline::DESLOCAMENTO_K8) as u8;
 
-        for (i, ((entrada_b, k2_b), k8_b)) in
-            entrada.iter().zip(&c2).zip(&c8).enumerate()
-        {
+        for (i, ((entrada_b, k2_b), k8_b)) in entrada.iter().zip(&c2).zip(&c8).enumerate() {
             assert_eq!(
                 k2_b.wrapping_sub(*k8_b),
                 DIFERENCA,
@@ -435,7 +433,10 @@ mod tests {
         let brutos: Vec<u8> = (0..=255).collect();
 
         let k2 = deslocamento(&brutos, crate::pipeline::DESLOCAMENTO_K2).expect("k2");
-        assert_eq!(deslocamento_inverso(&k2, crate::pipeline::DESLOCAMENTO_K2).expect("k2 inv"), brutos);
+        assert_eq!(
+            deslocamento_inverso(&k2, crate::pipeline::DESLOCAMENTO_K2).expect("k2 inv"),
+            brutos
+        );
 
         let k3 = vigenere(&brutos, b"VIGENERE").expect("k3");
         assert_eq!(vigenere_inverso(&k3, b"VIGENERE").expect("k3 inv"), brutos);
@@ -444,20 +445,35 @@ mod tests {
         assert_eq!(playfair_inverso(&k6, b"PLAYFAIR").expect("k6 inv"), brutos);
 
         let k8 = deslocamento(&brutos, crate::pipeline::DESLOCAMENTO_K8).expect("k8");
-        assert_eq!(deslocamento_inverso(&k8, crate::pipeline::DESLOCAMENTO_K8).expect("k8 inv"), brutos);
+        assert_eq!(
+            deslocamento_inverso(&k8, crate::pipeline::DESLOCAMENTO_K8).expect("k8 inv"),
+            brutos
+        );
     }
 
     /// Entradas vazias produzem saídas vazias em todas as camadas.
     #[test]
     fn entradas_vazias() {
-        assert_eq!(deslocamento(b"", crate::pipeline::DESLOCAMENTO_K2).expect("k2"), b"");
-        assert_eq!(deslocamento_inverso(b"", crate::pipeline::DESLOCAMENTO_K2).expect("k2i"), b"");
+        assert_eq!(
+            deslocamento(b"", crate::pipeline::DESLOCAMENTO_K2).expect("k2"),
+            b""
+        );
+        assert_eq!(
+            deslocamento_inverso(b"", crate::pipeline::DESLOCAMENTO_K2).expect("k2i"),
+            b""
+        );
         assert_eq!(vigenere(b"", b"VIGENERE").expect("k3"), b"");
         assert_eq!(vigenere_inverso(b"", b"VIGENERE").expect("k3i"), b"");
         assert_eq!(playfair(b"", b"PLAYFAIR").expect("k6"), b"");
         assert_eq!(playfair_inverso(b"", b"PLAYFAIR").expect("k6i"), b"");
-        assert_eq!(deslocamento(b"", crate::pipeline::DESLOCAMENTO_K8).expect("k8"), b"");
-        assert_eq!(deslocamento_inverso(b"", crate::pipeline::DESLOCAMENTO_K8).expect("k8i"), b"");
+        assert_eq!(
+            deslocamento(b"", crate::pipeline::DESLOCAMENTO_K8).expect("k8"),
+            b""
+        );
+        assert_eq!(
+            deslocamento_inverso(b"", crate::pipeline::DESLOCAMENTO_K8).expect("k8i"),
+            b""
+        );
     }
 
     // ----------------------------------------------------------------
@@ -515,10 +531,7 @@ mod tests {
     fn todos_os_modulos_estao_registados() {
         com_interpretador(|int| {
             for (_, nome) in FONTES {
-                assert!(
-                    int.modulo(nome).is_ok(),
-                    "módulo {nome} não está registado"
-                );
+                assert!(int.modulo(nome).is_ok(), "módulo {nome} não está registado");
             }
             // E nenhum a mais: um `HashMap` com entradas órfãs
             // significaria que `FONTES` e o mapa divergiram.

@@ -110,11 +110,7 @@ pub struct LimiteInvalido {
 
 impl fmt::Display for LimiteInvalido {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ONYXCHAT_MAX_PAYLOAD={}: {}",
-            self.pedido, self.razao
-        )
+        write!(f, "ONYXCHAT_MAX_PAYLOAD={}: {}", self.pedido, self.razao)
     }
 }
 
@@ -328,7 +324,11 @@ mod testes {
             // Só quando a derivada não está presa ao mínimo: aí o valor
             // é herdado e não tem por que ser múltiplo.
             if v > MINIMO_CORPO {
-                assert_eq!(v % GRANDE, 0, "derivar({tecto}) = {v} não é múltiplo de 64 KiB");
+                assert_eq!(
+                    v % GRANDE,
+                    0,
+                    "derivar({tecto}) = {v} não é múltiplo de 64 KiB"
+                );
             }
         }
     }
@@ -416,13 +416,23 @@ mod testes {
         // limite que ela não pediu.
         std::env::set_var("ONYXCHAT_MAX_PAYLOAD", "lixo");
         let (valor, aviso) = orcaa();
-        assert_eq!(valor, orcamento_padrao(), "um override recusado não muda o limite");
+        assert_eq!(
+            valor,
+            orcamento_padrao(),
+            "um override recusado não muda o limite"
+        );
         let aviso = aviso.expect("um override recusado tem de ser avisado");
 
         // E o aviso diz o quê, o que ficou, e porquê.
         let texto = aviso_override_recusado(&aviso, MINIMO_CORPO, ORCAMENTO_PADRAO);
-        assert!(texto.contains(&aviso.pedido), "o aviso nomeia o valor pedido");
-        assert!(texto.contains(&aviso.razao), "o aviso diz porque foi recusado");
+        assert!(
+            texto.contains(&aviso.pedido),
+            "o aviso nomeia o valor pedido"
+        );
+        assert!(
+            texto.contains(&aviso.razao),
+            "o aviso diz porque foi recusado"
+        );
         assert!(texto.contains(&MINIMO_CORPO.to_string()));
         assert!(texto.contains(&ORCAMENTO_PADRAO.to_string()));
         assert!(texto.contains("ignorado"), "o aviso diz que foi ignorado");
@@ -450,5 +460,4 @@ mod testes {
         // O mínimo do protocolo é o que o aviso afirma.
         assert!(texto.contains(&format!("fica em {MINIMO_CORPO} B")));
     }
-
 }

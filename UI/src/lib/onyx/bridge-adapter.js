@@ -258,6 +258,169 @@ export const bridgeAdapter = {
   },
 
   /**
+   * As transferências de media de uma conversa.
+   *
+   * `completas` é `'todas'` | `'completas'` | `'incompletas'`, e não um
+   * booleano: `?completas=0` e a omissão do parâmetro são coisas
+   * diferentes do ponto de vista do servidor — a primeira pede só as
+   * que estão a meio, a segunda pede todas. Traduzir um `false` para
+   * «omite» dava à interface um estado que não existe.
+   *
+   * @param {string} conversationId
+   * @param {'todas'|'completas'|'incompletas'} [completas='todas']
+   * @returns {Promise<object>}
+   */
+  async listTransfers(conversationId, completas = 'todas') {
+    const sufixo =
+      completas === 'completas'
+        ? '?completas=1'
+        : completas === 'incompletas'
+          ? '?completas=0'
+          : '';
+    const r = await pedir(
+      `/api/conversas/${encodeURIComponent(conversationId)}/transferencias${sufixo}`
+    );
+    return r.transferencias;
+  },
+
+  /**
+   * Uma transferência, com o progresso de quantas fatias já chegaram.
+   *
+   * @param {string} transferId
+   * @returns {Promise<object>}
+   */
+  async getTransfer(transferId) {
+    const r = await pedir(`/api/transferencias/${encodeURIComponent(transferId)}`);
+    return r.transferencia;
+  },
+
+  /**
+   * Apaga a transferência e as suas fatias.
+   *
+   * Não propaga para o outro participante — cada um tem as suas linhas —
+   * e não toca no texto da conversa. Se quem envia elimina, quem recebeu
+   * mantém.
+   *
+   * @param {string} transferId
+   * @returns {Promise<object>}
+   */
+  async deleteTransfer(transferId) {
+    return pedir(`/api/transferencias/${encodeURIComponent(transferId)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Se há leitor de media, e porque não há se não há.
+   *
+   * Chamar **antes** de oferecer o botão. `leitor` é um nome e não um
+   * índice: o índice é interno do IPC e mudá-lo mudaria esta
+   * interface.
+   *
+   * @returns {Promise<{disponivel: boolean, leitor?: string, motivo?: string}>}
+   */
+  async getMediaState() {
+    return pedir('/api/media/estado');
+  },
+
+  /**
+   * Reproduz uma transferência.
+   *
+   * O ficheiro nunca toca o disco: o daemon escreve num `memfd` selado
+   * e lança o leitor. O que volta é o `pid` do leitor.
+   *
+   * Rejeita com `ErroDoSidecar` de código **409** se a transferência
+   * estiver incompleta — que é informação, e não um erro a esconder.
+   *
+   * @param {string} transferId
+   * @returns {Promise<{pid: number, leitor: string}>}
+   */
+  async playTransfer(transferId) {
+    return pedir(`/api/transferencias/${encodeURIComponent(transferId)}/reproduzir`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Liga a captura e devolve a geometria aceite.
+   *
+   * @param {number} largura
+   * @param {number} altura
+   * @param {number} fps
+   * @param {number} audioKbps
+   * @param {number} videoKbps
+   * @returns {Promise<{largura: number, altura: number}>}
+   */
+  async startVideoStream(largura, altura, fps, audioKbps, videoKbps) {
+    return pedir('/api/media/streaming/iniciar', {
+      method: 'POST',
+      body: { largura, altura, fps, audioKbps, videoKbps },
+    })
+  },
+
+  /**
+   * Lê o próximo quadro de VP8.
+   *
+   * Devolve `null` quando a captura acabou — o `ffmpeg` morreu — que
+   * é o fim de uma chamada e **não** um erro. A diferença importa: um
+   * erro que se propaga para o `catch` do componente pinta o ecrã de
+   * vermelho no momento em que alguém pousa o telefone.
+   *
+   * O corpo volta em **base-64**, porque é o que o sidecar tem: o
+   * `JSON` não leva `ArrayBuffer`, e `base64` é o que o `ENCODE`
+   * faria de qualquer maneira.
+   *
+   * @returns {Promise<{sequencia: number, clockMs: number, vp8: string} | null>}
+   */
+  async readVideoFrame() {
+    try {
+      return await pedir('/api/media/streaming/quadro')
+    } catch (e) {
+      // 404 é «não há captura» e 409 é «a captura acabou». Os dois são
+      // o fim da chamada, e não uma falha.
+      if (e && (e.status === 404 || e.status === 409)) {
+        return null
+      }
+      throw e
+    }
+  },
+
+  /**
+   * Lê o próximo pacote de Opus.
+   *
+   * Bloqueia até haver pacote. Devolve `null` quando a captura acabou —
+   * que é o fim de uma chamada e **não** um erro, pelo mesmo motivo
+   * que o `readVideoFrame`.
+   *
+   * O corpo vem em base-64, e é um **objecto** e não uma string:
+   * o pacote não tem cabeçalho, mas quem o entrega precisa de saber
+   * se veio algum, e uma `string` vazia não distingue «nada» de «um
+   * pacote de tamanho zero», que é um pacote corrompido.
+   *
+   * @returns {Promise<{opus: string} | null>}
+   */
+  async readAudioFrame() {
+    try {
+      return await pedir('/api/media/streaming/audio')
+    } catch (e) {
+      // 404 é «não há captura» e 409 é «a captura acabou».
+      if (e && (e.status === 404 || e.status === 409)) {
+        return null
+      }
+      throw e
+    }
+  },
+
+  /**
+   * Termina a captura.
+   *
+   * @returns {Promise<void>}
+   */
+  async stopVideoStream() {
+    return pedir('/api/media/streaming/parar', { method: 'POST' })
+  },
+
+  /**
    * Bloqueia ou desbloqueia o contacto.
    *
    * @param {string} contactId o `contactId` da conversa, não o da

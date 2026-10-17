@@ -324,8 +324,8 @@ mod tests {
             let nonce = [0xA7u8; K9_TAM_NONCE];
 
             let por_c = k9_cifrar(&mensagem, &chave, &nonce).expect("a C cifra");
-            let por_rust = crypto_core::aead_chacha::encrypt(&mensagem, &chave, &nonce)
-                .expect("o Rust cifra");
+            let por_rust =
+                crypto_core::aead_chacha::encrypt(&mensagem, &chave, &nonce).expect("o Rust cifra");
 
             assert_eq!(
                 por_c.len(),
@@ -354,11 +354,17 @@ mod tests {
 
             let cifrado = k9_cifrar(&mensagem, &chave, &nonce).expect("cifra");
             let por_c = k9_decifrar(&cifrado, &chave, &nonce).expect("a C decifra");
-            let por_rust =
-                crypto_core::aead_chacha::decrypt(&cifrado, &chave, &nonce).expect("o Rust decifra");
+            let por_rust = crypto_core::aead_chacha::decrypt(&cifrado, &chave, &nonce)
+                .expect("o Rust decifra");
 
-            assert_eq!(por_c, mensagem, "a C devolve outra coisa com {tamanho} bytes");
-            assert_eq!(por_rust, mensagem, "o Rust devolve outra coisa com {tamanho} bytes");
+            assert_eq!(
+                por_c, mensagem,
+                "a C devolve outra coisa com {tamanho} bytes"
+            );
+            assert_eq!(
+                por_rust, mensagem,
+                "o Rust devolve outra coisa com {tamanho} bytes"
+            );
         }
     }
 
@@ -381,17 +387,25 @@ mod tests {
         let meio = adulterado.len() / 2;
         adulterado[meio] ^= 0x01;
         assert!(k9_decifrar(&adulterado, &chave, &[0x01u8; K9_TAM_NONCE]).is_err());
-        assert!(crypto_core::aead_chacha::decrypt(&adulterado, &chave, &[0x01u8; K9_TAM_NONCE]).is_err());
+        assert!(
+            crypto_core::aead_chacha::decrypt(&adulterado, &chave, &[0x01u8; K9_TAM_NONCE])
+                .is_err()
+        );
 
         // Tag (últimos 16 bytes) alterada.
         let mut tag_alterada = cifrado.clone();
         *tag_alterada.last_mut().expect("tem tag") ^= 0x80;
         assert!(k9_decifrar(&tag_alterada, &chave, &[0x01u8; K9_TAM_NONCE]).is_err());
-        assert!(crypto_core::aead_chacha::decrypt(&tag_alterada, &chave, &[0x01u8; K9_TAM_NONCE]).is_err());
+        assert!(
+            crypto_core::aead_chacha::decrypt(&tag_alterada, &chave, &[0x01u8; K9_TAM_NONCE])
+                .is_err()
+        );
 
         // Nonce diferente, ciphertext intacto: tem de falhar igual.
         assert!(k9_decifrar(&cifrado, &chave, &[0x02u8; K9_TAM_NONCE]).is_err());
-        assert!(crypto_core::aead_chacha::decrypt(&cifrado, &chave, &[0x02u8; K9_TAM_NONCE]).is_err());
+        assert!(
+            crypto_core::aead_chacha::decrypt(&cifrado, &chave, &[0x02u8; K9_TAM_NONCE]).is_err()
+        );
     }
 
     // ----------------------------------------------------------------
@@ -433,9 +447,9 @@ mod tests {
     #[test]
     fn k4_rejeitado_nao_deixa_saida_utilizavel() {
         for entrada in [
-            [1u8, 2, 3, 4, 7].as_slice(),       // padding > 5
-            [9u8, 9, 9, 9, 6].as_slice(),       // padding > comprimento
-            [1u8, 2, 3, 4, 2].as_slice(),       // padding inconsistente
+            [1u8, 2, 3, 4, 7].as_slice(), // padding > 5
+            [9u8, 9, 9, 9, 6].as_slice(), // padding > comprimento
+            [1u8, 2, 3, 4, 2].as_slice(), // padding inconsistente
         ] {
             let mut saida = [0xAAu8; 5];
             let mut tamanho: usize = 0;

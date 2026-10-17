@@ -207,6 +207,155 @@ FRIEND_REJECT (81 B):
 
 ---
 
+## Media (`docs/media.md`)
+
+K1 derivada por tipo de conteúdo e a moldura `ONX1`. Consumidores: `network/daemon_rust/tests/vetores.rs` (Rust) e `tests/test_media.py` (Python), que têm de produzir os mesmos bytes.
+
+
+O vector `102` é o que sustenta o formato: um `clock_ms` negativo é `FF FF FF 06` em dois's complement, e `FF` não é UTF-8 válido. Se o preâmbulo alguma vez voltar a ser binário, esse vector é o que falha — e a falha em produção seria o `ENCODE` a recusar a mensagem com `0x08`.
+
+### Chaves por tipo
+
+```text
+k_emissor:   1111…11
+k_recetor:   2222…22
+nonce1:      0102030405060708090a0b0c
+```
+
+#### Vector 001 — K1 de áudio, A→B
+
+```text
+tipo: 0x01
+saida: 8824b45c0d37bc7abdc207762b616a3156ed7b749e6a309850c4c1bd831b7a24
+```
+
+#### Vector 002 — K1 de vídeo, A→B
+
+```text
+tipo: 0x02
+saida: d7004b083251ba885d5cac42391f7e9f3c2ee101f731c6c04353edf2981d139f
+```
+
+#### Vector 003 — K1 de vídeo, B→A — a direcção do `info` estende-se ao tipo
+
+```text
+tipo: 0x02
+saida: 5d6da3de9879224f0c400ab71759e94e1ff646df4c3c82b01890d54a99020e46
+```
+
+### Molduras
+
+#### Vector 101 — unidade de vídeo em streaming, com `base64` de 3 bytes
+
+```text
+tipo: V
+modo: S
+ONX1V1S0046600000000007+00000000000
+YWJj
+
+(40 bytes)
+```
+
+#### Vector 102 — `clock_ms` negativo — o caso que fixa que o preâmbulo é ASCII
+
+```text
+tipo: V
+modo: S
+ONX1V1S0046600000000007-00000000250
+cGF5bG9hZA==
+
+(48 bytes)
+```
+
+#### Vector 103 — `HOLD`: moldura sem corpo, o que um ecrã estático produz
+
+```text
+tipo: V
+modo: S
+ONX1V1S0046600000000007+00000000000
+
+
+(36 bytes)
+```
+
+#### Vector 104 — keyframe, com `clock_ms` no limite mínimo de `i32`
+
+```text
+tipo: V
+modo: S
+ONX1V1S2000000000000000-02147483648
+aw==
+
+(40 bytes)
+```
+
+#### Vector 105 — fatia de áudio em não-streaming
+
+```text
+tipo: A
+modo: F
+ONX1A1F0000014294967295+00000000000
+b3B1cw==
+
+(44 bytes)
+```
+
+### Manifestos de transferência
+
+#### Vector 201 — manifesto de vídeo, uma fatia
+
+```text
+tipo: V   codec: 0x0003   formato: 0x0021
+total_bytes: 49125   total_pedacos: 1   bytes_por_pedaco: 49125
+sha256: 8abc5c55b95add185ce8a046a3514051e0163375805dbdb98ad762038c129939
+id:      8abc5c55b95add185ce8a046a3514051
+ONX1V1F1000010000000000+00000000000
+VgAAv+UAAAABv+UAAwAhAAAADIq8XFW5Wt0YXOigRqNRQFHgFjN1gF29uYrXYgOMEpk5WlhobGJYQnNieTV0YTNZPQ==
+
+(128 bytes)
+```
+
+#### Vector 202 — manifesto de áudio, Opus em Ogg
+
+```text
+tipo: A   codec: 0x0001   formato: 0x0001
+total_bytes: 4000   total_pedacos: 1   bytes_por_pedaco: 49125
+sha256: b6fce7a737485f459f06ad20e4fc43bde206f739b1ccafd4a82b12b599401d54
+id:      b6fce7a737485f459f06ad20e4fc43bd
+ONX1A1F1000010000000000+00000000000
+QQAAD6AAAAABv+UAAQABAAAAKrb856c3SF9FnwatIOT8Q73iBvc5scyv1KgrErWZQB1UYm05MFlTMTJiM291YjNCMWN3PT0=
+
+(132 bytes)
+```
+
+#### Vector 203 — manifesto de ficheiro vazio — **zero** fatias
+
+```text
+tipo: V   codec: 0x0003   formato: 0x0021
+total_bytes: 0   total_pedacos: 0   bytes_por_pedaco: 49125
+sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+id:      e3b0c44298fc1c149afbf4c8996fb924
+ONX1V1F1000010000000000+00000000000
+VgAAAAAAAAAAv+UAAwAhAAAAAOOwxEKY/BwUmvv0yJlvuSQnrkHkZJuTTKSVmRt4UrhVZG1GNmFXOHViV3Qy
+
+(120 bytes)
+```
+
+#### Vector 204 — manifesto com `tipo` vídeo e `codec` Opus — os dois campos, independentes
+
+```text
+tipo: V   codec: 0x0001   formato: 0x0021
+total_bytes: 49126   total_pedacos: 2   bytes_por_pedaco: 49125
+sha256: 8f682636d3fbf8eaa6cff705142e90071281ac3c84869e87afcd8a7bfe18a86f
+id:      8f682636d3fbf8eaa6cff705142e9007
+ONX1V1F1000010000000000+00000000000
+VgAAv+YAAAACv+UAAQAhAAAAWo9oJjbT+/jqps/3BRQukAcSgaw8hIaeh6/Ninv+GKhvZG1sa1pXOHRZMjl0TFdGMVpHbHZMVzl3ZFhNdWJXdDI=
+
+(148 bytes)
+```
+
+---
+
 ## Identidade (`messenger/identidade.py`)
 
 Gerados em Python e lidos aqui. Não são regerados: a fórmula é de `messenger/identidade.py`, e um gerador em Rust seria uma segunda implementação — que é o que os vectores existem para evitar.

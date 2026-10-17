@@ -4,7 +4,8 @@
 // Não é open source pela definição da OSI. Uso comercial
 // exige autorização do titular — ver COMMERCIAL-LICENSE.md.
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { dataAdapter } from '@/lib/onyx/data-adapter';
 import { usarToast as useToast } from '@/lib/shadcn';
 import { Bell, BellOff, ChevronLeft, Lock, MoreHorizontal, ShieldCheck, Trash2, User, Ban } from 'lucide-react';
 import {
@@ -35,6 +36,61 @@ export default function ConversationView({
 }) {
   const { openModal } = useOnyxUI();
   const { toast } = useToast();
+  const [transferencias, setTransferencias] = useState([]);
+  const [estadoMedia, setEstadoMedia] = useState(null);
+
+  // As transferências são buscadas à parte das mensagens porque são
+  // uma **lista**, e a conversa traz as linhas. As duas coisas estão
+  // ligadas pelo `mediaId`, e é essa ligação que o `MessageList` usa
+  // para desenhar 205 linhas como uma.
+  //
+  // E é uma busca por conversa, não por linha: `GET …/transferencias`
+  // devolve a lista inteira, e pedir o detalhe por linha seriam 205
+  // pedidos para a mesma informação.
+  useEffect(() => {
+    if (!conversation?.id) {
+      setTransferencias([]);
+      return undefined;
+    }
+    let vivo = true;
+    dataAdapter
+      .listTransfers(conversation.id)
+      .then((lista) => {
+        if (vivo) setTransferencias(lista);
+      })
+      .catch(() => {
+        // Sem transferências, a conversa é uma conversa de texto. A
+        // loja pode estar a uma versão anterior, ou o sidecar pode não
+        // conhecer a rota — e nenhuma das duas é motivo para esconder
+        // as mensagens.
+        if (vivo) setTransferencias([]);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [conversation?.id]);
+
+  // O estado de media é uma **pergunta sobre a máquina**, não sobre o
+  // ficheiro: há `mpv` instalado, o daemon tem a loja apontada. Por isso
+  // vive aqui e não em cada transferência — três transferências na mesma
+  // conversa eram três idas ao daemon para a mesma resposta, e cada uma
+  // delas é uma ida ao IPC.
+  useEffect(() => {
+    let vivo = true;
+    dataAdapter
+      .getMediaState()
+      .then((e) => {
+        if (vivo) setEstadoMedia(e);
+      })
+      .catch(() => {
+        // Um sidecar sem media não é um sidecar partido: o botão fica
+        // indisponível e o resto da conversa fica como estava.
+        if (vivo) setEstadoMedia({ disponivel: false, motivo: 'indisponível' });
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   if (!conversation) {
     return (
@@ -173,7 +229,12 @@ export default function ConversationView({
         </div>
       </header>
 
-      <MessageList messages={conversation.messages} isGroup={isGroup} />
+      <MessageList
+        messages={conversation.messages}
+        transferencias={transferencias}
+        estadoMedia={estadoMedia}
+        isGroup={isGroup}
+      />
 
       <div className="mx-auto flex w-full max-w-[860px] items-center gap-2 px-4 pb-1 pt-2">
         <OnyxButton variant="ghost" size="sm" onClick={openSessionInfo} className="text-onyx-text3">

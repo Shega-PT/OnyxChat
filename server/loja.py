@@ -139,7 +139,12 @@ CREATE TABLE IF NOT EXISTS mensagens (
     -- nascia marcada como enviada, e a contagem de não lidas ficava a
     -- zero sem que ninguém percebe-se porquê.
     estado        TEXT NOT NULL,
-    envelope      BLOB
+    envelope      BLOB,
+    -- A que transferência esta linha pertence, quando é uma fatia.
+    -- `NULL` é o caso comum — texto — e é o que impede a eliminação de
+    -- uma transferência de levar o texto com ela. Ver
+    -- `eliminar_transferencia`.
+    transferencia_id TEXT REFERENCES transferencias(id) ON DELETE CASCADE
 );
 
 -- Sem este índice, abrir uma conversa é `ORDER BY em` sobre a tabela
@@ -156,6 +161,51 @@ CREATE TABLE IF NOT EXISTS pedidos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pedidos_estado ON pedidos(estado, criado_em);
+
+-- Transferências de media (`docs/media.md` §4). As **fatias** continuam a
+-- ser linhas de `mensagens`: o `envelope` já existe lá e é ciphertext
+-- (`store envelopes, not plaintext`), e uma transferência de 10 MB são
+-- 204 linhas de mensagem que o utilizador **não** quer ver 204 vezes.
+--
+-- Esta tabela guarda o **manifesto** — os números, o resumo e o nome —
+-- e é o que permite à interface mostrar «[vídeo] 42/204» e ao
+-- `MEDIA_REPRODUZIR` saber o que montar.
+--
+-- `completo` é 0 enquanto falta alguma fatia. E uma transferência
+-- incompleta **nunca** é reproduzida (`docs/media.md` §4.6): o leitor
+-- receberia um ficheiro truncado e não saberia.
+--
+-- A eliminação de um lado **não** propaga: cada participante tem as
+-- suas linhas, e não há — nem deve haver — canal de propagação. Ver
+-- `docs/media.md` §4.5.
+--
+-- A tabela é declarada **depois** de `mensagens` mas é referenciada por
+-- ela, e a ordem no `ESQUEMA` não importa: o sqlite resolve as chaves
+-- estrangeiras no momento da escrita, não no da criação.
+CREATE TABLE IF NOT EXISTS transferencias (
+    id            TEXT PRIMARY KEY,        -- os 16 hex do resumo
+    conversa_id   TEXT NOT NULL REFERENCES conversas(id) ON DELETE CASCADE,
+    de            TEXT NOT NULL,           -- 'me' | 'them'
+    tipo          TEXT NOT NULL,           -- 'audio' | 'video'
+    codec         TEXT NOT NULL,
+    formato       TEXT NOT NULL,
+    nome          TEXT NOT NULL,
+    total_bytes   INTEGER NOT NULL,
+    total_pedacos INTEGER NOT NULL,
+    bytes_por_pedaco INTEGER NOT NULL,
+    duracao_s     INTEGER,
+    sha256        BLOB NOT NULL,
+    recebido_em   REAL NOT NULL,
+    completo      INTEGER NOT NULL DEFAULT 0
+);
+
+-- Sem este índice, «as transferências desta conversa» é uma varredura
+-- da tabela inteira. Ver a nota sobre `ESQUEMA` no topo deste ficheiro:
+-- a conversa é a unidade de leitura, e o índice é o que a faz custar o
+-- mesmo em todas as conversas.
+CREATE INDEX IF NOT EXISTS idx_transferencias_conversa
+    ON transferencias(conversa_id, recebido_em);
+
 
 CREATE TABLE IF NOT EXISTS definicoes (
     chave TEXT PRIMARY KEY,
@@ -196,7 +246,46 @@ class Loja:
         # conversa deixava as mensagens órfãs sem que nada dissesse nada.
         self._cx.execute("PRAGMA foreign_keys = ON")
         self._cx.executescript(ESQUEMA)
+        self._migrar()
         self._gravar_modo()
+
+    def _migrar(self) -> None:
+        """Acrescenta às lojas já existentes o que o `ESQUEMA` não pode.
+
+        `CREATE TABLE IF NOT EXISTS` não acrescenta colunas a uma tabela
+        que já existe — é silencioso e deixa a base a funcionar com um
+        esquema incompleto. A coluna `transferencia_id` de `mensagens` é
+        o primeiro caso disto, e é um caso que **não** se pode ignorar:
+        sem a coluna, `adicionar_mensagem` falha com `no such column` e
+        a loja não abre.
+
+        Adicionar uma coluna é barato em sqlite (a tabela não é
+        reescrita), e `NOT NULL` sem valor por omissão é proibido de
+        propósito: a coluna nova é `NULL` em todas as linhas antigas, e
+        é isso que as torna «não pertencem a nenhuma transferência».
+        """
+        colunas = {
+            linha["name"]
+            for linha in self._cx.execute("PRAGMA table_info(mensagens)").fetchall()
+        }
+        if "transferencia_id" not in colunas:
+            self._cx.execute(
+                "ALTER TABLE mensagens ADD COLUMN transferencia_id TEXT"
+                " REFERENCES transferencias(id) ON DELETE CASCADE"
+            )
+            self._cx.commit()
+
+        # O índice vive aqui e não no `ESQUEMA` **por causa da ordem**:
+        # numa loja antiga a coluna ainda não existe quando o
+        # `executescript` corre, e um `CREATE INDEX` sobre uma coluna
+        # inexistente falha com `no such column` — ou seja, a loja
+        # antiga deixava de abrir. `IF NOT EXISTS` torna isto idempotente
+        # para as duas lojas, a nova e a migrada.
+        self._cx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mensagens_transferencia"
+            " ON mensagens(transferencia_id) WHERE transferencia_id IS NOT NULL"
+        )
+        self._cx.commit()
 
     def _gravar_modo(self) -> None:
         """Deixa o ficheiro só legível pelo dono."""
@@ -398,6 +487,7 @@ class Loja:
         *,
         estado: str | None = None,
         envelope: bytes | None = None,
+        transferencia_id: str | None = None,
     ) -> dict[str, Any]:
         """Acrescenta uma mensagem e devolve-a já montada.
 
@@ -406,8 +496,14 @@ class Loja:
         sem número quando chega uma mensagem é uma conversa em que se
         perde a informação de que havia algo novo.
 
-        :raises LojaInvalida: se a conversa não existir, ou se ``de`` não
-            for ``me`` nem ``them``.
+        :param transferencia_id: a transferência a que a linha pertence,
+            quando é uma fatia. É ``None`` para o texto — e é o ``None``
+            que impede ``eliminar_transferencia`` de levar o texto
+            junto. Tem de existir uma transferência com esse ``id``:
+            uma linha que aponte para uma transferência inexistente
+            ficaria órfã, e uma órfã não se conta nem se apaga.
+        :raises LojaInvalida: se a conversa não existir, se ``de`` não for
+            ``me`` nem ``them``, ou se a transferência não existir.
         """
         if de not in ("me", "them"):
             raise LojaInvalida(f"remetente inválido: {de!r} (tem de ser 'me' ou 'them')")
@@ -425,12 +521,25 @@ class Loja:
         if estado is None:
             estado = "enviada" if de == "me" else "recebida"
 
+        if transferencia_id is not None and self._cx.execute(
+            "SELECT 1 FROM transferencias WHERE id = ?", (transferencia_id,)
+        ).fetchone() is None:
+            raise LojaInvalida(f"transferência inexistente: {transferencia_id}")
         novo_id = self._novo_id("m")
         agora = time.time()
         self._cx.execute(
-            "INSERT INTO mensagens (id, conversa_id, de, texto, em, estado, envelope)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (novo_id, conversation_id, de, texto, agora, estado, envelope),
+            "INSERT INTO mensagens (id, conversa_id, de, texto, em, estado, envelope,"
+            " transferencia_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                novo_id,
+                conversation_id,
+                de,
+                texto,
+                agora,
+                estado,
+                envelope,
+                transferencia_id,
+            ),
         )
         if de == "them":
             self._cx.execute("UPDATE conversas SET lida = 0 WHERE id = ?", (conversation_id,))
@@ -440,6 +549,195 @@ class Loja:
             "SELECT * FROM mensagens WHERE id = ?", (novo_id,)
         ).fetchone()
         return _mensagem_de(linha)
+
+    def registar_transferencia(
+        self,
+        conversation_id: str,
+        de: str,
+        *,
+        id: str,
+        tipo: str,
+        codec: str,
+        formato: str,
+        nome: str,
+        total_bytes: int,
+        total_pedacos: int,
+        bytes_por_pedaco: int,
+        duracao_s: int | None,
+        sha256: bytes,
+        completo: bool = False,
+    ) -> dict[str, Any]:
+        """Regista o manifesto de uma transferência e devolve-o montado.
+
+        **Idempotente pelo `id`**, e essa é a propriedade que faz a
+        retoma funcionar: um receptor que pede «faltam 7 42 118» e volta
+        a receber o mesmo manifesto actualiza a linha em vez de criar
+        uma segunda, e as duas_transferências não se duplicam na lista
+        de media da conversa.
+
+        Um `id` é o `sha256` truncado (`docs/media.md` §4.3), e por isso
+        dois emissores do mesmo ficheiro usam o mesmo `id`. Isso é o
+        que permite retomar uma transferência que começou com outro
+        emissor — que é o caso normal quando alguém reenvia porque a
+        outra pessoa não recebeu.
+
+        :param transferencia_id: a transferência a que a linha pertence,
+            quando é uma fatia. É ``None`` para o texto — e é o ``None``
+            que impede ``eliminar_transferencia`` de levar o texto
+            junto. Tem de existir uma transferência com esse ``id``:
+            uma linha que aponte para uma transferência inexistente
+            ficaria órfã, e uma órfã não se conta nem se apaga.
+        :raises LojaInvalida: se a conversa não existir, se ``de`` não for
+            ``me`` nem ``them``, ou se a transferência não existir.
+        """
+        if de not in ("me", "them"):
+            raise LojaInvalida(f"remetente inválido: {de!r} (tem de ser 'me' ou 'them')")
+        if len(sha256) != 32:
+            raise LojaInvalida(f"o resumo tem {len(sha256)} bytes, tem de ter 32")
+        if total_pedacos < 0 or total_bytes < 0:
+            raise LojaInvalida("totais negativos")
+
+        if self._cx.execute(
+            "SELECT 1 FROM conversas WHERE id = ?", (conversation_id,)
+        ).fetchone() is None:
+            raise LojaInvalida(f"conversa inexistente: {conversation_id}")
+
+        self._cx.execute(
+            "INSERT INTO transferencias (id, conversa_id, de, tipo, codec, formato,"
+            " nome, total_bytes, total_pedacos, bytes_por_pedaco, duracao_s,"
+            " sha256, recebido_em, completo)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET"
+            "   total_bytes = excluded.total_bytes,"
+            "   total_pedacos = excluded.total_pedacos,"
+            "   bytes_por_pedaco = excluded.bytes_por_pedaco,"
+            "   duracao_s = excluded.duracao_s,"
+            "   nome = excluded.nome"
+            # `completo` **não** está no `UPDATE`: uma transferência que
+            # já estava completa não volta a ficar incompleta por causa
+            # de um manifesto reenviado. Reverter seria devolver o
+            # ficheiro a um estado que já não existe na máquina.
+            ,
+            (
+                id,
+                conversation_id,
+                de,
+                tipo,
+                codec,
+                formato,
+                nome,
+                total_bytes,
+                total_pedacos,
+                bytes_por_pedaco,
+                duracao_s,
+                sqlite3.Binary(sha256),
+                time.time(),
+                1 if completo else 0,
+            ),
+        )
+        self._cx.commit()
+        return self.transferencia(id)
+
+    def transferencia(self, transferencia_id: str) -> dict[str, Any]:
+        """Um manifesto pelo seu `id`.
+
+        :raises LojaInvalida: se não existir.
+        """
+        linha = self._cx.execute(
+            "SELECT * FROM transferencias WHERE id = ?", (transferencia_id,)
+        ).fetchone()
+        if linha is None:
+            raise LojaInvalida(f"transferência inexistente: {transferencia_id}")
+        return _transferencia_de(linha)
+
+    def transferencias(
+        self, conversation_id: str, *, completas: bool | None = None
+    ) -> list[dict[str, Any]]:
+        """As transferências de uma conversa, mais recentes primeiro.
+
+        ``completas`` filtra: ``True`` só as prontas, ``False`` só as
+        incompletas, ``None`` todas. O filtro existe porque a
+        pergunta da interface é quase sempre «o que posso tocar?» — e
+        responder com uma transferência a meio seria oferecer um
+        ficheiro que não existe.
+        """
+        sql = "SELECT * FROM transferencias WHERE conversa_id = ?"
+        args: list[Any] = [conversation_id]
+        if completas is not None:
+            sql += " AND completo = ?"
+            args.append(1 if completas else 0)
+        sql += " ORDER BY recebido_em DESC"
+
+        return [
+            _transferencia_de(linha) for linha in self._cx.execute(sql, args).fetchall()
+        ]
+
+    def contar_pedacos(self, transferencia_id: str) -> int:
+        """Quantas fatias já chegaram.
+
+        Conta as linhas ligadas a esta transferência pelo
+        `transferencia_id` — e **nem sequer olha para o `envelope`**. A
+        primeira implementação filtrava por
+        `conversa_id AND envelope IS NOT NULL`, e dava um número que não
+        correspondia a nenhuma transferência; a segunda por
+        `transferencia_id AND envelope IS NOT NULL`, e dava zero sempre
+        que a linha tivesse sido gravada sem envelope.
+
+        A ligação é o `transferencia_id` e nada mais. Um `envelope` é um
+        dado **opcional** de uma linha — o texto não o tem, e o texto é
+        a maioria das linhas — e contar por um campo opcional é contar
+        por uma coisa que ninguém prometeu.
+
+        A contagem é **aproximada por natureza** — é um `COUNT` de linhas
+        presentes, não de `seq` distintos. A verdade é o `Montador` do
+        receptor, que sabe os `seq` que faltam (`docs/media.md` §4.3), e
+        é ele que decide o que reenviar. O `min` abaixo é o que impede
+        um reenvio de contar duas vezes a mesma fatia como duas.
+        """
+        t = self.transferencia(transferencia_id)
+        total = self._cx.execute(
+            "SELECT COUNT(*) FROM mensagens WHERE transferencia_id = ?",
+            (transferencia_id,),
+        ).fetchone()[0]
+        return min(int(total), t["totalPedacos"])
+
+    def marcar_transferencia_completa(self, transferencia_id: str) -> None:
+        """Marca a transferência como pronta a reproduzir.
+
+        Chamar só depois de o resumo bater (`docs/media.md` §4.2). Sem
+        essa verificação, ``completo`` é uma promessa e não um facto —
+        e a interface ofereceria um ficheiro truncado.
+        """
+        self._cx.execute(
+            "UPDATE transferencias SET completo = 1 WHERE id = ?", (transferencia_id,)
+        )
+        self._cx.commit()
+
+    def eliminar_transferencia(self, transferencia_id: str) -> None:
+        """Apaga a transferência e **as suas mensagens**.
+
+        As mensagens vão com ela porque são as fatias, e deixar as
+        fatias depois de apagar o manifesto seria deixar 204 linhas de
+        envelope que não pertencem a nada.
+
+        E não propaga para o outro participante: cada um tem as suas
+        linhas, e um `DELETE` que chegasse ao outro lado seria uma
+        capacidade de destruição remota (`docs/media.md` §4.5).
+
+        As fatias saem pelo `transferencia_id`, **não** por um filtro de
+        conversa. A primeira versão filtrava por
+        `conversa_id AND envelope IS NOT NULL`, e apagava tudo o que
+        tivesse `envelope` na conversa: o texto encriptado e as outras
+        transferências. Um «apagar um vídeo de 10 MB» que levasse a
+        conversa inteira é o género de bug que só aparece quando já
+        custou dados.
+        """
+        self.transferencia(transferencia_id)
+        self._cx.execute(
+            "DELETE FROM mensagens WHERE transferencia_id = ?", (transferencia_id,)
+        )
+        self._cx.execute("DELETE FROM transferencias WHERE id = ?", (transferencia_id,))
+        self._cx.commit()
 
     def marcar_lida(self, conversation_id: str) -> None:
         """Marca a conversa e as suas mensagens recebidas como lidas.
@@ -770,6 +1068,38 @@ def _conversa_de(linha: sqlite3.Row) -> dict[str, Any]:
     return registo
 
 
+def _transferencia_de(linha: sqlite3.Row) -> dict[str, Any]:
+    """Converte uma linha de ``transferencias`` no dicionário do JSON.
+
+    Os nomes saem em ``camelCase`` porque é o que a interface lê — a
+    conversão está em ``rotas.camel`` e esta função segue a mesma
+    convenção que as outras três, para que um campo novo não precise de
+    uma decisão tomada outra vez.
+
+    O ``sha256`` vai em hexadecimal e não em base-64: é o valor que
+    aparece na resposta de retoma e no registo, e hexadecimal é o que
+    um humano copia sem partir. O resumo são 32 bytes e a base-64 eram
+    44 caracteres com dois especiais no fim.
+    """
+    sha = bytes(linha["sha256"])
+    return {
+        "id": linha["id"],
+        "conversaId": linha["conversa_id"],
+        "de": linha["de"],
+        "tipo": linha["tipo"],
+        "codec": linha["codec"],
+        "formato": linha["formato"],
+        "nome": linha["nome"],
+        "totalBytes": int(linha["total_bytes"]),
+        "totalPedacos": int(linha["total_pedacos"]),
+        "bytesPorPedaco": int(linha["bytes_por_pedaco"]),
+        "duracaoS": linha["duracao_s"],
+        "sha256": sha.hex(),
+        "recebidoEm": _iso(linha["recebido_em"]),
+        "completo": bool(linha["completo"]),
+    }
+
+
 def _mensagem_de(linha: sqlite3.Row) -> dict[str, Any]:
     """Uma linha de ``mensagens`` com os nomes que a interface usa."""
     return {
@@ -778,4 +1108,9 @@ def _mensagem_de(linha: sqlite3.Row) -> dict[str, Any]:
         "text": linha["texto"],
         "at": _iso(linha["em"]),
         "state": linha["estado"],
+        # `null` no texto, o `id` da transferência numa fatia. É o que
+        # permite à interface mostrar uma transferência **uma vez** em
+        # vez de 204 vezes, e o que faz a eliminação saber o que é
+        # seu. Ver `docs/media.md` §4.4.
+        "mediaId": linha["transferencia_id"],
     }

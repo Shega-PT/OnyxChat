@@ -55,7 +55,7 @@ confere-o em cada push.
 └─ THIRD-PARTY.md           # Dependências de terceiros e respectivas licenças
 
 
-# docs/ — 21 documentos
+# docs/ — 22 documentos
 ---------------------------------------------------------------------
 ├─ index.md                 # Índice; é o porta de entrada
 ├─ SYS_GUIDE.md             # Manual do sistema, para quem usa
@@ -64,6 +64,7 @@ confere-o em cada push.
 ├─ architecture.md          # Onde vive cada responsabilidade
 ├─ pipeline.md              # As nove camadas K1→K9, com parâmetros
 ├─ message_format.md        # Envelope binário: versão, nonces, payload
+├─ media.md                 # Áudio e vídeo como texto, dentro do envelope
 ├─ ipc.md                   # Contrato IPC Python ↔ Rust (framing, códigos)
 ├─ sidecar.md               # Contrato HTTP local: 26 rotas, origens, erros
 ├─ handshake.md             # Handshake de amizade e ciclo de vida das chaves
@@ -158,6 +159,26 @@ network/daemon_rust/
 │   ├─ ffi_c.rs             # Ligação FFI com K4 e K9
 │   ├─ erros.rs             # `ErroPipeline` e os códigos de erro IPC
 │   ├─ docs_vec.rs          # Gera `docs/test_vectors.md` a partir dos JSON
+│   ├─ media/               # `onyxmedia`: áudio e vídeo como texto, dentro
+│   │   ├─ mod.rs           # do envelope normal — `docs/media.md`
+│   │   ├─ teclas.rs        # A K1 por tipo, e a sondagem que descobre o tipo
+│   │   ├─ moldura.rs       # O preâmbulo `ONX1`, todo ASCII
+│   │   ├─ base64.rs        # RFC 4648 §4, binário ↔ texto
+│   │   ├─ ffmpeg_embutido.rs  # O executável num `memfd`, sem disco
+│   │   ├─ ffmpeg.rs        # Lançar: VP8 no 1, Opus no 3; e ler o IVF
+│   │   ├─ ivf.rs           # O contentor de VP8, quadro a quadro
+│   │   ├─ ficheiro.rs      # Não-streaming: fracção, manifesto, montagem
+│   │   ├─ loja.rs          # A loja do sidecar, só de leitura
+│   │   ├─ ram.rs           # O ficheiro montado, num `memfd` selado
+│   │   ├─ reproduzir.rs    # Juntar os dois e lançar o leitor do sistema
+│   │   ├─ relogio.rs       # Tempo de media, nunca tempo de parede
+│   │   ├─ telhas.rs        # Telhas 16×16 — o caminho que o VP8 substituiu
+│   │   ├─ anel.rs          # 2 s de media, com políticas opostas
+│   │   ├─ coalescer.rs     # Coalescing adaptativo e o `HOLD`
+│   │   ├─ lote.rs          # A keyframe fraccionada em N unidades
+│   │   ├─ desempate.rs     # O áudio não passa o vídeo à frente
+│   │   ├─ ressincronizacao.rs  # `base_seq`, keyframes e recuperação
+│   │   └─ erros.rs         # Um só sítio; nenhum erro leva conteúdo
 │   ├─ handshake_testes.rs  # Testes dentro do crate, para usar o `pub(crate)`
 │   ├─ ipc_testes.rs
 │   └─ p2p_testes.rs
@@ -166,7 +187,9 @@ network/daemon_rust/
 │   ├─ guarda_tor.rs        # O daemon não arranca Tor sem o pedir
 │   ├─ propriedades.rs      # Invariantes com `proptest`
 │   └─ vetores.rs           # Os mesmos vectores que `docs/test_vectors.md`
-└─ examples/gerar_vetores.rs
+└─ examples/
+    ├─ gerar_vetores.rs
+    └─ medir_media.rs
 
 
 # 3. Mensageiro (Python)
@@ -181,6 +204,8 @@ messenger/
 ├─ conta.py                 # Registo, entrada, eliminação e cópias
 ├─ amizade.py               # Derivação da chave de mensagem de uma amizade
 ├─ identidade.py            # ID Onyx e impressão digital
+├─ media.py                 # `onyxmedia` do lado do Python: moldura `ONX1`,
+│                           # base-64, chaves por tipo e manifestos
 └─ descoberta.py            # Resolução do destino P2P do lado do cliente
 
 
@@ -212,7 +237,8 @@ UI/                           # 91 ficheiros JavaScript versionados
 │   ├─ components/onyx/     # Componentes próprios: shell, lista, modais
 │   ├─ components/ui/       # Componentes base (shadcn/ui)
 │   ├─ hooks/               # `use-mobile`, `use-size`
-│   └─ lib/onyx/            # Adaptadores, contexto e formatação
+│   └─ lib/onyx/            # Adaptadores, contexto, formatação, vídeo e áudio
+│                          # `VideoChamada.js`/`AudioChamada.js` = WebCodecs
 ├─ tools/
 │   ├─ onyxchat             # `instalar`: Node local com SHA-256 fixado
 │   ├─ versoes.txt
@@ -241,6 +267,7 @@ tests/                      # pytest: unidade, integração e E2E
 ├─ test_relay.py
 ├─ test_propriedades.py     # `hypothesis`
 ├─ test_vectors.py          # Confere que Rust e Python dão o mesmo
+├─ test_media.py            # `onyxmedia`: moldura, base-64 e chaves por tipo
 ├─ test_verificar_portugues.py    # Americanismos: apanha, e não engole
 ├─ test_verificar_comentarios.py # A extracção de prosa alcança o JS
 ├─ test_verificar_estrutura.py   # A `Estrutura.txt` bate com a árvore
@@ -251,6 +278,15 @@ tests/                      # pytest: unidade, integração e E2E
 ├─ test_e2e_rede.py         # E2E: dois daemons ligados por relé
 └─ vectors/                 # Fontes dos vectores; `docs/test_vectors.md` é gerado
     ├─ camadas.json  handshake.json  pipeline.json  identidade.json
+    ├─ media.json                # K1 por tipo, molduras `ONX1` e manifestos
+
+
+tools/
+└─ ffmpeg/
+    ├─ versoes.txt          # O `ffmpeg` embebido, por plataforma e por conteúdo.
+    │                       # **Vazio de propósito**: nenhum pacote passa a
+    │                       # barreira de licença do `deny.toml`
+    └─ fetch.sh             # Descarrega e confere o SHA-256; recusa copyleft
 
 
 # 8. Fuzzing

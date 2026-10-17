@@ -106,6 +106,41 @@ pub const LIMITE_FRAMES: u32 = 128;
 /// Duração da janela do rate-limit.
 pub const JANELA_RATE: Duration = Duration::from_secs(10);
 
+/// ## A excepção do streaming, e o que ela é
+///
+/// O teto de [`LIMITE_FRAMES`] é de **texto**: 128 mensagens de
+/// conversa por 10 s. Uma chamada de vídeo mede-se noutro sítio.
+///
+/// ```text
+/// 480p a 30 fps, VP8 a 300 kbit/s + Opus a 32 kbit/s
+///   = 344 kbit/s
+///   ÷ 49 125 bytes por envelope
+///   = 0,9 mensagens por segundo
+/// ```
+///
+/// Nove décimos de mensagem por segundo. O texto, sozinho, pode usar os
+/// 12,8 e não dá para usar a excepção toda.
+///
+/// ## Porque é uma janela **separada** e não um teto maior
+///
+/// Porque `FRAME_CHAT` é o mesmo tipo para texto e para media, e a
+/// distinção só aparece no plaintext depois de decifrado — e o
+/// `p2p.rs` não decifra nada, por desenho. Subir `LIMITE_FRAMES`
+/// deixaria um par enviar 512 mensagens de texto por janela, e quem
+/// flooda texto passava a ter folga que nunca pediu.
+///
+/// Duas janelas resolvem: o texto fica com 128 e a media com
+/// [`LIMITE_FRAMES_MEDIA`], e nenhuma das duas pode gastar a outra.
+/// Uma chamada usa 0,9 msg/s de media e 12,8 de texto, e as duas
+/// cabem.
+///
+/// ## E o que isto **não** abre
+///
+/// Nada. O `FRAME_CHAT` continua a ser um `FRAME_CHAT`, o envelope
+/// continua o mesmo, e a cifra continua a mesma. A excepção é um
+/// contador — não é um caminho novo para a rede, e não é menos seguro.
+pub const LIMITE_FRAMES_MEDIA: u32 = 64;
+
 /// Fatia máxima de espera pelo **primeiro byte** de um frame numa
 /// receção faseada (`receber_por_lotes`).
 ///
@@ -192,11 +227,7 @@ impl fmt::Display for ErroP2P {
             ErroP2P::TempoEsgotado => write!(f, "espera de frame expirou"),
             ErroP2P::Desalinhado => write!(f, "frame truncado no stream"),
             ErroP2P::PayloadGrande { obtido } => {
-                write!(
-                    f,
-                    "frame acima de {} bytes: {obtido}",
-                    limite_corpo()
-                )
+                write!(f, "frame acima de {} bytes: {obtido}", limite_corpo())
             }
             ErroP2P::ComprimentoZero => write!(f, "frame com comprimento zero"),
             ErroP2P::RateLimit => write!(f, "rate-limit de frames excedido"),
@@ -280,8 +311,7 @@ pub fn enquadrar(tipo: u8, corpo: &[u8]) -> Result<Vec<u8>, ErroP2P> {
     }
     // Invariante: o guarda acima limita o corpo ao tecto em vigor
     // (16 MiB « u32::MAX), logo a conversão nunca falha.
-    let comprimento =
-        u32::try_from(1 + corpo.len()).expect("corpo limitado por `limite_corpo`");
+    let comprimento = u32::try_from(1 + corpo.len()).expect("corpo limitado por `limite_corpo`");
     let mut pacote = Vec::with_capacity(4 + 1 + corpo.len());
     pacote.extend_from_slice(&comprimento.to_le_bytes());
     pacote.push(tipo);
@@ -427,12 +457,42 @@ pub fn hex_de_pub(publica: &[u8; 32]) -> String {
 }
 
 /// Contador de frames por janela — partilhado por direta e relay.
+///
+/// ## Porque há duas janelas e não uma com dois tetos
+///
+/// Um contador com dois tetos é um contador em que o maior tecto
+/// vence sempre, porque a soma é um número: quem envia 512 frames de
+/// texto passa, mesmo que o teto de texto seja 128. Duas janelas
+/// obrigam a declarar **de que** são antes de gastar, e é a única forma
+/// de o limite de texto continuar a valer para quem só envia texto.
 #[derive(Debug)]
 struct JanelaRate {
-    /// Frames enviados na janela corrente.
+    /// Frames de **texto** enviados na janela corrente.
+    ///
+    /// Não conta os de media: esta janela é do texto e só do texto.
     contador: u32,
-    /// Início da janela corrente.
+    /// Início da janela de texto.
     inicio: Instant,
+    /// Frames de **media** enviados na janela corrente.
+    ///
+    /// Janela à parte, pelo motivo de cima: uma chamada e uma conversa
+    /// não disputam o mesmo orçamento.
+    contador_media: u32,
+    /// Início da janela de media.
+    ///
+    /// Há dois instantes e não um porque uma chamada pode começar a
+    /// meio de uma janela de texto já cheia — e partilhar o instante
+    /// faria a media herdar a janela esgotada da conversa.
+    inicio_media: Instant,
+}
+
+/// De que é um envio, para escolher a janela.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origem {
+    /// Texto: a conversa normal.
+    Texto,
+    /// Media: streaming de áudio ou vídeo (`docs/media.md` §8).
+    Media,
 }
 
 impl JanelaRate {
@@ -441,18 +501,34 @@ impl JanelaRate {
         JanelaRate {
             contador: 0,
             inicio: Instant::now(),
+            contador_media: 0,
+            inicio_media: Instant::now(),
         }
     }
 
-    /// Regista um envio; acima do teto devolve `RateLimit`.
-    fn registar(&mut self) -> Result<(), ErroP2P> {
-        if self.inicio.elapsed() >= JANELA_RATE {
-            self.inicio = Instant::now();
-            self.contador = 0;
-        }
-        self.contador += 1;
-        if self.contador > LIMITE_FRAMES {
-            return Err(ErroP2P::RateLimit);
+    /// Regista um envio na janela da sua origem.
+    fn registar(&mut self, origem: Origem) -> Result<(), ErroP2P> {
+        match origem {
+            Origem::Texto => {
+                if self.inicio.elapsed() >= JANELA_RATE {
+                    self.inicio = Instant::now();
+                    self.contador = 0;
+                }
+                self.contador += 1;
+                if self.contador > LIMITE_FRAMES {
+                    return Err(ErroP2P::RateLimit);
+                }
+            }
+            Origem::Media => {
+                if self.inicio_media.elapsed() >= JANELA_RATE {
+                    self.inicio_media = Instant::now();
+                    self.contador_media = 0;
+                }
+                self.contador_media += 1;
+                if self.contador_media > LIMITE_FRAMES_MEDIA {
+                    return Err(ErroP2P::RateLimit);
+                }
+            }
         }
         Ok(())
     }
@@ -549,8 +625,11 @@ impl LigacaoDireta {
     }
 
     /// Envia um frame aplicando o rate-limit da ligação.
-    pub fn enviar(&mut self, tipo: u8, corpo: &[u8]) -> Result<(), ErroP2P> {
-        self.janela.registar()?;
+    ///
+    /// `origem` escolhe a janela: texto tem 128 por janela, media tem
+    /// [`LIMITE_FRAMES_MEDIA`]. Ver [`JanelaRate`] para o porquê.
+    pub fn enviar(&mut self, tipo: u8, corpo: &[u8], origem: Origem) -> Result<(), ErroP2P> {
+        self.janela.registar(origem)?;
         escrever_frame(&mut self.fluxo, tipo, corpo)
     }
 
@@ -592,7 +671,7 @@ impl LigacaoDireta {
 
     /// Envia um frame e lê a resposta — utilitário de keepalive.
     pub fn ping(&mut self) -> Result<(), ErroP2P> {
-        self.enviar(FRAME_PING, &[])?;
+        self.enviar(FRAME_PING, &[], Origem::Texto)?;
         let resposta = self.receber(None)?;
         if resposta.tipo != FRAME_PONG {
             return Err(ErroP2P::Relay(format!(
@@ -862,8 +941,11 @@ impl LigacaoRelay {
     }
 
     /// Publica um frame na mailbox do par e espera confirmação.
-    pub fn enviar(&mut self, tipo: u8, corpo: &[u8]) -> Result<(), ErroP2P> {
-        self.janela.registar()?;
+    ///
+    /// `origem` escolhe a janela: texto tem 128 por janela, media tem
+    /// [`LIMITE_FRAMES_MEDIA`]. Ver [`JanelaRate`] para o porquê.
+    pub fn enviar(&mut self, tipo: u8, corpo: &[u8], origem: Origem) -> Result<(), ErroP2P> {
+        self.janela.registar(origem)?;
         // ENVIAR = mailbox(32) ‖ tipo(1) ‖ corpo — o relay não vê mais.
         let mut pacote = Vec::with_capacity(33 + corpo.len());
         pacote.extend_from_slice(&self.caixa_par);
@@ -1028,10 +1110,12 @@ pub enum LigacaoP2P {
 
 impl LigacaoP2P {
     /// Envia um frame no transporte ativo.
-    pub fn enviar(&mut self, tipo: u8, corpo: &[u8]) -> Result<(), ErroP2P> {
+    ///
+    /// `origem` diz de que janela este envio gasta. Ver [`JanelaRate`].
+    pub fn enviar(&mut self, tipo: u8, corpo: &[u8], origem: Origem) -> Result<(), ErroP2P> {
         match self {
-            LigacaoP2P::Direta(l) => l.enviar(tipo, corpo),
-            LigacaoP2P::Relay(l) => l.enviar(tipo, corpo),
+            LigacaoP2P::Direta(l) => l.enviar(tipo, corpo, origem),
+            LigacaoP2P::Relay(l) => l.enviar(tipo, corpo, origem),
         }
     }
 

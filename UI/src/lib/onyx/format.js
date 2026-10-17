@@ -60,6 +60,41 @@ export function truncate(text, max = 72) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/**
+ * Um tamanho em bytes, para uma pessoa.
+ *
+ * ## Porquê 1000 e não 1024
+ *
+ * Num caso nenhuma das duas está certa e é preciso escolher uma. Um
+ * ficheiro de media diz «10 MB» na caixa do ficheiro e «9,5 MiB» na
+ *Ferramenta do sistema operativo, e as duas pessoas comparam-no com o
+ * mesmo número emlordens diferentes.
+ *
+ * A escolha é decimal porque é a que o **resto da interface** já usa
+ * para os tamanhos de avatar e de anexo, e uma interface que diz 10 MB
+ * num sítio e 9,5 MiB noutro faz a pessoa pensar que há um erro. Fica
+ * escrito para que a próxima pessoa saiba que foi decisão e não
+ * descuido.
+ *
+ * @param {number} bytes
+ * @returns {string}
+ */
+export function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '';
+  if (bytes < 1000) return `${bytes} B`;
+  const unidades = ['kB', 'MB', 'GB'];
+  let valor = bytes / 1000;
+  let i = 0;
+  while (valor >= 1000 && i < unidades.length - 1) {
+    valor /= 1000;
+    i += 1;
+  }
+  // Uma casa só: o segundo algarismo de um tamanho não lhe diz nada que
+  // o primeiro não diga, e `10,0 MB` é mais ruído do que `10 MB`.
+  const arredondado = valor >= 100 ? Math.round(valor) : Math.round(valor * 10) / 10;
+  return `${arredondado} ${unidades[i]}`;
+}
+
 // =====================================================================
 // Semente de avatar
 // ---------------------------------------------------------------------

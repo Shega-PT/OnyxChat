@@ -115,7 +115,10 @@ fn arti_sem_a_feature_nao_arranca() {
         "pedir arti sem a feature tem de falhar, não arrancar"
     );
     let stderr = String::from_utf8_lossy(&saida.stderr);
-    assert!(stderr.contains("tor-real"), "tem de citar a feature: {stderr}");
+    assert!(
+        stderr.contains("tor-real"),
+        "tem de citar a feature: {stderr}"
+    );
     assert!(
         stderr.contains("--features tor-real"),
         "tem de dar o comando de build: {stderr}"
@@ -154,6 +157,9 @@ fn tor_nenhum_arranca_sem_a_feature() {
     }
     let _ = filho.kill();
     let _ = filho.wait();
-    assert!(vivo, "o modo offline tem de arrancar sem a feature tor-real");
+    assert!(
+        vivo,
+        "o modo offline tem de arrancar sem a feature tor-real"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -306,6 +306,61 @@ class Sidecar:
     #: delas usaria um caminho diferente sem que nada notasse.
     caminho_conta: Path | None = None
 
+    #: O cliente do daemon para as rotas que precisam dele.
+    #:
+    #: Existe como campo e não como importação directa de
+    #: `ipc_client.ClienteIpc` em cada rota porque **uma rota que fala com
+    #: o daemon tem de poder ser testada sem daemon**. Passar o cliente
+    #: é o que permite a um teste afirmar que a rota mandou
+    #: ``MEDIA_REPRODUZIR`` com o ``id`` certo, e não apenas que
+    #: devolveu um erro.
+    daemon: Any | None = None
+
+    #: Porque é que a media não está disponível, ou ``None``.
+    #:
+    #: Vive no estado em vez de ir para um registo porque há **uma**
+    #: coisa que o utilizador precisa de saber — «porque é que o meu
+    #: áudio não toca?» — e a resposta muda com o tempo: o daemon
+    #: pode arrancar depois. Uma rota de estado lê isto e diz a verdade
+    #: actual; um registo de erros diria o que correu mal e calar-se.
+    media_erro: str | None = None
+
+    def apontar_media(self) -> bool:
+        """Manda o ``MEDIA_INICIAR`` com o caminho desta loja.
+
+        Chamar **no arranque**, e não a cada reprodução: o daemon guarda
+        a loja aberta, e abrir um sqlite por cada clique num botão seria
+        trabalho desperdiçado.
+
+        ## Porque nunca levanta
+
+        Um sidecar a correr **sem** daemon é normal — a pessoa fecha a
+        aplicação e o socket continua ali, ou o daemon ainda não
+        arrancou. Se isto levantasse, o sidecar não arrancava, e o
+        utilizador perdia **o texto todo** por causa de um botão de
+        áudio que não estava a funcionar.
+
+        É o modo degradado de `docs/media.md` §7.6 aplicado ao outro
+        lado: o que falha é o media, e o resto fica exactamente igual.
+
+        :returns: ``True`` se o daemon ficou com a loja apontada.
+        """
+        if self.daemon is None:
+            self.media_erro = "não há daemon a correr"
+            return False
+        caminho = self.loja._caminho  # noqa: SLF001 — o mesmo processo
+        try:
+            self.daemon.media_iniciar(caminho)
+        except Exception as erro:  # noqa: BLE001
+            # De propósito largo. Um `DaemonIndisponivel` é o caso
+            # comum e é o caso **que não deve parar nada**; uma excepção
+            # inesperada de um cliente de socket também não pode
+            # impedir um sidecar de arrancar.
+            self.media_erro = str(erro) or erro.__class__.__name__
+            return False
+        self.media_erro = None
+        return True
+
 
 class Manipulador(BaseHTTPRequestHandler):
     """Cada pedido HTTP.
@@ -461,6 +516,11 @@ class Manipulador(BaseHTTPRequestHandler):
                     # campo próprio só de leitura não chegaria.
                     "sidecar": app,
                     "caminho_conta": app.caminho_conta,
+                    # O daemon vai no `extras` e não como campo pelo
+                    # mesmo motivo do `Sidecar`: é uma dependência
+                    # opcional, e um campo `daemon` em `Contexto` seria um
+                    # campo que quase todas as rotas nunca usariam.
+                    "daemon": app.daemon,
                 },
             )
             resultado = rota.accao(contexto, parametros)
@@ -718,6 +778,7 @@ def criar_servidor(
     raiz_ui: Path | None = None,
     caminho_conta: Path | None = None,
     silencioso: bool = False,
+    daemon: Any | None = None,
 ) -> _Servidor:
     """Cria o servidor, sem o arrancar.
 
@@ -743,7 +804,13 @@ def criar_servidor(
         raiz_ui=raiz_ui if raiz_ui is not None else RAIZ_UI,
         porta=porta,
         caminho_conta=caminho_conta,
+        daemon=daemon,
     )
+
+    # O `MEDIA_INICIAR` é no arranque e **nunca** levanta — ver
+    # `Sidecar.apontar_media`. Falhar aqui significaria um sidecar que
+    # não arranca por causa de um botão de áudio.
+    app.apontar_media()
 
     servidor = _Servidor((host, porta), Manipulador)
     servidor.sidecar = app  # type: ignore[attr-defined]

@@ -23,9 +23,10 @@ use std::path::PathBuf;
 use crypto_core::signer::chave_publica_a_partir_da_seed;
 use serde_json::Value;
 
+use crypto_core::amizade;
 use onyxchatd::anti_replay::RegistoNonce1;
 use onyxchatd::pipeline::{self, Chaves};
-use onyxchatd::{ffi_c, handshake, lua_camadas};
+use onyxchatd::{ffi_c, handshake, lua_camadas, media};
 
 // ---------------------------------------------------------------------
 // Helpers
@@ -72,6 +73,28 @@ fn opcional<'a>(v: &'a Value, chave: &str) -> Option<&'a str> {
 // ---------------------------------------------------------------------
 // §25 — uma entrada por camada
 // ---------------------------------------------------------------------
+
+/// Converte 24 caracteres hex num array de 12 bytes.
+///
+/// Existe porque `derivar_k1_por_tipo` quer `&[u8; 12]` e o vector
+/// vem de um `String` — e `dehex` devolve um `Vec`, cujo tamanho não é
+/// comptido. É a mesma razão pela qual há um `dehex` e um `hex` e não
+/// um só: cada um tem o tipo de retorno que o chamador quer.
+fn nonce_de(hex_texto: &str) -> [u8; 12] {
+    let bytes = dehex(hex_texto);
+    <[u8; 12]>::try_from(bytes.as_slice()).expect("nonce1 são 12 bytes")
+}
+
+/// Converte 64 caracteres hex num array de 32 bytes.
+///
+/// `derivar_k1_por_tipo` quer `&[u8; 32]` e o vector vem de um
+/// `String`. `dehex` devolve `Vec<u8>`, cujo tamanho não é comptido — e
+/// esta conversão é o que transforma um vector de teste num argumento
+/// de produção sem copier o buffer.
+fn chave32_de(hex_texto: &str) -> [u8; 32] {
+    let bytes = dehex(hex_texto);
+    <[u8; 32]>::try_from(bytes.as_slice()).expect("a chave são 32 bytes")
+}
 
 #[test]
 fn camadas_reproduzem_os_vetores() {
@@ -134,7 +157,9 @@ fn camadas_reproduzem_os_vetores() {
                 nonce.as_deref().unwrap(),
             )
             .expect("K1 decifra"),
-            "K2" => lua_camadas::deslocamento_inverso(&saida, pipeline::DESLOCAMENTO_K2).expect("K2"),
+            "K2" => {
+                lua_camadas::deslocamento_inverso(&saida, pipeline::DESLOCAMENTO_K2).expect("K2")
+            }
             "K3" => lua_camadas::vigenere_inverso(&saida, chave.as_deref().unwrap()).expect("K3"),
             "K4" => ffi_c::k4_decifrar(&saida).expect("K4"),
             "K5" => crypto_core::decrypt_k5(
@@ -313,21 +338,285 @@ fn handshake_reproduz_os_vetores() {
 /// Sem isto, alguém podia corrigir um valor à mão no `.md`, o `.md` ficaria
 /// com uma paridade de implementações que não existe, e nenhum teste
 /// notaria — a documentação passaria a mentir sem ninguém saber quando.
+/// As chaves derivadas por tipo reproduzem os vectores.
+///
+/// Congelados em `tests/vectors/media.json` e calculados pelo Python
+/// (`messenger/amizade.py`). Se as duas implementações da fórmula
+/// divergirem, este teste falha — e a falha tem de ser visível, porque
+/// uma divergência aqui aparece em produção como «o áudio não abre», que
+/// é o pior sítio para procurar um byte a menos num `info`.
+#[test]
+fn media_reproduz_os_vetores() {
+    let doc = carregar("media.json");
+    for v in doc["vetores"].as_array().expect("media.json tem `vetores`") {
+        if campo(v, "familia") != "chaves" {
+            continue;
+        }
+        let tipo: u8 = v["tipo"].as_u64().expect("tipo é número") as u8;
+        let derivada = amizade::derivar_k1_por_tipo(
+            &chave32_de(campo(v, "k_emissor_hex")),
+            &chave32_de(campo(v, "k_recetor_hex")),
+            &chave32_de(campo(v, "publica_emissor_hex")),
+            tipo,
+        )
+        .expect("o vector só tem tipos conhecidos");
+
+        assert_eq!(
+            hex(&derivada),
+            campo(v, "saida_hex"),
+            "vector {}: a K1 derivada mudou — é uma quebra de formato, não um bug",
+            campo(v, "id")
+        );
+    }
+}
+
+/// As molduras reproduzem os vectores, e o texto é ASCII.
+///
+/// O `assert!(is_ascii())` não é redundante: é a propriedade que o
+/// `ENCODE` exige (`network/daemon_rust/src/ipc.rs` recusa com
+/// `0x08 TextoInvalidoUtf8`), e a forma de ela quebrar é alguém tornar o
+/// preâmbulo binário outra vez. Aí este teste falha e o erro é óbvio; sem
+/// ele, o erro seria «a media não envia».
+#[test]
+fn molduras_reproduzem_os_vetores() {
+    let doc = carregar("media.json");
+    let mut contados = 0;
+
+    for v in doc["vetores"].as_array().expect("media.json tem `vetores`") {
+        if campo(v, "familia") != "molduras" {
+            continue;
+        }
+        contados += 1;
+
+        let tipo = media::moldura::Tipo::de_caractere(campo(v, "tipo").as_bytes()[0])
+            .expect("tipo do vector é válido");
+        let modo = media::moldura::Modo::de_caractere(campo(v, "modo").as_bytes()[0])
+            .expect("modo do vector é válido");
+        let stream = v["stream"].as_u64().expect("stream é número") as u16;
+        let seq = v["seq"].as_u64().expect("seq é número") as u32;
+        let clock = v["clock_ms"].as_i64().expect("clock_ms é número") as i32;
+        let corpo = dehex(campo(v, "corpo_hex"));
+
+        // As flags vêm do vector: `construir` usa sempre `VAZIO`, e
+        // ignorar o campo faria o vector 104 — que é uma keyframe —
+        // reconstruir-se sem a marca que o distingue.
+        let flags = media::moldura::Flags::de_caractere(
+            (b'0' + v["flags"].as_u64().expect("flags é número") as u8) as char as u8,
+        )
+        .expect("as flags do vector são válidas");
+
+        let m = media::moldura::construir_com_flags(tipo, modo, flags, stream, seq, clock, &corpo);
+
+        assert_eq!(
+            m.como_texto(),
+            campo(v, "texto"),
+            "vector {}: o texto da moldura mudou",
+            campo(v, "id")
+        );
+        assert!(
+            m.as_bytes().is_ascii(),
+            "vector {}: o plaintext não é ASCII e o ENCODE recusaria",
+            campo(v, "id")
+        );
+        assert_eq!(
+            m.as_bytes().len(),
+            v["comprimento"].as_u64().expect("comprimento é número") as usize,
+            "vector {}: o comprimento mudou",
+            campo(v, "id")
+        );
+
+        // E a ida e volta, que é o que torna o vector útil.
+        let a = media::moldura::abrir(m.as_bytes()).expect("o vector abre");
+        assert_eq!(
+            a.flags,
+            flags,
+            "vector {}: as flags não sobreviveram",
+            campo(v, "id")
+        );
+        assert_eq!(
+            a.corpo,
+            corpo,
+            "vector {}: o corpo não sobreviveu",
+            campo(v, "id")
+        );
+        assert_eq!(
+            a.clock_ms,
+            clock,
+            "vector {}: o clock não sobreviveu",
+            campo(v, "id")
+        );
+    }
+
+    assert!(contados > 0, "media.json não tem nenhum vector de moldura");
+}
+
+/// Os manifestos reproduzem os vectores, todos os campos.
+///
+/// O vector `204` é o que importa: `tipo` vídeo com `codec` Opus. Sem
+/// o `tipo` como campo independente, o receptor derivá-lo-ia do `codec`
+/// e abriria o manifesto como áudio — com a **chave errada**, e sem
+/// qualquer erro pelo caminho. É o teste que fixa a distinção.
+#[test]
+fn manifestos_reproduzem_os_vetores() {
+    let doc = carregar("media.json");
+    let mut contados = 0;
+
+    for v in doc["vetores"].as_array().expect("media.json tem `vetores`") {
+        if campo(v, "familia") != "manifestos" {
+            continue;
+        }
+        contados += 1;
+
+        let tipo = media::moldura::Tipo::de_caractere(campo(v, "tipo").as_bytes()[0])
+            .expect("tipo do vector");
+        let codec = media::ficheiro::Codec::de_valor(v["codec"].as_u64().expect("codec") as u16)
+            .expect("codec do vector");
+        let formato =
+            media::ficheiro::Formato::de_valor(v["formato"].as_u64().expect("formato") as u16)
+                .expect("formato do vector");
+
+        let total = v["total_bytes"].as_u64().expect("total_bytes") as usize;
+        let conteudo: Vec<u8> = (0..total)
+            .map(|i| (i as u8).wrapping_mul(17).wrapping_add(3))
+            .collect();
+        let manifesto = media::ficheiro::Manifesto::novo(
+            tipo,
+            codec,
+            formato,
+            v["duracao_s"].as_u64().expect("duracao") as u32,
+            campo(v, "nome"),
+            &conteudo,
+        )
+        .expect("manifesto coerente");
+
+        // O corpo e o resumo, antes de tudo o resto.
+        assert_eq!(
+            hex(&manifesto.sha256),
+            campo(v, "sha256_hex"),
+            "vector {}: o resumo mudou",
+            campo(v, "id")
+        );
+        assert_eq!(
+            hex(&manifesto.id()),
+            campo(v, "id_hex"),
+            "vector {}: o id mudou",
+            campo(v, "id")
+        );
+        assert_eq!(
+            manifesto.total_pedacos as u64,
+            v["total_pedacos"].as_u64().expect("total_pedacos"),
+            "vector {}: o número de fatias mudou",
+            campo(v, "id")
+        );
+        assert_eq!(
+            manifesto.bytes_por_pedaco as u64,
+            v["bytes_por_pedaco"].as_u64().expect("bytes_por_pedaco"),
+            "vector {}: o tamanho da fatia mudou",
+            campo(v, "id")
+        );
+
+        // E a ida e volta pelo corpo — que é o que prova que o `tipo`
+        // sobrevive.
+        let lido = media::ficheiro::Manifesto::de_corpo(&manifesto.corpo())
+            .expect("o corpo do manifesto abre");
+        assert_eq!(
+            lido.tipo,
+            tipo,
+            "vector {}: o tipo não sobreviveu — e é ele que escolhe a chave",
+            campo(v, "id")
+        );
+        assert_eq!(
+            lido.nome,
+            campo(v, "nome"),
+            "vector {}: o nome não sobreviveu",
+            campo(v, "id")
+        );
+        assert_eq!(lido.codec, codec);
+        assert_eq!(lido.formato, formato);
+        assert_eq!(lido.sha256, manifesto.sha256);
+
+        // E o texto completo, moldura incluída.
+        let moldura = media::ficheiro::moldura_de_manifesto(&manifesto, 1, 0);
+        assert_eq!(
+            moldura.como_texto(),
+            campo(v, "texto"),
+            "vector {}: o texto mudou",
+            campo(v, "id")
+        );
+        assert!(
+            moldura.as_bytes().is_ascii(),
+            "vector {}: o plaintext não é ASCII",
+            campo(v, "id")
+        );
+    }
+
+    assert!(
+        contados > 0,
+        "media.json não tem nenhum vector de manifesto"
+    );
+}
+
+/// A geometria do vector coincide com a spec e com o código.
+///
+/// Três sítios que têm de concordar: `docs/media.md` §2.2 (que é lida
+/// por gente), `moldura.rs` (que é lida pelo `cargo`) e o
+/// `media.json` (que é lido pelo gerador). Se um divergir, o que se
+/// desactualiza primeiro é a spec — e uma spec desactualizada é pior do
+/// que não haver spec, porque toda a gente lhe obedece.
+#[test]
+fn a_geometria_da_moldura_esta_em_acordo() {
+    let doc = carregar("media.json");
+    assert_eq!(
+        doc["pre_ambulo"].as_u64().expect("pre_ambulo é número") as usize,
+        media::moldura::TAM_PRE_AMBULO,
+        "o preâmbulo do vector diverge do código"
+    );
+    assert_eq!(
+        doc["limite_media"].as_u64().expect("limite_media é número") as usize,
+        media::moldura::TAM_MEDIA_MAX,
+        "o limite de media do vector diverge do código"
+    );
+
+    // E o limite tem de caber mesmo: o maior pedaço que o preâmbulo
+    // permite tem de produzir um plaintext dentro de `MAX_PLAINTEXT`.
+    let folha = media::moldura::construir(
+        media::moldura::Tipo::Video,
+        media::moldura::Modo::NaoStreaming,
+        0,
+        0,
+        0,
+        &vec![0u8; media::moldura::TAM_MEDIA_MAX],
+    );
+    assert!(folha.as_bytes().len() <= onyxchatd::envelope::MAX_PLAINTEXT);
+}
+
 #[test]
 fn test_vectors_md_bate_com_os_json() {
     let camadas = carregar("camadas.json");
     let pipeline = carregar("pipeline.json");
     let handshake = carregar("handshake.json");
     let identidade = carregar("identidade.json");
+    let media = carregar("media.json");
 
     // `.as_array()` converte `&Value` em `&Vec<Value>`, que é o que a
     // função de renderização espera. Um vector em falta dá `None` e o
     // `.expect` diz qual dos três — não um `panic` de índice.
     let esperado = onyxchatd::docs_vec::gerar_markdown(
-        camadas["camadas"].as_array().expect("camadas.json tem `camadas`"),
-        pipeline["vetores"].as_array().expect("pipeline.json tem `vetores`"),
-        handshake["vetores"].as_array().expect("handshake.json tem `vetores`"),
-        identidade["vetores"].as_array().expect("identidade.json tem `vetores`"),
+        camadas["camadas"]
+            .as_array()
+            .expect("camadas.json tem `camadas`"),
+        pipeline["vetores"]
+            .as_array()
+            .expect("pipeline.json tem `vetores`"),
+        handshake["vetores"]
+            .as_array()
+            .expect("handshake.json tem `vetores`"),
+        identidade["vetores"]
+            .as_array()
+            .expect("identidade.json tem `vetores`"),
+        media["vetores"]
+            .as_array()
+            .expect("media.json tem `vetores`"),
     );
 
     let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/test_vectors.md");

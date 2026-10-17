@@ -293,11 +293,14 @@ fn descrever_erros_do_relay() {
 fn rate_limit_por_ligacao() {
     let (mut a, mut b) = par_de_sockets();
     for i in 0..LIMITE_FRAMES {
-        a.enviar(FRAME_CHAT, &[i as u8; 8]).expect("envia");
+        a.enviar(FRAME_CHAT, &[i as u8; 8], crate::p2p::Origem::Texto)
+            .expect("envia");
         let r = b.receber(None).expect("recebe");
         assert_eq!(r.tipo, FRAME_CHAT);
     }
-    let erro = a.enviar(FRAME_CHAT, b"demais").expect_err("rate-limit");
+    let erro = a
+        .enviar(FRAME_CHAT, b"demais", crate::p2p::Origem::Texto)
+        .expect_err("rate-limit");
     assert_eq!(erro, ErroP2P::RateLimit);
     assert_eq!(erro.para_ipc(), 0x10);
     assert!(erro.to_string().contains("rate-limit"));
@@ -332,7 +335,9 @@ fn servidor_e_troca_de_frames() {
         .expect("escreve pong");
     let pong = lado_servidor.receber(None).expect("lê pong");
     assert_eq!(pong.tipo, FRAME_PONG);
-    lado_servidor.enviar(FRAME_CHAT, b"r").expect("responde");
+    lado_servidor
+        .enviar(FRAME_CHAT, b"r", crate::p2p::Origem::Texto)
+        .expect("responde");
 
     use std::io::Read as _;
     let esperado = enquadrar(FRAME_CHAT, b"r").expect("enquadra");
@@ -352,7 +357,8 @@ fn timeout_de_recebimento() {
     assert_eq!(erro.para_ipc(), 0x0E);
     assert!(erro.to_string().contains("expirou"));
     // A ligação continua utilizável: frames seguintes chegam.
-    a.enviar(FRAME_PING, b"ainda vivo").expect("envia");
+    a.enviar(FRAME_PING, b"ainda vivo", crate::p2p::Origem::Texto)
+        .expect("envia");
     // (o outro lado só lê mais tarde — aqui valida-se o caminho puro)
 }
 
@@ -364,7 +370,8 @@ fn ping_com_pong() {
     let esperador = thread::spawn(move || {
         let recebido = b.receber(None).expect("lê ping");
         assert_eq!(recebido.tipo, FRAME_PING);
-        b.enviar(FRAME_PONG, &[]).expect("pong");
+        b.enviar(FRAME_PONG, &[], crate::p2p::Origem::Texto)
+            .expect("pong");
         b
     });
     a.ping().expect("ping ok");
@@ -377,7 +384,8 @@ fn ping_com_resposta_errada() {
     let (mut a, mut b) = par_de_sockets();
     let esperador = thread::spawn(move || {
         let _ = b.receber(None).expect("lê");
-        b.enviar(FRAME_CHAT, b"nao e pong").expect("responde");
+        b.enviar(FRAME_CHAT, b"nao e pong", crate::p2p::Origem::Texto)
+            .expect("responde");
         b
     });
     let erro = a.ping().expect_err("tem de falhar");
@@ -398,7 +406,9 @@ fn relay_subscreve_e_envia() {
     let caixa_par = caixa_de_pub(&[2u8; 32]);
     let mut ligacao = LigacaoRelay::abrir(&endpoint, caixa_propria, caixa_par).expect("abre");
 
-    ligacao.enviar(FRAME_CHAT, b"envelope").expect("envia");
+    ligacao
+        .enviar(FRAME_CHAT, b"envelope", crate::p2p::Origem::Texto)
+        .expect("envia");
     let pacote = recebidos.recv().expect("relay viu");
     // mailbox(32) ‖ tipo ‖ corpo.
     assert_eq!(&pacote[..32], &caixa_par);
@@ -517,7 +527,7 @@ fn relay_envio_gigante() {
     // Heap, não pilha: ver o comentário de `frame_grande_rejeitado`.
     let gigante = vec![0u8; limite_corpo()];
     let erro = ligacao
-        .enviar(FRAME_CHAT, &gigante)
+        .enviar(FRAME_CHAT, &gigante, crate::p2p::Origem::Texto)
         .expect_err("grande demais");
     assert_eq!(erro.para_ipc(), 0x09);
     ligacao.fechar();
@@ -595,7 +605,9 @@ fn abrir_direta_com_sucesso() {
     // O par aceita e troca frames.
     let (lado_b, _) = servidor.accept().expect("accept");
     let mut b = LigacaoDireta::nova(lado_b);
-    ligacao.enviar(FRAME_CHAT, b"ola").expect("envia");
+    ligacao
+        .enviar(FRAME_CHAT, b"ola", crate::p2p::Origem::Texto)
+        .expect("envia");
     let f = b.receber(None).expect("recebe");
     assert_eq!(f.corpo, b"ola");
     dono.parar().expect("limpa");
@@ -662,7 +674,9 @@ fn abrir_modo_relay() {
     };
     let mut ligacao = abrir_ligacao(&mut backend, &com_endpoint, [2u8; 32]).expect("relay");
     assert!(matches!(ligacao, LigacaoP2P::Relay(_)));
-    ligacao.enviar(FRAME_CHAT, b"x").expect("envia");
+    ligacao
+        .enviar(FRAME_CHAT, b"x", crate::p2p::Origem::Texto)
+        .expect("envia");
     backend.parar().expect("limpa");
 }
 
@@ -804,7 +818,8 @@ fn rececao_faseada_direta() {
     assert_eq!(erro, ErroP2P::TempoEsgotado);
 
     // Frame completo chega → devolvido pela fase de leitura.
-    b.enviar(FRAME_CHAT, b"ola").expect("envia");
+    b.enviar(FRAME_CHAT, b"ola", crate::p2p::Origem::Texto)
+        .expect("envia");
     let frame = a
         .receber_por_lotes(Some(Duration::from_secs(2)), FATIA_ESPERA)
         .expect("frame");
@@ -905,7 +920,8 @@ fn rececao_faseada_pelo_enum() {
         .receber_por_lotes(None, Duration::from_millis(30))
         .expect_err("vazio");
     assert_eq!(erro, ErroP2P::TempoEsgotado);
-    b.enviar(FRAME_PONG, b"x").expect("envia");
+    b.enviar(FRAME_PONG, b"x", crate::p2p::Origem::Texto)
+        .expect("envia");
     let frame = direta
         .receber_por_lotes(Some(Duration::from_secs(2)), FATIA_ESPERA)
         .expect("frame");
@@ -1021,11 +1037,12 @@ fn esperar_primeiro_byte_todos_os_ramos() {
 /// (contador volta a 1, sem esbarrar no teto).
 #[test]
 fn janela_de_rate_reinicia() {
-    let mut janela = JanelaRate {
-        contador: LIMITE_FRAMES,
-        inicio: Instant::now() - JANELA_RATE - Duration::from_millis(1),
-    };
-    janela.registar().expect("janela nova");
+    let mut janela = JanelaRate::nova();
+    janela.contador = LIMITE_FRAMES;
+    janela.inicio = Instant::now() - JANELA_RATE - Duration::from_millis(1);
+    janela
+        .registar(crate::p2p::Origem::Texto)
+        .expect("janela nova");
     assert_eq!(janela.contador, 1, "contagem reiniciada");
 }
 
@@ -1124,7 +1141,8 @@ fn receber_pelo_enum() {
     // Transporte direto.
     let (a, mut b) = par_de_sockets();
     let mut direta = LigacaoP2P::Direta(Box::new(a));
-    b.enviar(FRAME_CHAT, b"ida").expect("envia");
+    b.enviar(FRAME_CHAT, b"ida", crate::p2p::Origem::Texto)
+        .expect("envia");
     let frame = direta
         .receber(Some(Duration::from_secs(2)))
         .expect("frame direto");
@@ -1199,11 +1217,7 @@ fn endpoint_recusa_portas_invalidas() {
         ":9050",           // sem host
     ] {
         let erro = Endpoint::validar(texto).expect_err(&format!("«{texto}» devia ser recusado"));
-        assert_eq!(
-            erro.para_ipc(),
-            0x0D,
-            "«{texto}» deu o código errado"
-        );
+        assert_eq!(erro.para_ipc(), 0x0D, "«{texto}» deu o código errado");
         assert!(matches!(erro, ErroP2P::DestinoInvalido(_)));
     }
 }
@@ -1248,8 +1262,8 @@ fn aviso_de_clearnet_anuncia_o_destino_antes_de_ligar() {
 
     let mut aviso = Vec::new();
     LigacaoRelay::abrir_aviso_com(&endpoint, [1u8; 32], [2u8; 32], &mut aviso)
-    .expect("a ligação em loopback tem de abrir")
-    .fechar();
+        .expect("a ligação em loopback tem de abrir")
+        .fechar();
 
     let aviso = String::from_utf8_lossy(&aviso);
     assert!(
@@ -1277,8 +1291,8 @@ fn aviso_de_clearnet_nao_contem_chaves() {
     let (endpoint, _rx) = relay_de_teste();
     let mut aviso = Vec::new();
     LigacaoRelay::abrir_aviso_com(&endpoint, [0xAB; 32], [0xCD; 32], &mut aviso)
-    .expect("abre")
-    .fechar();
+        .expect("abre")
+        .fechar();
 
     let aviso = String::from_utf8_lossy(&aviso).to_lowercase();
     let chave_ab = "ab".repeat(32);
@@ -1299,7 +1313,7 @@ fn aviso_de_clearnet_nao_contem_chaves() {
 fn endpoint_invalido_nao_produz_aviso() {
     let mut aviso = Vec::new();
     let erro = LigacaoRelay::abrir_aviso_com("sem-porta", [1u8; 32], [2u8; 32], &mut aviso)
-    .expect_err("endpoint sem porta tem de ser recusado");
+        .expect_err("endpoint sem porta tem de ser recusado");
 
     assert!(matches!(erro, ErroP2P::DestinoInvalido(_)));
     assert!(
@@ -1331,7 +1345,8 @@ fn aviso_que_falha_nao_derruba_a_ligacao() {
 
     let (endpoint, _rx) = relay_de_teste();
     let r = LigacaoRelay::abrir_aviso_com(&endpoint, [1u8; 32], [2u8; 32], &mut EscritorQueFalha);
-    r.expect("uma falha no aviso não pode impedir a ligação").fechar();
+    r.expect("uma falha no aviso não pode impedir a ligação")
+        .fechar();
 }
 
 /// `abrir` com endpoint inválido falha **antes** de qualquer I/O.

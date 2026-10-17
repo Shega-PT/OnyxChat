@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import socket
 import threading
 import urllib.error
@@ -37,6 +38,7 @@ from typing import Any
 import pytest
 
 from messenger import conta as conta_mod
+from messenger import ipc_client
 from server import loja as loja_mod
 from server import rotas as rotas_mod
 from server import sidecar as sidecar_mod
@@ -74,6 +76,87 @@ def conta_de_teste(tmp_path: Path) -> conta_mod.Conta:
     )
 
 
+class _DaemonFalso:
+    """Um daemon que responde sem estar a correr.
+
+    Existe porque uma rota de media tem de poder ser testada **sem**
+    daemon, e um teste que só pudesse dizer «deu 503» não provaria nada
+    sobre o que a rota mandou. Este regista os comandos e devolve o que
+    o teste quiser.
+    """
+
+    def __init__(
+        self,
+        *,
+        leitor: int = 0,
+        loja: bool = True,
+        erro: Exception | None = None,
+        quadro_erro: Exception | None = None,
+        tem_audio: bool = True,
+    ):
+        self.leitor = leitor
+        self.loja_apontada = loja
+        self.erro = erro
+        self.iniciados: list[str] = []
+        self.reproduzidos: list[tuple[str, int]] = []
+        #: Os argumentos de cada `media_capturar`, para o teste fixar a
+        #: geometria que a rota pediu.
+        self.capturas: list[tuple[int, ...]] = []
+        #: O erro que o `media_ler` dá. `None` devolve um quadro.
+        self.quadro_erro = quadro_erro
+        #: O erro que o `media_audio` dá.
+        self.audio_erro: Exception | None = None
+        #: Se o `media_audio` tem pacotes para dar.
+        self.tem_audio = tem_audio
+
+    def media_iniciar(self, caminho) -> None:
+        if self.erro is not None:
+            raise self.erro
+        self.iniciados.append(str(caminho))
+
+    def media_estado(self):
+        if self.erro is not None:
+            raise self.erro
+        return ipc_client.EstadoMedia(
+            loja_apontada=self.loja_apontada, ffmpeg_embebido=True, leitor=self.leitor
+        )
+
+    def media_reproduzir(self, transferencia_id: str, leitor: int) -> int:
+        if self.erro is not None:
+            raise self.erro
+        self.reproduzidos.append((transferencia_id, leitor))
+        return 4321
+
+    def media_capturar(
+        self,
+        largura: int,
+        altura: int,
+        fps: int,
+        audio_kbps: int,
+        video_kbps: int,
+    ) -> None:
+        if self.erro is not None:
+            raise self.erro
+        self.capturas.append((largura, altura, fps, audio_kbps, video_kbps))
+
+    def media_ler(self):
+        if self.quadro_erro is not None:
+            raise self.quadro_erro
+        return ipc_client.QuadroVideo(
+            sequencia=7, clock_ms=233, dados=bytes(range(256))
+        )
+
+    def media_audio(self):
+        if self.quadro_erro is not None:
+            raise self.quadro_erro
+        if self.audio_erro is not None:
+            raise self.audio_erro
+        if not self.tem_audio:
+            return None
+        # 80 bytes a 32 kbit/s são 20 ms (§5.3).
+        return bytes(range(80))
+
+
 class _Aberto:
     """Um sidecar a correr, com o ``finally`` que o desliga."""
 
@@ -83,8 +166,10 @@ class _Aberto:
         conta: Any,
         raiz_ui: Path | None = None,
         caminho_conta: Path | None = None,
+        daemon: Any | None = None,
     ) -> None:
         self.loja = loja
+        self.daemon = daemon
         self.porta = _porta_livre()
         self.servidor = sidecar_mod.criar_servidor(
             loja,
@@ -97,6 +182,7 @@ class _Aberto:
                 if caminho_conta is not None
                 else loja._caminho.parent / "conta.keystore"  # noqa: SLF001
             ),
+            daemon=daemon,
             silencioso=True,
         )
         self.fio = threading.Thread(target=self.servidor.serve_forever, daemon=True)
@@ -117,6 +203,43 @@ def aberto(tmp_path: Path, conta_de_teste: conta_mod.Conta) -> Iterator[_Aberto]
     """Um sidecar com conta aberta e loja vazia."""
     with loja_mod.Loja(tmp_path / "loja.db") as loja:
         servidor = _Aberto(loja, conta_de_teste)
+        try:
+            yield servidor
+        finally:
+            servidor.parar()
+
+
+@pytest.fixture
+def daemon() -> _DaemonFalso:
+    """Um daemon que responde bem, com um leitor disponível."""
+    return _DaemonFalso()
+
+
+@pytest.fixture
+def aberto_sem_leitor(
+    tmp_path: Path, conta_de_teste: conta_mod.Conta
+) -> Iterator[_Aberto]:
+    """Um sidecar com daemon, mas sem ``mpv`` nem ``ffplay`` instalados.
+
+    Falta a terceira das três coisas independentes: o daemon está lá, a
+    loja está apontada, e não há leitor. É o caso em que a interface
+    tem de dizer **porque** em vez de oferecer um botão que não funciona.
+    """
+    with loja_mod.Loja(tmp_path / "loja.db") as loja:
+        servidor = _Aberto(loja, conta_de_teste, daemon=_DaemonFalso(leitor=-1))
+        try:
+            yield servidor
+        finally:
+            servidor.parar()
+
+
+@pytest.fixture
+def aberto_com_daemon(
+    tmp_path: Path, conta_de_teste: conta_mod.Conta, daemon: _DaemonFalso
+) -> Iterator[_Aberto]:
+    """Um sidecar **com** daemon, que é o caso que importa para a media."""
+    with loja_mod.Loja(tmp_path / "loja.db") as loja:
+        servidor = _Aberto(loja, conta_de_teste, daemon=daemon)
         try:
             yield servidor
         finally:
@@ -1262,6 +1385,38 @@ def test_a_rota_tem_um_nome_para_os_registos() -> None:
     assert len({r.nome for r in rotas}) == len(rotas)
 
 
+def test_a_tabela_de_rotas_da_documentacao_esta_certa() -> None:
+    """A contagem de `docs/sidecar.md` §A é conferida contra o código.
+
+    A tabela diz que a contagem é conferida, e sem esta conferência a
+    frase é uma promessa. O número é o que separa «acrescentei três
+    rotas de media e documente-as» de «acrescentei três rotas e a
+    documentação ficou a mentir, que é o estado em que ninguém repara
+    porque tudo continua a funcionar».
+    """
+    rotas = rotas_mod.montar(loja_mod.Loja(":memory:"), None)
+    documentacao = (Path(__file__).resolve().parents[1] / "docs" / "sidecar.md").read_text(
+        encoding="utf-8"
+    )
+
+    na_tabela = {
+        (metodo, caminho)
+        for metodo, caminho in re.findall(
+            r"\|\s*`(GET|POST|PUT|DELETE)`\s*\|\s*`([^`]+)`\s*\|", documentacao
+        )
+    }
+    no_codigo = {(rota.metodo, rota.caminho) for rota in rotas}
+
+    assert na_tabela == no_codigo, (
+        f"rotas no código e na tabela não coincidem: "
+        f"só no código {sorted(no_codigo - na_tabela)}, "
+        f"só na tabela {sorted(na_tabela - no_codigo)}"
+    )
+    assert re.search(r"\*\*" + str(len(rotas)) + r" rotas\*\*", documentacao), (
+        f"a contagem em prosa não é {len(rotas)}"
+    )
+
+
 def test_camel_converte() -> None:
     assert rotas_mod.camel("identificador") == "identificador"
     assert rotas_mod.camel("incluir_bloqueados") == "incluirBloqueados"
@@ -1696,3 +1851,482 @@ def test_as_rotas_do_menu_tem_todas_accao_e_todas_sao_escritas(aberto: _Aberto) 
         rota = por_nome[nome]
         assert rota.caminho.lstrip("/") == caminho
         assert rota.metodo == "POST", f"{nome} é {rota.metodo}"
+
+
+# ---------------------------------------------------------------------
+# Transferências de media (`docs/media.md` §4)
+# ---------------------------------------------------------------------
+
+
+def _transferencia(aberto: _Aberto, conversa: str, **mudar) -> dict[str, Any]:
+    """Regista uma transferência na loja e devolve o manifesto."""
+    campos: dict[str, Any] = {
+        "id": "d" * 32,
+        "tipo": "video",
+        "codec": "matroska",
+        "formato": "matroska",
+        "nome": "praia.mkv",
+        "total_bytes": 204 * 49125,
+        "total_pedacos": 204,
+        "bytes_por_pedaco": 49125,
+        "duracao_s": 42,
+        "sha256": bytes(range(32)),
+        "completo": False,
+    }
+    campos.update(mudar)
+    return aberto.loja.registar_transferencia(conversa, "them", **campos)
+
+
+def test_as_transferencias_da_conversa_pela_rota(aberto: _Aberto) -> None:
+    """A rota que a interface chama para listar media de uma conversa."""
+    conversa, _ = _conversa(aberto)
+    _transferencia(aberto, conversa)
+
+    codigo, corpo = pedir(aberto, f"/api/conversas/{conversa}/transferencias")
+    assert codigo == 200
+    assert [t["id"] for t in corpo["transferencias"]] == ["d" * 32]
+    assert corpo["transferencias"][0]["totalPedacos"] == 204
+
+
+def test_o_filtro_completas_tem_os_tres_casos(aberto: _Aberto) -> None:
+    """`completas=0` não é a mesma coisa que não filtrar.
+
+    São três estados — só as completas, só as incompletas, todas — e
+    confundir os dois primeiros com a omissão era esconder a
+    transferência que está a chegar, que é informação e não ruído.
+    """
+    conversa, _ = _conversa(aberto)
+    _transferencia(aberto, conversa)
+    _transferencia(aberto, conversa, id="e" * 32, nome="pronto.mkv")
+    aberto.loja.marcar_transferencia_completa("e" * 32)
+
+    _, todas = pedir(aberto, f"/api/conversas/{conversa}/transferencias")
+    _, prontas = pedir(
+        aberto, f"/api/conversas/{conversa}/transferencias?completas=1"
+    )
+    _, a_meio = pedir(
+        aberto, f"/api/conversas/{conversa}/transferencias?completas=0"
+    )
+    _, todas_explicitamente = pedir(
+        aberto, f"/api/conversas/{conversa}/transferencias?completas=todas"
+    )
+
+    assert len(todas["transferencias"]) == 2
+    assert [t["id"] for t in prontas["transferencias"]] == ["e" * 32]
+    assert [t["id"] for t in a_meio["transferencias"]] == ["d" * 32]
+    assert len(todas_explicitamente["transferencias"]) == 2
+
+
+def test_a_rota_da_transferencia_traz_o_progresso(aberto: _Aberto) -> None:
+    """`recebidasPedacos` é o que permite «a chegar, 42 de 204».
+
+    Sem este número no servidor, a interface teria de contar envelopes
+    — e contaria os da conversa inteira, que não é o mesmo.
+    """
+    conversa, _ = _conversa(aberto)
+    _transferencia(aberto, conversa)
+    for i in range(5):
+        aberto.loja.adicionar_mensagem(
+            conversa,
+            "them",
+            f"ONX1 {i}",
+            envelope=b"x",
+            transferencia_id="d" * 32,
+        )
+
+    codigo, corpo = pedir(aberto, f"/api/transferencias/{'d' * 32}")
+    assert codigo == 200
+    assert corpo["transferencia"]["recebidasPedacos"] == 5
+    assert corpo["transferencia"]["totalPedacos"] == 204
+
+
+def test_uma_transferencia_que_nao_existe_da_404(aberto: _Aberto) -> None:
+    codigo, _ = pedir(aberto, f"/api/transferencias/{'f' * 32}")
+    assert codigo == 404
+    codigo, _ = pedir(aberto, f"/api/transferencias/{'f' * 32}", metodo="DELETE")
+    assert codigo == 404
+
+
+def test_eliminar_pela_rota_apaga_so_a_transferencia(aberto: _Aberto) -> None:
+    """O `DELETE` não pode levar o texto da conversa.
+
+    É a propriedade que a implementação anterior violava, e ela só é
+    visível por uma rota: o `DELETE` filtrava por conversa e apaga o que
+    a interface não pediu.
+    """
+    conversa, _ = _conversa(aberto)
+    _transferencia(aberto, conversa)
+    _transferencia(aberto, conversa, id="e" * 32, nome="outro.mkv")
+    for i in range(3):
+        aberto.loja.adicionar_mensagem(
+            conversa, "them", f"ONX1 {i}", envelope=b"x", transferencia_id="d" * 32
+        )
+        aberto.loja.adicionar_mensagem(
+            conversa, "them", f"ONX1 {i}", envelope=b"y", transferencia_id="e" * 32
+        )
+    aberto.loja.adicionar_mensagem(conversa, "them", "olá", envelope=b"z")
+
+    codigo, corpo = pedir(aberto, f"/api/transferencias/{'d' * 32}", metodo="DELETE")
+    assert codigo == 200
+    assert corpo == {"ok": True}
+
+    _, restantes = pedir(aberto, f"/api/conversas/{conversa}/transferencias")
+    assert [t["id"] for t in restantes["transferencias"]] == ["e" * 32]
+
+    mensagens = pedido_a_conversa(aberto, conversa)["messages"]
+    assert not [m for m in mensagens if m["mediaId"] == "d" * 32]
+    # O texto que já lá estava — a mensagem que criou a conversa e a que
+    # o teste escreveu — sobrevive intacto.
+    assert "olá" in [m["text"] for m in mensagens]
+    assert [m for m in mensagens if m["mediaId"] == "e" * 32] != []
+
+
+# ---------------------------------------------------------------------
+# Reprodução (`docs/media.md` §4.6)
+# ---------------------------------------------------------------------
+
+
+def _transferencia_completa(aberto: _Aberto, conversa: str) -> str:
+    """Regista uma transferência de duas fatias, marcada como completa."""
+    aberto.loja.registar_transferencia(
+        conversa,
+        "them",
+        id="d" * 32,
+        tipo="video",
+        codec="matroska",
+        formato="matroska",
+        nome="praia.mkv",
+        total_bytes=100_000,
+        total_pedacos=2,
+        bytes_por_pedaco=49125,
+        duracao_s=42,
+        sha256=bytes(range(32)),
+        completo=True,
+    )
+    for i in range(2):
+        aberto.loja.adicionar_mensagem(
+            conversa, "them", f"ONX1 {i}", transferencia_id="d" * 32
+        )
+    return "d" * 32
+
+
+def test_media_iniciar_vai_no_arranque_e_com_o_caminho_da_loja(
+    tmp_path: Path,
+) -> None:
+    """O daemon tem de ficar a apontar para **esta** loja.
+
+    O caminho vem do sidecar e nunca do cliente, e é o caminho da loja
+    que este sidecar tem aberta. Um `MEDIA_INICIAR` com o caminho
+    errado daria um daemon a ler a base de outra pessoa — ou de um
+    ficheiro que não existe, e o sintoma seria um vídeo que não abre.
+    """
+    daemon = _DaemonFalso()
+    caminho = tmp_path / "loja.db"
+    with loja_mod.Loja(caminho) as aberta:
+        pedido = aberta.registar_pedido("ONYX-AAAAAA-!A!A#", "Ana", "Olá")
+        aberta.decidir_pedido(pedido["id"], "aceite")
+
+        servidor = sidecar_mod.criar_servidor(
+            aberta,
+            None,
+            rotas_mod.montar(aberta, None),
+            porta=_porta_livre(),
+            raiz_ui=Path("/nonexistente"),
+            daemon=daemon,
+            silencioso=True,
+        )
+
+    assert daemon.iniciados == [str(caminho)]
+
+
+def test_um_daemon_indisponivel_nao_impede_o_sidecar_de_arrancar(
+    tmp_path: Path,
+) -> None:
+    """O modo degradado do outro lado: sem daemon, o texto fica inteiro.
+
+    Se ``apontar_media`` levantasse, uma pessoa sem daemon em execução
+    perdia a conversa toda por causa de um botão de áudio.
+    """
+    daemon = _DaemonFalso(erro=ipc_client.DaemonIndisponivel("sem daemon"))
+    with loja_mod.Loja(tmp_path / "loja.db") as aberta:
+        servidor = sidecar_mod.criar_servidor(
+            aberta,
+            None,
+            rotas_mod.montar(aberta, None),
+            porta=_porta_livre(),
+            raiz_ui=Path("/nonexistente"),
+            daemon=daemon,
+            silencioso=True,
+        )
+        app = servidor.sidecar  # type: ignore[attr-defined]
+        assert app.media_erro is not None, "e o motivo fica escrito"
+
+
+def test_o_estado_da_media_diz_que_sim(aberto_com_daemon: _Aberto, daemon: _DaemonFalso) -> None:
+    codigo, corpo = pedir(aberto_com_daemon, "/api/media/estado")
+    assert codigo == 200
+    assert corpo["disponivel"] is True
+    # O `leitor` é um **nome**, e não o índice que vai no IPC.
+    assert corpo["leitor"] == ipc_client.LEITORES_MEDIA[0]
+
+
+def test_o_estado_da_media_explica_a_falta(aberto_sem_leitor: _Aberto) -> None:
+    codigo, corpo = pedir(aberto_sem_leitor, "/api/media/estado")
+    assert codigo == 200
+    assert corpo["disponivel"] is False
+    assert "leitor" in corpo["motivo"]
+
+    # E a interface tem de poder dizer **porque**, e não só «não».
+    assert corpo["motivo"] != ""
+
+
+def test_reproduzir_devolve_o_pid_e_manda_o_id(aberto_com_daemon: _Aberto, daemon: _DaemonFalso) -> None:
+    conversa, _ = _conversa(aberto_com_daemon)
+    id = _transferencia_completa(aberto_com_daemon, conversa)
+
+    codigo, corpo = pedir(aberto_com_daemon, f"/api/transferencias/{id}/reproduzir", metodo="POST")
+    assert codigo == 200
+    assert corpo["pid"] == 4321
+    assert daemon.reproduzidos == [(id, 0)], "o id e o índice do leitor"
+
+
+def test_uma_transferencia_incompleta_da_409_e_nao_404(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """Ela existe e está a meio. `404` faria a interface escondê-la."""
+    conversa, _ = _conversa(aberto_com_daemon)
+    aberto_com_daemon.loja.registar_transferencia(
+        conversa,
+        "them",
+        id="e" * 32,
+        tipo="audio",
+        codec="opus",
+        formato="ogg",
+        nome="a.opus",
+        total_bytes=100_000,
+        total_pedacos=2,
+        bytes_por_pedaco=49125,
+        duracao_s=9,
+        sha256=bytes(range(32)),
+    )
+    aberto_com_daemon.loja.adicionar_mensagem(conversa, "them", "ONX1 0", transferencia_id="e" * 32)
+
+    codigo, corpo = pedir(aberto_com_daemon, f"/api/transferencias/{'e' * 32}/reproduzir", metodo="POST")
+    assert codigo == 409
+    assert corpo["codigo"] == 409
+    # O detalhe diz **quantas** faltam, que é o que a interface escreve
+    # ao lado do «a chegar».
+    assert "1 de 2" in corpo["detalhe"], corpo
+    assert daemon.reproduzidos == [], "e não pediu nada ao daemon"
+
+
+def test_reproduzir_uma_transferencia_que_nao_existe_da_404(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    codigo, _ = pedir(aberto_com_daemon, f"/api/transferencias/{'f' * 32}/reproduzir", metodo="POST")
+    assert codigo == 404
+    assert daemon.reproduzidos == []
+
+
+def test_reproduzir_sem_daemon_da_503(aberto: _Aberto) -> None:
+    """O sidecar a correr sem o outro processo.
+
+    É o caso comum depois de fechar a aplicação, e tem de dar `503` e
+    não `500`: `503` diz «tenta outra vez», `500` diz «está partido».
+    A transferência existe e está completa, para que a resposta seja
+    sobre o daemon e não sobre a loja.
+    """
+    conversa, _ = _conversa(aberto)
+    id = _transferencia_completa(aberto, conversa)
+
+    codigo, corpo = pedir(aberto, f"/api/transferencias/{id}/reproduzir", metodo="POST")
+    assert codigo == 503
+    # A mensagem vem do sidecar e não diz «daemon» por acaso: ela é o
+    # que quem lê o erro precisa de saber.
+    # `ServicoIndisponivel` escreve a mensagem em `erro`; um
+    # `ErroDePedido` escreve-a em `detalhe`. São duas formas
+    # diferentes para o mesmo corpo, e o teste fixa cada uma onde
+    # aparece.
+    assert "não está disponível" in corpo["erro"], corpo
+
+
+# ---------------------------------------------------------------------
+# O streaming de vídeo
+# ---------------------------------------------------------------------
+
+
+def test_iniciar_streaming_pede_480p_a_30_fps(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """A rota pede 854×480 a 30 fps com 300 kbit/s de vídeo.
+
+    São os números de §3.4.2, medidos: 6,3× de folga no orçamento de
+    12,8 msg/s. E a geometria vem do **cliente**, não de uma constante
+    aqui — por isso o teste fixa o que foi pedido e não o que a rota
+    devolve, que é o mesmo número e não provaria nada.
+    """
+    codigo, corpo = pedir(
+        aberto_com_daemon,
+        "/api/media/streaming/iniciar",
+        metodo="POST",
+        corpo={"largura": 854, "altura": 480, "fps": 30, "videoKbps": 300},
+    )
+    assert codigo == 200, corpo
+    assert corpo["largura"] == 854
+    assert daemon.capturas == [(854, 480, 30, 32, 300)], daemon.capturas
+
+
+def test_iniciar_streaming_usa_480p_quando_o_cliente_nao_diz(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """Sem geometria no pedido, a rota pede 480p — que é o mínimo.
+
+    E «o mínimo» é literal: 480p é o que a spec exige e o que o codec
+    medido aguenta. Uma rota que aceitasse um `320` do cliente estaria
+    a aceitar uma imagem que não traz definição nenhuma.
+    """
+    codigo, corpo = pedir(
+        aberto_com_daemon, "/api/media/streaming/iniciar", metodo="POST", corpo={}
+    )
+    assert codigo == 200, corpo
+    assert daemon.capturas == [(854, 480, 30, 32, 300)], daemon.capturas
+
+
+def test_iniciar_streaming_recusa_um_valor_que_nao_e_inteiro(
+    aberto_com_daemon: _Aberto,
+) -> None:
+    """`fps` a texto é ``400``, e o `ffmpeg` nunca chega a arrancar.
+
+    O `JSON` aceita uma string onde se quer um número, e o `IPC` não.
+    Passar isso adiante dava um `ffmpeg` com `-framerate texto`, que
+    é um erro muito mais tarde e muito mais difícil de ler.
+    """
+    codigo, corpo = pedir(
+        aberto_com_daemon,
+        "/api/media/streaming/iniciar",
+        metodo="POST",
+        corpo={"fps": "trinta"},
+    )
+    assert codigo == 400, corpo
+    assert "fps" in corpo["detalhe"]
+
+
+def test_iniciar_streaming_da_503_quando_o_ffmpeg_da_recusa(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """O `ffmpeg` não arrancou é ``503``, e a mensagem dele diz porquê.
+
+    Não é ``400``: o pedido estava certo e o servidor é que não pôde.
+    E a mensagem traz o `stderr` do `ffmpeg` (§8.1.1), que é a única
+    informação que permite resolver — «a máquina não tem ecrã» e «a
+    largura não é múltipla» dão o mesmo `503`.
+    """
+    daemon.erro = ipc_client.ErroDaemon(0x14, "Unknown input format: 'x11grab'")
+    codigo, corpo = pedir(
+        aberto_com_daemon, "/api/media/streaming/iniciar", metodo="POST", corpo={}
+    )
+    assert codigo == 503, corpo
+    assert "x11grab" in corpo["detalhe"]
+
+
+def test_o_quadro_vem_em_base64_e_com_a_geometria_certo(
+    aberto_com_daemon: _Aberto,
+) -> None:
+    """O quadro volta em base-64, com a sequência e o tempo.
+
+    E a base-64 é o mesmo custo que o `ONX1` paga desde o início: é o
+    preço de a media ser indistinguível de texto.
+    """
+    codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/quadro")
+    assert codigo == 200, corpo
+    assert corpo["sequencia"] == 7
+    assert corpo["clockMs"] == 233
+    bruto = base64.b64decode(corpo["vp8"])
+    assert bruto == bytes(range(256)), "o base-64 tem de devolver os bytes intactos"
+
+
+def test_a_captura_que_acaba_da_409_e_nao_404(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """A captura que morreu é ``409``, e o `VideoStreaming` traduz em fim.
+
+    ``409`` e não ``404``: «não há captura» é uma falha de arranque e
+    «a captura acabou» é uma chamada que terminou, e quem lê o registo
+    precisa de saber qual das duas foi. A UI trata as duas igual — as
+    duas são o fim — mas o registo não.
+    """
+    daemon.quadro_erro = ipc_client.ErroDaemon(ipc_client.ERR_MEDIA, "a captura terminou")
+    codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/quadro")
+    assert codigo == 409, corpo
+
+
+def test_sem_daemon_as_tres_respondem_503(aberto: _Aberto) -> None:
+    """Sem daemon, as três dão ``503`` — e nenhuma entra em pânico."""
+    for caminho, metodo in (
+        ("/api/media/streaming/iniciar", "POST"),
+        ("/api/media/streaming/quadro", "GET"),
+        ("/api/media/streaming/parar", "POST"),
+    ):
+        codigo, _corpo = pedir(aberto, caminho, metodo=metodo)
+        assert codigo == 503, f"{caminho} respondeu {codigo}"
+
+
+def test_parar_streaming_nao_parte_o_ffmpeg(aberto_com_daemon: _Aberto) -> None:
+    """Parar é um ``204`` que não toca no daemon.
+
+    `MEDIA_PARAR` não existe (§8.1.2): parar a captura é o `Drop` do
+    `Stream`. Esta rota não manda o `ffmpeg` parar — diz à UI que pode
+    deixar de pedir quadros, e o `409` seguinte faz o resto.
+    """
+    codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/parar", metodo="POST")
+    assert codigo == 200, corpo
+
+
+def test_o_audio_vem_em_base64_numa_bolsa(
+    aberto_com_daemon: _Aberto,
+) -> None:
+    """O áudio volta em `{opus: base64}`, e não em base-64 pelado.
+
+    Porque uma `string` vazia não distingue «não há pacote» de «um
+    pacote de tamanho zero» — e um pacote de Opus de tamanho zero é um
+    pacote corrompido, não um silêncio. Devolver `""` faria o
+    `Chamada.jsx` tocar silêncio em vez de dizer que não há nada.
+    """
+    codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/audio")
+    assert codigo == 200, corpo
+    assert set(corpo) == {"opus"}, corpo
+    bruto = base64.b64decode(corpo["opus"])
+    assert bruto == bytes(range(80)), "o pacote tem de chegar intacto"
+
+
+def test_o_audio_que_acaba_da_null_e_nao_uma_bolsa_vazia(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """Sem pacotes, `{"opus": null}` — e o `null` é o fim da chamada.
+
+    E a rota devolve `200` e não `409`, ao contrário do quadro. A
+    diferença é deliberada: o `409` serve o `readVideoFrame`, que é um
+    `fetch` por quadro e quer um erro HTTP; o áudio vem por um laço que
+    só precisa de saber que acabou, e `null` é mais barato e não
+    passa por um caminho de excepção que acordaria o browser.
+    """
+    daemon.tem_audio = False
+    codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/audio")
+    assert codigo == 200, corpo
+    assert corpo == {"opus": None}, corpo
+
+
+def test_a_captura_morta_da_409_no_audio(
+    aberto_com_daemon: _Aberto, daemon: _DaemonFalso
+) -> None:
+    """O `ffmpeg` que morreu é `409` — e o browser traduz em `null`."""
+    daemon.audio_erro = ipc_client.ErroDaemon(
+        ipc_client.ERR_MEDIA, "a captura terminou"
+    )
+    codigo, _corpo = pedir(aberto_com_daemon, "/api/media/streaming/audio")
+    assert codigo == 409
+
+
+def test_o_audio_sem_daemon_da_503(aberto: _Aberto) -> None:
+    codigo, _corpo = pedir(aberto, "/api/media/streaming/audio")
+    assert codigo == 503

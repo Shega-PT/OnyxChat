@@ -120,6 +120,7 @@ consome apenas esta secção e nada mais.
 | Documento | Especifica | Consumidores |
 | --- | --- | --- |
 | [`pipeline.md`](pipeline.md) | as 9 camadas K1→K9: entrada, chave, operação, saída, inversa, limites | Rust, Python, C/C++, Lua |
+| [`media.md`](media.md) | áudio e vídeo **como texto**, dentro do envelope normal: K1 por tipo, moldura, base-64, dois modos, limites | Rust, Python |
 | [`message_format.md`](message_format.md) | envelope binário: layout, região assinada, versionamento, anti-replay | Rust, Python |
 | [`handshake.md`](handshake.md) | transcript canónico, `FRIEND_REQUEST`/`ACCEPT`/`REJECT`, anti-replay, anti-downgrade | Rust, Python |
 | [`ipc.md`](ipc.md) | protocolo local Python↔daemon: framing, comandos, erros, timeouts | Rust, Python |

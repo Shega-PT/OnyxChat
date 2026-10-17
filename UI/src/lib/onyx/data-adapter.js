@@ -84,6 +84,15 @@ import { PonteIndisponivel } from './bridge-adapter';
  * @property {(conversationId: string, pinned: boolean) => Promise<object>} pinConversation
  * @property {(conversationId: string, muted: boolean) => Promise<object>} muteConversation
  * @property {(conversationId: string) => Promise<object>} clearHistory
+ * @property {(conversationId: string, completas?: 'todas'|'completas'|'incompletas') => Promise<object[]>} listTransfers
+ * @property {(transferId: string) => Promise<object>} getTransfer
+ * @property {(transferId: string) => Promise<object>} deleteTransfer
+ * @property {() => Promise<object>} getMediaState
+ * @property {(transferId: string) => Promise<object>} playTransfer
+ * @property {(largura: number, altura: number, fps: number, audioKbps: number, videoKbps: number) => Promise<{largura: number, altura: number}>} startVideoStream
+ * @property {() => Promise<{sequencia: number, clockMs: number, vp8: string} | null>} readVideoFrame
+ * @property {() => Promise<{opus: string} | null>} readAudioFrame
+ * @property {() => Promise<void>} stopVideoStream
  * @property {(contactId: string, blocked: boolean) => Promise<object>} blockContact
  * @property {() => Promise<{estado: string}>} getAccountState
  * @property {(dados: {utilizador: string, frase: string}) => Promise<object>} registerAccount

@@ -17,10 +17,20 @@ Duas notas de enquadramento, antes das camadas:
   restantes transformações. A segurança prática do sistema resulta da
   *composição correta* + *separação de chaves* + *autenticação* +
   *proteção de transporte* + *implementação correta*.
-* **Escopo atual: texto.** O pipeline opera sobre bytes UTF-8
-  (`plaintext` textual). Imagens, áudio, vídeo e ficheiros arbitrários
-  estão fora do escopo atual — decisão de âmbito, não deficiência. O
-  pipeline não é um sistema universal de content-type.
+* **Escopo: bytes UTF-8, e só isso.** O pipeline opera sobre `plaintext`
+  UTF-8 e **nunca sabe o que é**. Texto, áudio e vídeo entram pela mesma
+  porta e o pipeline trata-os de forma idêntica — o que é exactamente o
+  invariante de [`media.md`](media.md): o que sai para a rede é um
+  `FRAME_CHAT` com um envelope normal, e a rede não sabe se é texto,
+  áudio ou vídeo.
+
+  **Isto não é um sistema universal de content-type, e não vai ser.** A
+  distinção de tipo faz-se **na chave** (K1 derivada por tipo), nunca no
+  envelope — logo o pipeline não precisa de conhecer categorias. Um
+  perfil novo por tipo de conteúdo exigiria a versão `0x02` do envelope,
+  que [`message_format.md`](message_format.md) §Regra 4 reserva para
+  exactamente isso. Ficheiros arbitrários continuam fora de âmbito: não
+  têm preâmbulo nem resumo, e são outra especificação.
 
 ### Parâmetros fixos
 

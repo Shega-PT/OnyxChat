@@ -57,7 +57,7 @@ REGRAS = [
     (r"\bproprietario\b", "proprietário"),
 ]
 
-IGNORADOS = {".git", "target", ".venv", "build", "__pycache__",
+IGNORADOS = {".git", "target", ".venv", "build", "__pycache__", ".cache",
              ".hypothesis", ".pytest_cache", "vendor", "node_modules",
              "UI/dist"}
 FORA = {"scripts/verificar_portugues.py", "scripts/verificar_frases.py",

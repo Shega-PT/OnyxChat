@@ -89,3 +89,5 @@ libssl-dev | -    | test -e /usr/include/openssl/ssl.h | opcional       | gestor
 #   >= 8 GB para compilar o binário de produção (com arti)
 #   >= 2 GB para executar
 memoria    | 8    | memoria-disponivel                | obrigatorio    | hardware
+libvpx-dev  | -    | test -e /usr/include/vpx/vpx_encoder.h | obrigatorio    | gestor-de-pacotes
+nasm        | -    | nasm -v                     | obrigatorio    | gestor-de-pacotes

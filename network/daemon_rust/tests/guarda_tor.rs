@@ -137,11 +137,7 @@ fn codigo_de_producao(texto: &str) -> &str {
         // pode ser um `#[cfg(...)]` ou o `mod` — corta antes dela.
         None => texto,
         Some(i) => {
-            let byte = texto
-                .lines()
-                .take(i)
-                .map(|l| l.len() + 1)
-                .sum::<usize>();
+            let byte = texto.lines().take(i).map(|l| l.len() + 1).sum::<usize>();
             &texto[..byte]
         }
     }
@@ -384,9 +380,16 @@ fn licenca_e_metadados_sao_coerentes() {
 
     // (2) Todos os `Cargo.toml`.
     let mut n_cargo = 0;
-    for caminho in ["Cargo.toml", "crypto/rust/Cargo.toml", "network/daemon_rust/Cargo.toml"] {
+    for caminho in [
+        "Cargo.toml",
+        "crypto/rust/Cargo.toml",
+        "network/daemon_rust/Cargo.toml",
+    ] {
         let texto = fs::read_to_string(raiz.join(caminho)).expect(caminho);
-        if let Some(linha) = texto.lines().find(|l| l.trim_start().starts_with("license =")) {
+        if let Some(linha) = texto
+            .lines()
+            .find(|l| l.trim_start().starts_with("license ="))
+        {
             assert!(
                 linha.contains(ESPERADO),
                 "{caminho} diz `{linha}` e a `LICENSE` diz {ESPERADO}"
@@ -396,7 +399,10 @@ fn licenca_e_metadados_sao_coerentes() {
         // `license.workspace = true` não é uma divergência: herda do
         // workspace, que o ponto anterior já verificou.
     }
-    assert!(n_cargo >= 2, "esperava ao menos 2 Cargo.toml com `license =`");
+    assert!(
+        n_cargo >= 2,
+        "esperava ao menos 2 Cargo.toml com `license =`"
+    );
 
     // (3) O `pyproject.toml`.
     let pyproject = fs::read_to_string(raiz.join("pyproject.toml")).expect("pyproject.toml");
@@ -844,7 +850,10 @@ fn as_duas_exclusoes_nao_confundem_uma_a_outra() {
     let raiz = Path::new("/repo");
 
     // O Node é de terceiros e não é uma árvore independente.
-    assert!(!e_arvore_independente(raiz, Path::new("/repo/UI/tools/node")));
+    assert!(!e_arvore_independente(
+        raiz,
+        Path::new("/repo/UI/tools/node")
+    ));
     // O MiniNode é uma árvore independente e não é uma ferramenta.
     assert!(!e_ferramenta_de_terceiros(
         raiz,
@@ -899,12 +908,7 @@ const EXTENSOES_DE_CODIGO: &[&str] = &["rs", "py", "c", "cpp", "h", "js", "jsx",
 /// Percorre a árvore. `so_distribuidos` decide se `tests/` e `fuzz/`
 /// contam.
 fn collectar(raiz: &Path, so_distribuidos: bool) -> Vec<PathBuf> {
-    fn descender(
-        atual: &Path,
-        raiz: &Path,
-        so_distribuidos: bool,
-        saida: &mut Vec<PathBuf>,
-    ) {
+    fn descender(atual: &Path, raiz: &Path, so_distribuidos: bool, saida: &mut Vec<PathBuf>) {
         let Ok(entradas) = fs::read_dir(atual) else {
             return;
         };
@@ -1067,13 +1071,17 @@ fn os_auditores_de_texto_passam() {
     // vez de passar em silêncio: um guard que passa sem verificar é
     // pior do que não existir.
     let venv = raiz.join(".venv").join("bin").join("python");
-    let py = if venv.exists() { venv } else { PathBuf::from("python3") };
+    let py = if venv.exists() {
+        venv
+    } else {
+        PathBuf::from("python3")
+    };
 
     for auditor in [
-        "verificar_alfabeto.py",   // caracteres de outros sistemas de escrita
-        "verificar_portugues.py",  // americanismos em todo o ficheiro
+        "verificar_alfabeto.py",    // caracteres de outros sistemas de escrita
+        "verificar_portugues.py",   // americanismos em todo o ficheiro
         "verificar_comentarios.py", // americanismos só em prosa
-        "verificar_frases.py",     // colagens que não são português
+        "verificar_frases.py",      // colagens que não são português
     ] {
         let caminho = raiz.join("scripts").join(auditor);
         assert!(caminho.exists(), "{auditor} não existe");
@@ -1115,13 +1123,14 @@ fn derivacao_da_amizade_bate_entre_rust_e_python() {
         .to_path_buf();
 
     // (1) O vector Rust.
-    let rs = fs::read_to_string(raiz.join("crypto/rust/src/amizade.rs"))
-        .expect("amizade.rs legível");
+    let rs =
+        fs::read_to_string(raiz.join("crypto/rust/src/amizade.rs")).expect("amizade.rs legível");
     let vector_rs = extrair_atribuicao(&rs, r#"const VECTOR_K1: &str = ""#);
     let semente_rs = extrair_atribuicao(&rs, r#"const VECTOR_SEMENTE: &str = ""#);
 
     // (2) O vector Python — lido da **constante**, não da docstring.
-    let py = fs::read_to_string(raiz.join("tests/test_amizade.py")).expect("test_amizade.py legível");
+    let py =
+        fs::read_to_string(raiz.join("tests/test_amizade.py")).expect("test_amizade.py legível");
     let vector_py = extrair_atribuicao(&py, r#"VECTOR_K1 = ""#);
     let semente_py = extrair_atribuicao(&py, r#"VECTOR_SEMENTE = ""#);
 
@@ -1237,7 +1246,8 @@ fn limpeza_de_memoria_esta_chamada() {
     );
 
     // (3) As chamadas nos ramos de erro da K4 — os dois.
-    let k4 = fs::read_to_string(c_cpp.join("transposition.cpp")).expect("transposition.cpp legível");
+    let k4 =
+        fs::read_to_string(c_cpp.join("transposition.cpp")).expect("transposition.cpp legível");
     let chamadas = k4.matches("onyx_limpar(saida").count();
     assert_eq!(
         chamadas, 2,
@@ -1269,9 +1279,7 @@ fn so_o_glue_implementa_backend_tor() {
     let violacoes: Vec<String> = fontes("")
         .iter()
         .flat_map(|fonte| {
-            let autorizado = AUTORIZADOS
-                .iter()
-                .any(|a| fonte.relativo.ends_with(a));
+            let autorizado = AUTORIZADOS.iter().any(|a| fonte.relativo.ends_with(a));
             codigo_de_producao(&fonte.texto)
                 .lines()
                 .enumerate()
@@ -1333,8 +1341,8 @@ fn tor_arti_existe_e_e_o_unico_autorizado() {
 /// contrato por escrito.
 #[test]
 fn tor_falso_vive_em_tor_rs() {
-    let tor_rs = fs::read_to_string(raiz_crate().join("src").join("tor.rs"))
-        .expect("src/tor.rs legível");
+    let tor_rs =
+        fs::read_to_string(raiz_crate().join("src").join("tor.rs")).expect("src/tor.rs legível");
     assert!(
         tor_rs.contains("struct TorFalso"),
         "`TorFalso` (o backend offline dos testes) tem de viver em \

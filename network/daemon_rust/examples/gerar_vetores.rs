@@ -37,10 +37,12 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
+use crypto_core::amizade;
 use crypto_core::signer::chave_publica_a_partir_da_seed;
 use onyxchatd::anti_replay::RegistoNonce1;
+use onyxchatd::media::ficheiro::TAM_FATIA;
 use onyxchatd::pipeline::{self, Chaves};
-use onyxchatd::{ffi_c, handshake, lua_camadas};
+use onyxchatd::{ffi_c, handshake, lua_camadas, media};
 
 // ---------------------------------------------------------------------
 // Helpers
@@ -140,10 +142,9 @@ fn gerar_camadas() -> Vec<Value> {
 
     // --- K2 — deslocamento +3 (Lua) ---
     let entrada = b"Vetor K2: ABC xyz 012";
-    let saida =
-        lua_camadas::deslocamento(entrada, pipeline::DESLOCAMENTO_K2).expect("K2 cifra");
-    let volta = lua_camadas::deslocamento_inverso(&saida, pipeline::DESLOCAMENTO_K2)
-        .expect("K2 decifra");
+    let saida = lua_camadas::deslocamento(entrada, pipeline::DESLOCAMENTO_K2).expect("K2 cifra");
+    let volta =
+        lua_camadas::deslocamento_inverso(&saida, pipeline::DESLOCAMENTO_K2).expect("K2 decifra");
     assert_eq!(volta, entrada, "K2 roundtrip");
     v.push(kat(Kat {
         id: "K2",
@@ -246,10 +247,9 @@ fn gerar_camadas() -> Vec<Value> {
     // aponta para o mesmo ficheiro das duas, de propósito: é essa a
     // informação que o vector carrega sobre onde a camada vive.
     let entrada = b"deslocamento K8 +7";
-    let saida =
-        lua_camadas::deslocamento(entrada, pipeline::DESLOCAMENTO_K8).expect("K8 cifra");
-    let volta = lua_camadas::deslocamento_inverso(&saida, pipeline::DESLOCAMENTO_K8)
-        .expect("K8 decifra");
+    let saida = lua_camadas::deslocamento(entrada, pipeline::DESLOCAMENTO_K8).expect("K8 cifra");
+    let volta =
+        lua_camadas::deslocamento_inverso(&saida, pipeline::DESLOCAMENTO_K8).expect("K8 decifra");
     assert_eq!(volta, entrada, "K8 roundtrip");
     v.push(kat(Kat {
         id: "K8",
@@ -316,10 +316,8 @@ fn gerar_pipeline() -> Vec<Value> {
         ),
         ("002", "Mensagem com acentuação: çãé", 0x30),
         (
-            "003",
-            // 1 byte: o menor plaintext que o pipeline aceita.
-            "x",
-            0x60,
+            "003", // 1 byte: o menor plaintext que o pipeline aceita.
+            "x", 0x60,
         ),
     ];
 
@@ -430,15 +428,275 @@ fn gerar_handshake() -> Vec<Value> {
 // docs/test_vectors.md — forma legível (gerado dos JSON)
 // ---------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------
+
+/// Os vectores do módulo de media (`docs/media.md` §1 e §2).
+///
+/// Duas famílias, e a divisão é a da própria spec:
+///
+/// * **chaves** — a K1 derivada por tipo de conteúdo, com os mesmos
+///   vectores que `crypto/rust/src/amizade.rs` congela. Vêm de
+///   `amizade::derivar_k1_por_tipo`, e o Python confere-os contra
+///   `messenger/amizade.py`.
+/// * **molduras** — o preâmbulo `ONX1` com o corpo em base-64, nos
+///   casos que importam: o normal, o `HOLD` sem corpo, o `clock_ms`
+///   negativo, e os limites.
+///
+/// O caso negativo do `clock_ms` é o que fixa o formato: é onde a
+/// primeira versão punha bytes não-ASCII no plaintext e o `ENCODE`
+/// passava a recusá-lo com `0x08`.
+fn gerar_media() -> Vec<Value> {
+    let k_emissor = [0x11u8; 32];
+    let k_recetor = [0x22u8; 32];
+    let pub_a = [0xAAu8; 32];
+    let pub_b = [0xBBu8; 32];
+    let nonce: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0x0A, 0x0B, 0x0C];
+
+    let mut saida: Vec<Value> = Vec::new();
+
+    // --- chaves por tipo ---------------------------------------------
+    for (id, nota, tipo, ke, kr, pub_emissor) in [
+        (
+            "001",
+            "K1 de áudio, A→B",
+            amizade::TIPO_AUDIO,
+            &k_emissor,
+            &k_recetor,
+            &pub_a,
+        ),
+        (
+            "002",
+            "K1 de vídeo, A→B",
+            amizade::TIPO_VIDEO,
+            &k_emissor,
+            &k_recetor,
+            &pub_a,
+        ),
+        (
+            "003",
+            "K1 de vídeo, B→A — a direcção do `info` estende-se ao tipo",
+            amizade::TIPO_VIDEO,
+            &k_recetor,
+            &k_emissor,
+            &pub_b,
+        ),
+    ] {
+        let chave =
+            amizade::derivar_k1_por_tipo(ke, kr, pub_emissor, tipo).expect("tipo conhecido deriva");
+        saida.push(json!({
+            "id": id,
+            "familia": "chaves",
+            "nota": nota,
+            "tipo": tipo,
+            "k_emissor_hex": hex(ke),
+            "k_recetor_hex": hex(kr),
+            "publica_emissor_hex": hex(pub_emissor),
+            // O `salt` é o rótulo de domínio com o tipo — e é por isso
+            // que é este campo, e não um `nonce1_hex`, que diz como a
+            // chave saiu. Um campo que não entra na fórmula mente.
+            "salt_hex": hex(&[&amizade::DOMINIO_MEDIA[..], &[tipo]].concat()),
+            "saida_hex": hex(&chave),
+        }));
+    }
+
+    // --- molduras ------------------------------------------------------
+    let casos: [(
+        &str,
+        &str,
+        media::moldura::Tipo,
+        media::moldura::Modo,
+        media::moldura::Flags,
+        u16,
+        u32,
+        i32,
+        &[u8],
+    ); 5] = [
+        (
+            "101",
+            "unidade de vídeo em streaming, com `base64` de 3 bytes",
+            media::moldura::Tipo::Video,
+            media::moldura::Modo::Streaming,
+            media::moldura::Flags::VAZIO,
+            4660,
+            7,
+            0,
+            b"abc",
+        ),
+        (
+            "102",
+            "`clock_ms` negativo — o caso que fixa que o preâmbulo é ASCII",
+            media::moldura::Tipo::Video,
+            media::moldura::Modo::Streaming,
+            media::moldura::Flags::VAZIO,
+            4660,
+            7,
+            -250,
+            b"payload",
+        ),
+        (
+            "103",
+            "`HOLD`: moldura sem corpo, o que um ecrã estático produz",
+            media::moldura::Tipo::Video,
+            media::moldura::Modo::Streaming,
+            media::moldura::Flags::VAZIO,
+            4660,
+            7,
+            0,
+            b"",
+        ),
+        (
+            "104",
+            "keyframe, com `clock_ms` no limite mínimo de `i32`",
+            media::moldura::Tipo::Video,
+            media::moldura::Modo::Streaming,
+            media::moldura::Flags::VAZIO.com(media::moldura::Flags::KEYFRAME),
+            0,
+            0,
+            i32::MIN,
+            b"k",
+        ),
+        (
+            "105",
+            "fatia de áudio em não-streaming",
+            media::moldura::Tipo::Audio,
+            media::moldura::Modo::NaoStreaming,
+            media::moldura::Flags::VAZIO,
+            1,
+            4294967295,
+            0,
+            b"opus",
+        ),
+    ];
+
+    for (id, nota, tipo, modo, flags, stream, seq, clock, corpo) in casos {
+        let m = media::moldura::construir_com_flags(tipo, modo, flags, stream, seq, clock, corpo);
+        let bytes = m.as_bytes();
+        // A asserção que vale mais do que o vector: se isto deixar de
+        // ser ASCII, o `ENCODE` recusa com `0x08` e a falha aparece como
+        // «a media não envia».
+        assert!(
+            bytes.is_ascii(),
+            "o vector {id} produziu plaintext não ASCII — o `ENCODE` recusaria"
+        );
+        saida.push(json!({
+            "id": id,
+            "familia": "molduras",
+            "nota": nota,
+            // Como **strings**, e não como números: os dois são
+            // caracteres ASCII legíveis (`V`, `S`) e um `65` no vector
+            // não diz a nada a quem o lê.
+            "tipo": (tipo.caractere() as char).to_string(),
+            "modo": (modo.caractere() as char).to_string(),
+            "flags": flags.valor(),
+            "stream": stream,
+            "seq": seq,
+            "clock_ms": clock,
+            "corpo_hex": hex(corpo),
+            "texto": m.como_texto(),
+            "comprimento": bytes.len(),
+        }));
+    }
+
+    // --- manifestos de transferência ------------------------------------
+    // O modo não-streaming tem um formato dentro do formato — o
+    // manifesto — e um formato dentro do formato é exactamente onde
+    // duas implementações divergem sem dar erro: os bytes são todos
+    // válidos, o ficheiro abre, e o receptor lê o campo errado.
+    let manifestos: [(
+        &str,
+        &str,
+        media::moldura::Tipo,
+        media::ficheiro::Codec,
+        media::ficheiro::Formato,
+        u32,
+        &str,
+        usize,
+    ); 4] = [
+        (
+            "201",
+            "manifesto de vídeo, uma fatia",
+            media::moldura::Tipo::Video,
+            media::ficheiro::Codec::Matroska,
+            media::ficheiro::Formato::Matroska,
+            12,
+            "exemplo.mkv",
+            TAM_FATIA,
+        ),
+        (
+            "202",
+            "manifesto de áudio, Opus em Ogg",
+            media::moldura::Tipo::Audio,
+            media::ficheiro::Codec::Opus,
+            media::ficheiro::Formato::Ogg,
+            42,
+            "nota-voz.opus",
+            4_000,
+        ),
+        (
+            "203",
+            "manifesto de ficheiro vazio — **zero** fatias",
+            media::moldura::Tipo::Video,
+            media::ficheiro::Codec::Matroska,
+            media::ficheiro::Formato::Matroska,
+            0,
+            "vazio.mkv",
+            0,
+        ),
+        (
+            "204",
+            "manifesto com `tipo` vídeo e `codec` Opus — os dois campos, independentes",
+            media::moldura::Tipo::Video,
+            media::ficheiro::Codec::Opus,
+            media::ficheiro::Formato::Matroska,
+            90,
+            "video-com-audio-opus.mkv",
+            TAM_FATIA + 1,
+        ),
+    ];
+
+    for (id, nota, tipo, codec, formato, duracao, nome, tamanho) in manifestos {
+        let conteudo: Vec<u8> = (0..tamanho)
+            .map(|i| (i as u8).wrapping_mul(17).wrapping_add(3))
+            .collect();
+        let manifesto =
+            media::ficheiro::Manifesto::novo(tipo, codec, formato, duracao, nome, &conteudo)
+                .expect("manifesto coerente");
+        let moldura = media::ficheiro::moldura_de_manifesto(&manifesto, 1, 0);
+        saida.push(json!({
+            "id": id,
+            "familia": "manifestos",
+            "nota": nota,
+            "tipo": (tipo.caractere() as char).to_string(),
+            "codec": codec.valor(),
+            "formato": formato.valor(),
+            "duracao_s": duracao,
+            // O `nome` é uma **entrada**, e um vector que não declara as
+            // suas entradas obriga o consumidor a adivinhá-las. A
+            // primeira versão do teste em `vetores.rs` punha
+            // `vector.mkv` e o texto não batia — e a falha não dizia
+            // qual dos dois lados tinha razão.
+            "nome": nome,
+            "total_bytes": manifesto.total_bytes,
+            "total_pedacos": manifesto.total_pedacos,
+            "bytes_por_pedaco": manifesto.bytes_por_pedaco,
+            "sha256_hex": hex(&manifesto.sha256),
+            "id_hex": hex(&manifesto.id()),
+            "corpo_hex": hex(&manifesto.corpo()),
+            "texto": moldura.como_texto(),
+            "comprimento": moldura.as_bytes().len(),
+        }));
+    }
+
+    saida
+}
 
 fn main() {
     let camadas = gerar_camadas();
     let vetores = gerar_pipeline();
     let hs = gerar_handshake();
+    let media = gerar_media();
     let raiz_projeto = raiz();
 
     let camadas_json = serde_json::to_string_pretty(&json!({
@@ -459,6 +717,14 @@ fn main() {
         "vetores": hs,
     }))
     .expect("JSON handshake");
+    let media_json = serde_json::to_string_pretty(&json!({
+        "versao": "1",
+        "descricao": "K1 por tipo de conteúdo + moldura ONX1 (docs/media.md)",
+        "limite_media": media::moldura::TAM_MEDIA_MAX,
+        "pre_ambulo": media::moldura::TAM_PRE_AMBULO,
+        "vetores": media,
+    }))
+    .expect("JSON media");
     // Os vectores de identidade são **lidos**, não gerados: a fórmula vive
     // em `messenger/identidade.py`. Se este exemplo os produzisse, seria uma
     // segunda implementação da fórmula, a competir com a primeira — e os
@@ -472,27 +738,32 @@ fn main() {
         .expect("identidade.json tem `vetores`")
         .clone();
 
-    let md = onyxchatd::docs_vec::gerar_markdown(&camadas, &vetores, &hs, &identidade);
+    // `media` é já o vector que o gerador produziu — não é lido de
+    // lado nenhum, ao contrário de `identidade`. Relê-lo do JSON seria
+    // testar se o `serde_json` faz ida e volta, que é uma coisa
+    // verdadeira e irrelevante.
+    let md = onyxchatd::docs_vec::gerar_markdown(&camadas, &vetores, &hs, &identidade, &media);
 
     let dir = raiz_projeto.join("tests/vectors");
     fs::create_dir_all(&dir).expect("mkdir tests/vectors");
     fs::write(dir.join("camadas.json"), &camadas_json).expect("escreve camadas.json");
     fs::write(dir.join("pipeline.json"), &pipeline_json).expect("escreve pipeline.json");
     fs::write(dir.join("handshake.json"), &handshake_json).expect("escreve handshake.json");
+    fs::write(dir.join("media.json"), &media_json).expect("escreve media.json");
     fs::write(raiz_projeto.join("docs/test_vectors.md"), &md).expect("escreve test_vectors.md");
 
     println!(
-        "{} camadas, {} vetores fim-a-fim, {} handshake",
+        "{} camadas, {} vetores fim-a-fim, {} handshake, {} de media",
         camadas.len(),
         vetores.len(),
-        hs.len()
+        hs.len(),
+        media.len()
     );
     println!(
-        "escrito: tests/vectors/camadas.json, pipeline.json, handshake.json, docs/test_vectors.md"
+        "escrito: tests/vectors/camadas.json, pipeline.json, handshake.json, media.json,\n\
+                  docs/test_vectors.md"
     );
-    println!(
-        "        identidade.json foi lido, não gerado — a fórmula é de Python"
-    );
+    println!("        identidade.json foi lido, não gerado — a fórmula é de Python");
 
     // ---- Corpora de fuzz (F3.1) ---------------------------------------
     //
@@ -601,9 +872,9 @@ fn corpus_envelope(vetores: &[Value]) -> Vec<Vec<u8>> {
     }
 
     // Os limites, que é onde os parsers falham.
-    seeds.push(Vec::new());                                   // 0 bytes
+    seeds.push(Vec::new()); // 0 bytes
     seeds.push(vec![0u8; onyxchatd::envelope::TAM_MINIMO - 1]); // 116
-    seeds.push(vec![0u8; onyxchatd::envelope::TAM_MINIMO]);     // 117, mínimo
+    seeds.push(vec![0u8; onyxchatd::envelope::TAM_MINIMO]); // 117, mínimo
     seeds.push(vec![0u8; onyxchatd::envelope::TAM_MINIMO + 1]); // 118
     seeds.push(vec![0x00u8; onyxchatd::envelope::MAX_ENVELOPE]); // máximo
 

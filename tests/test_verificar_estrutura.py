@@ -379,7 +379,7 @@ def test_a_contagem_de_metodos_conta_o_ficheiro_certo() -> None:
     demo = ve._conta(ve.RAIZ / "UI/src/lib/onyx/mock-adapter.js", "métodos")
     contrato = ve.RAIZ / "UI/src/lib/onyx/data-adapter.js"
     declarados = contrato.read_text(encoding="utf-8").count("@property")
-    assert ponte == 25, ponte
+    assert ponte == 34, ponte
     assert demo == ponte, f"os dois adaptadores divergem: {ponte} != {demo}"
     assert declarados == ponte, f"o contrato declara {declarados} e há {ponte}"
 

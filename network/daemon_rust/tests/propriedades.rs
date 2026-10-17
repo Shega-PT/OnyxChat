@@ -578,4 +578,3 @@ fn pedido_valido() -> Vec<u8> {
     let (_pedido, corpo) = handshake::montar_pedido(&seed);
     corpo
 }
-

@@ -281,8 +281,7 @@ fn fluxo_completo_de_amizade() {
     assert_ne!(amizade_b.k5_proprio, pedido_a.k5, "K5_B ≠ K5_A");
 
     // A confirma: o aceite tem de ecoar o nosso nonce.
-    let amizade_a =
-        confirmar_aceite(&seed_a, &corpo_pedido, &corpo_aceite).expect("A confirma");
+    let amizade_a = confirmar_aceite(&seed_a, &corpo_pedido, &corpo_aceite).expect("A confirma");
     assert_eq!(amizade_a.publica, pub_b);
     assert_eq!(amizade_a.k1, amizade_b.k1, "K1 comum");
     assert_eq!(amizade_a.k5_proprio, pedido_a.k5, "K5_A própria");
@@ -328,8 +327,7 @@ fn confirmacao_com_falhas() {
     // nossa seed) → rejeitado antes de sequer olhar ao aceite.
     let (outra_seed, _) = identidade();
     assert_eq!(
-        confirmar_aceite(&outra_seed, &corpo_pedido, &corpo_aceite)
-            .expect_err("pedido não nosso"),
+        confirmar_aceite(&outra_seed, &corpo_pedido, &corpo_aceite).expect_err("pedido não nosso"),
         ErroHandshake::AssinaturaInvalida
     );
 
@@ -371,7 +369,10 @@ fn registo_conta_e_distingue_identidades() {
     assert!(!registo.guardar([1u8; 32]), "primeira não substitui");
     assert_eq!(registo.quantidade(), 1);
     assert!(registo.tem(&[1u8; 32]));
-    assert!(!registo.tem(&[2u8; 32]), "pub desconhecida continua ausente");
+    assert!(
+        !registo.tem(&[2u8; 32]),
+        "pub desconhecida continua ausente"
+    );
 
     // Rotação de chaves com a **mesma** identidade: a contagem não
     // cresce. É a mesma pessoa, não uma amiga nova.

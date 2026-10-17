@@ -210,11 +210,17 @@ def test_interpretar_resposta_vazia() -> None:
 
 
 def test_nome_de_erro_desconhecido() -> None:
-    """Tabela de nomes cobre os 19 códigos documentados (0x01..0x13)."""
-    assert set(ipc_client.NOMES_ERRO) == set(range(0x01, 0x14))
+    """Tabela de nomes cobre os 20 códigos documentados (0x01..0x14).
+
+    O limite é um literal de propósito: um código novo no daemon sem
+    nome aqui dá um ``ErroIpc`` que diz «erro 20», e essa é a falha que
+    só se descobre quando alguém já viu o erro na cara.
+    """
+    assert set(ipc_client.NOMES_ERRO) == set(range(0x01, 0x15))
     assert ipc_client.NOMES_ERRO[0x09] == "PayloadGrandeDemais"
     assert ipc_client.NOMES_ERRO[0x11] == "Relay"
     assert ipc_client.NOMES_ERRO[0x13] == "NonceRepetido"
+    assert ipc_client.NOMES_ERRO[0x14] == "Media"
     # O limite deixou de ser 16 MiB escritos à mão: deriva de um
     # orçamento de 1 GB, com o mínimo do protocolo como piso. Este
     # teste fixa a INVARIANTE (servir o maior DECODE) e não o número —
@@ -353,14 +359,35 @@ def test_ligar_resposta_inesperada(tmp_path) -> None:
 
 
 def test_enviar_formato_e_resposta(tmp_path) -> None:
-    """``ENVIAR`` repassa o envelope intacto e exige resposta vazia."""
+    """``ENVIAR`` repassa o envelope intacto e exige resposta vazia.
+
+    Leva o byte de origem à frente: ``0x00`` é texto, ``0x01`` é media,
+    e é o que separa as duas janelas de rate-limit do `p2p.rs`.
+    """
+
+
+def test_enviar_media_declara_a_origem(tmp_path) -> None:
+    """``media=True`` gasta a janela de media, e não a de texto."""
+    recebido: list[bytes] = []
+    # Path próprio: um UDS que o teste anterior deixou em disco faz o
+    # `bind` falhar com `EADDRINUSE`, que nada tem a ver com o que este
+    # teste está a testar.
+    caminho = tmp_path / "media.sock"
+    with servidor_falso(
+        caminho, lambda pedido: recebido.append(pedido) or b"\x00"
+    ) as socket:
+        ClienteIpc(socket).enviar(b"\x01" + b"e" * 20, media=True)
+    assert recebido[0][0] == CMD_ENVIAR
+    assert recebido[0][1] == 0x01, "a origem de media é 0x01"
     recebido: list[bytes] = []
     caminho = tmp_path / "s.sock"
     with servidor_falso(
         caminho, lambda pedido: recebido.append(pedido) or b"\x00"
     ) as socket:
         ClienteIpc(socket).enviar(b"\x01" + b"e" * 20)
-    assert recebido == [bytes([CMD_ENVIAR]) + b"\x01" + b"e" * 20]
+    # O byte de origem (`ORIGEM_TEXTO`, 0x00) vai à frente do envelope:
+    # escolhe a janela de rate-limit no daemon, e por omissão é texto.
+    assert recebido == [bytes([CMD_ENVIAR]) + b"\x00\x01" + b"e" * 20]
 
 
 def test_enviar_sem_ligacao(tmp_path) -> None:

@@ -159,6 +159,12 @@ UTILITARIOS_TAILWIND = re.compile(
 IGNORADOS = {
     ".git", "target", ".venv", "build", "__pycache__", ".hypothesis",
     ".pytest_cache", "vendor", "node_modules", "UI/dist",
+    # `.cache/` e onde ficam as dependencias desempacotadas sem `sudo`:
+    # os headers de `libX11`, de `libopus` e de `libvpx` vivem la, e
+    # sao codigo de terceiros em ingles. Reporta-los e ruido — e ruido
+    # que faz o verificador falhar sem que o codigo do projecto tenha
+    # nada a ver. E o mesmo sitio onde o Node e desempacotado.
+    ".cache",
 }
 
 # Ficheiros que contêm os americanismos de propósito: são o padrão de

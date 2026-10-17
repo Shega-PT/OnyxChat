@@ -189,8 +189,7 @@ pub fn cifrar_com_nonces(
     let envelope = Envelope::novo(nonce1, nonce5, nonce9, c9.clone());
     let regiao = envelope.regiao_assinada();
     let assinatura = crypto_core::sign_message(&regiao, seed);
-    let fechado =
-        Envelope::fechar_regiao(regiao, &assinatura.try_into().expect("assinatura 64B"));
+    let fechado = Envelope::fechar_regiao(regiao, &assinatura.try_into().expect("assinatura 64B"));
 
     let camadas = CamadasIntermedias {
         c1,

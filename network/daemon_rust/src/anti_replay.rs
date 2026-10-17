@@ -324,7 +324,10 @@ impl RegistoNonce1 {
             // sair. O `HashSet` tem de acompanhar, senão o nonce
             // descartado continuaria a bloquear uma mensagem legítima
             // durante o resto da vida do processo.
-            let (sai, _) = self.entradas.pop_front().expect("len == CAPACIDADE_NONCES1");
+            let (sai, _) = self
+                .entradas
+                .pop_front()
+                .expect("len == CAPACIDADE_NONCES1");
             self.vistos.remove(&sai);
         }
 
@@ -556,7 +559,10 @@ mod tests {
         // o que faz uma chave errada do cliente não se tornar um erro
         // permanente.
         assert!(r.libertar(&nonce(0)));
-        assert!(r.reservar(&nonce(0)), "após libertar, o nonce tem de ser novo");
+        assert!(
+            r.reservar(&nonce(0)),
+            "após libertar, o nonce tem de ser novo"
+        );
         assert_eq!(r.quantidade(), 256);
     }
 
@@ -678,7 +684,10 @@ mod tests {
 
         let mut r = RegistoNonce1::carregar_de(&caminho);
         assert_eq!(r.quantidade(), 0);
-        assert!(r.reservar(&[0x33u8; TAM_NONCE]), "um nonce novo tem de passar");
+        assert!(
+            r.reservar(&[0x33u8; TAM_NONCE]),
+            "um nonce novo tem de passar"
+        );
     }
 
     /// Um ficheiro **adulterado** não pode fazer o registo aceitar tudo.

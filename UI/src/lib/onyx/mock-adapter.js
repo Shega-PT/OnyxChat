@@ -105,6 +105,15 @@ function acharConversa(conversationId) {
 }
 
 /**
+ * Todas as transferências de demonstração, de todas as conversas.
+ *
+ * @returns {Array<object>}
+ */
+function todasAsTransferencias() {
+  return Object.values(mock.transferencias).flat();
+}
+
+/**
  * Encontra o contacto de uma conversa.
  *
  * @param {object} conversation
@@ -224,6 +233,80 @@ export const mockAdapter = {
    * rebentar num `.text` de `undefined` — e a lista continuaria a
    * desenhar, vazia, que é o que se vê depois de limpar.
    */
+  async listTransfers(conversationId, completas = 'todas') {
+    await delay(90);
+    if (!acharConversa(conversationId)) throw new Error('Não existe essa conversa.');
+    const todas = mock.transferencias[conversationId] ?? [];
+    if (completas === 'completas') return todas.filter((t) => t.completo);
+    if (completas === 'incompletas') return todas.filter((t) => !t.completo);
+    return todas;
+  },
+
+  async getTransfer(transferId) {
+    await delay(90);
+    const t = todasAsTransferencias().find((x) => x.id === transferId);
+    if (!t) throw new Error('Não existe essa transferência.');
+    return { ...t, recebidasPedacos: t.recebidasPedacos ?? t.totalPedacos };
+  },
+
+  async deleteTransfer(transferId) {
+    await delay(120);
+    for (const [conversaId, lista] of Object.entries(mock.transferencias)) {
+      const i = lista.findIndex((x) => x.id === transferId);
+      if (i !== -1) {
+        // Apaga as fatias e **só** as fatias. O texto da conversa fica.
+        lista.splice(i, 1);
+        if (!lista.length) delete mock.transferencias[conversaId];
+        return { ok: true };
+      }
+    }
+    throw new Error('Não existe essa transferência.');
+  },
+
+  async getMediaState() {
+    await delay(80);
+    // A demonstração tem `mpv` por hipótese — o objectivo é mostrar o
+    // botão a funcionar. E `ffmpegEmbutido` reflecte o que a
+    // demonstração diz que o daemon tem, que é o mesmo que a
+    // aplicação diria numa máquina normal.
+    return { disponivel: true, leitor: 'mpv', ffmpegEmbutido: true };
+  },
+
+  async playTransfer(transferId) {
+    await delay(200);
+    const t = todasAsTransferencias().find((x) => x.id === transferId);
+    if (!t) throw new Error('Não existe essa transferência.');
+    // Sem leitor, e não um ficheiro truncado: reproduzir half de um
+    // vídeo é pior do que dizer que não está pronto.
+    if (!t.completo) throw new Error('A transferência ainda está incompleta.');
+    return { pid: 4242, leitor: 'mpv' };
+  },
+
+  async startVideoStream(largura, altura, fps, audioKbps, videoKbps) {
+    await delay(40);
+    return { largura, altura };
+  },
+
+  // O mock não tem VP8 para dar. Devolve `null` — que é o **fim** da
+  // chamada — porque um mock que devolvesse bytes inventados faria o
+  // `VideoDecoder` receber lixo e a demonstração mostraria um ecrã
+  // preto, que é pior do que não mostrar vídeo.
+  async readVideoFrame() {
+    await delay(33);
+    return null;
+  },
+
+  // O mock não tem Opus para dar, e `null` é o **fim** da chamada —
+  // pelo mesmo motivo que o `readVideoFrame`.
+  async readAudioFrame() {
+    await delay(20);
+    return null;
+  },
+
+  async stopVideoStream() {
+    await delay(10);
+  },
+
   async clearHistory(conversationId) {
     await delay(180);
     const conversation = acharConversa(conversationId);

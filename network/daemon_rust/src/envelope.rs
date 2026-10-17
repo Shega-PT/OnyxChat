@@ -125,7 +125,8 @@ impl fmt::Display for ErroEnvelope {
                     f,
                     "envelope demasiado grande: {obtido} bytes (máximo {MAX_ENVELOPE})"
                 )
-            }            ErroEnvelope::VersaoDesconhecida { obtida } => {
+            }
+            ErroEnvelope::VersaoDesconhecida { obtida } => {
                 write!(f, "versão de envelope desconhecida: 0x{obtida:02x}")
             }
         }
@@ -173,9 +174,7 @@ impl Envelope {
     /// A capacidade extra é invisível para quem só assina: [`len`] é o
     /// que a [`crypto_core::sign_message`] vê.
     pub fn regiao_assinada(&self) -> Vec<u8> {
-        let mut regiao = Vec::with_capacity(
-            TAM_CABECALHO + self.ciphertext.len() + TAM_ASSINATURA,
-        );
+        let mut regiao = Vec::with_capacity(TAM_CABECALHO + self.ciphertext.len() + TAM_ASSINATURA);
         regiao.push(VERSAO);
         regiao.extend_from_slice(&self.nonce1);
         regiao.extend_from_slice(&self.nonce5);
@@ -205,10 +204,7 @@ impl Envelope {
     /// Consome a `Vec` recebida em vez de a copiar, e devolve a mesma
     /// alocação com a assinatura no fim. Como [`regiao_assinada`] reserva
     /// [`TAM_ASSINATURA`] bytes, o `extend` não realoca.
-    pub fn fechar_regiao(
-        mut regiao: Vec<u8>,
-        assinatura: &[u8; TAM_ASSINATURA],
-    ) -> Vec<u8> {
+    pub fn fechar_regiao(mut regiao: Vec<u8>, assinatura: &[u8; TAM_ASSINATURA]) -> Vec<u8> {
         debug_assert!(
             regiao.len() >= TAM_CABECALHO,
             "uma região assinada sem cabeçalho não é um envelope"
@@ -451,7 +447,10 @@ mod tests {
                 obtido: MAX_ENVELOPE + 1
             }
             .to_string(),
-            format!("envelope demasiado grande: {} bytes (máximo {MAX_ENVELOPE})", MAX_ENVELOPE + 1)
+            format!(
+                "envelope demasiado grande: {} bytes (máximo {MAX_ENVELOPE})",
+                MAX_ENVELOPE + 1
+            )
         );
         assert_eq!(
             ErroEnvelope::VersaoDesconhecida { obtida: 0x99 }.to_string(),

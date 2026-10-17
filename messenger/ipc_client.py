@@ -64,12 +64,52 @@ CMD_ESTADO = 0x03
 CMD_OUVIR = 0x04
 CMD_LIGAR = 0x05
 CMD_ENVIAR = 0x06
+
+# A origem do envio, que escolhe a janela de rate-limit no daemon.
+ORIGEM_TEXTO = 0x00
+ORIGEM_MEDIA = 0x01
 CMD_RECEBER = 0x07
 CMD_FECHAR = 0x08
 CMD_PEDIR_AMIZADE = 0x09
 CMD_ACEITAR_AMIZADE = 0x0A
 CMD_RECUSAR_AMIZADE = 0x0B
 CMD_CONFIRMAR_AMIZADE = 0x0C
+# Media (`docs/media.md` §4.6). `0x0F` é `MEDIA_CAPTURAR`, de F7, e
+# responde `ComandoDesconhecido` até lá.
+CMD_MEDIA_INICIAR = 0x0D
+CMD_MEDIA_ESTADO = 0x0E
+CMD_MEDIA_CAPTURAR = 0x0F
+
+# `MEDIA_LER` (F9): o próximo quadro de VP8 da captura viva. É o
+# comando que faz os quadros saírem do `ffmpeg`: sem ele o `ffmpeg`
+# bloqueava assim que o pipe enchesse, e a captura «funcionava»
+# durante dois segundos.
+CMD_MEDIA_LER = 0x11
+
+# `MEDIA_AUDIO` (F9): o próximo pacote de Opus. Sem cabeçalho nenhum,
+# porque o áudio **é** o relógio — o receptor conta os bytes e sabe o
+# tempo (docs/media.md §5.3).
+CMD_MEDIA_AUDIO = 0x12
+
+#: Erro de media do daemon (``ERR_MEDIA`` em ``ipc.rs``).
+#:
+#: Vive aqui e não só no mapa de nomes porque o emissor de streaming
+#: **decide** com ele: um `0x14` é «o ffmpeg morreu e a captura
+#: acabou», que é o fim de uma chamada, e qualquer outro erro é uma
+#: falha a propagar. Distinguir pelo código e não pelo texto é o que
+#: impede uma palavra na spec de mudar o comportamento.
+ERR_MEDIA = 0x14
+
+#: O daemon não conseguiu decifrar com a chave que lhe deram
+#: (``ERR_DECIFRAGEM_FALHOU`` em ``ipc.rs``).
+#:
+#: Vive aqui porque a **sondagem** precisa dele: um `MEDIA_LER` ou um
+#: `DECODE` com a chave errada dá este código, e a sondagem trata-o
+#: como «esta chave não bate» em vez de como uma falha. Qualquer outro
+#: código — uma rede que caiu, um daemon que não respondeu — sobe, porque
+#: não é a etiqueta que está errada.
+ERR_DECIFRAGEM_FALHOU = 0x05
+CMD_MEDIA_REPRODUZIR = 0x10
 
 ESTADO_OK = 0x00
 ESTADO_ERRO = 0x01
@@ -163,7 +203,23 @@ NOMES_ERRO = {
     0x11: "Relay",
     0x12: "VersaoIncompativel",
     0x13: "NonceRepetido",
+    0x14: "Media",
 }
+
+#: Os leitores que o daemon tenta, por ordem (``media/reproduzir.rs``).
+#:
+#: A ordem é a mesma que a do Rust, e é uma **tabela partilhada por
+#: índice**: o índice é o que vai em ``MEDIA_REPRODUZIR``, e um cliente
+#: que mandasse o nome em vez do índice transformaria a ordem numa
+#: interface. Mudar a lista dos dois lados ao mesmo tempo é a condição
+#: para isto continuar a funcionar.
+LEITORES_MEDIA = ("mpv", "ffplay", "cvlc")
+
+#: O valor de «não há leitor» em ``MEDIA_ESTADO``. Não é um índice, e
+#: passá-lo a ``MEDIA_REPRODUZIR`` dá erro — que é o que se quer, porque
+#: o cliente que o mandou não viu a resposta do ``ESTADO``.
+SEM_LEITOR = 0xFF
+
 
 #: Nomes dos estados do backend Tor reportados por ``ESTADO``.
 NOMES_TOR = {
@@ -201,11 +257,50 @@ class EstadoDaemon:
 
 
 @dataclass(frozen=True)
+class EstadoMedia:
+    """Resposta de ``MEDIA_ESTADO``: o que o daemon pode fazer de media."""
+
+    #: ``True`` depois de um ``MEDIA_INICIAR`` com sucesso.
+    loja_apontada: bool
+    #: ``True`` quando o ``ffmpeg`` está embebido nesta compilação.
+    ffmpeg_embebido: bool
+    #: O índice em :data:`LEITORES_MEDIA` do primeiro leitor disponível,
+    #: ou ``-1`` se não houver nenhum.
+    leitor: int
+
+
+@dataclass(frozen=True)
 class Frame:
     """Frame P2P recebido: tipo (ver ``FRAME_*``) e corpo."""
 
     tipo: int
     corpo: bytes
+
+
+@dataclass(frozen=True)
+class QuadroVideo:
+    """Um quadro de vídeo da captura viva (``MEDIA_LER``).
+
+    Attributes:
+        sequencia: a ordem de **transporte**. Vem do daemon e não do
+            IVF: o ``ffmpeg`` não escreve uma sequência, e o receptor
+            precisa de distinguir um quadro perdido de um quadro
+            atrasado — e o tempo não distingue, porque dois quadros
+            podem ter o mesmo instante.
+        clock_ms: o tempo de **media** do quadro, em milissegundos.
+            É o §5.3: o receptor compara-o com o relógio contado e
+            sabe se o stream se desincronizou.
+        dados: os bytes de **VP8**, não pixéis.
+
+            O daemon não descodifica: liga o ``libvpx`` para codificar
+            e ligar também para descodificar duplicaria o executável
+            por uma coisa que o emissor nunca precisa. Quem descodifica
+            é o receptor (``media.VideoDescodificador``).
+    """
+
+    sequencia: int
+    clock_ms: int
+    dados: bytes
 
 
 @dataclass(frozen=True)
@@ -242,6 +337,24 @@ class AceiteAmizade:
 
 class ErroIpc(Exception):
     """Base de todas as falhas de comunicação com o daemon."""
+
+
+class ErroRespostaCurta(ErroIpc):
+    """A resposta do daemon é mais curta do que o comando promete.
+
+    Leva o comprimento **recebido** e o **esperado**, porque «resposta
+    curta» sem os dois números obriga a ir ao log do daemon para
+    descobrir se o comando mudou ou se o corpo é que veio mal.
+    """
+
+    def __init__(self, comando: int, recebido: int, esperado: int) -> None:
+        super().__init__(
+            f"comando {comando:#04x}: resposta com {recebido} bytes, "
+            f"e esperavam-se {esperado}"
+        )
+        self.comando = comando
+        self.recebido = recebido
+        self.esperado = esperado
 
 
 class DaemonIndisponivel(ErroIpc):
@@ -447,6 +560,188 @@ class ClienteIpc:
     # Rede (etapa de rede)
     # -------------------------------------------------------------
 
+    # -----------------------------------------------------------------
+    # Media (`docs/media.md` §4.6) — o non-streaming
+    # -----------------------------------------------------------------
+    #
+    # Três métodos, e nenhum leva uma chave. A §4.6.4 de `media.md` diz
+    # porquê: desencriptar os envelopes guardados rebatia no
+    # anti-replay, porque o `nonce1` de cada fatia já foi consumido
+    # quando a mensagem chegou.
+
+    def media_iniciar(self, caminho_loja) -> None:
+        """``MEDIA_INICIAR``: aponta o daemon para a loja do ``sidecar``.
+
+        Chamar **uma vez**, no arranque. O caminho tem de ser
+        absoluto — o daemon recusa um relativo em vez de o resolver,
+        porque um caminho relativo parece funcionar e falha depois, no
+        ``MEDIA_REPRODUZIR``, onde já não há forma de saber que a loja
+        errada é que estava aberta.
+
+        Chamar outra vez com outro caminho substitui. A loja pode
+        mudar de sítio se o utilizador a mover, e o daemon tem de
+        acompanhar.
+        """
+        caminho = os.fspath(caminho_loja)
+        if isinstance(caminho, bytes):
+            caminho = caminho.decode("utf-8")
+        if not caminho:
+            raise ErroIpc("MEDIA_INICIAR: caminho vazio")
+        dados = caminho.encode("utf-8")
+        if len(dados) > 0xFFFF:
+            raise ErroIpc(f"MEDIA_INICIAR: caminho de {len(dados)} bytes")
+
+        self._pedir(CMD_MEDIA_INICIAR, struct.pack("<H", len(dados)) + dados)
+
+    def media_capturar(
+        self,
+        largura: int,
+        altura: int,
+        fps: int,
+        audio_kbps: int,
+        video_kbps: int,
+    ) -> None:
+        """``MEDIA_CAPTURAR``: liga a captura e a codificação VP8.
+
+        O corpo tem **10** bytes, todos ``u16`` little-endian::
+
+            largura(2) altura(2) fps(2) audio_kbps(2) video_kbps(2)
+
+        Args:
+            largura: largura em pixels. Não precisa de ser múltiplo de
+                16 — a grelha de telhas foi com o ``rawvideo`` (F9) e o
+                VP8 trata do quadro inteiro.
+            altura: altura em pixels.
+            fps: quadros por segundo da fonte.
+            audio_kbps: taxa do Opus. Com ``-vbr off`` o valor é exacto,
+                e é por isso que o relógio por contagem funciona.
+            video_kbps: taxa do VP8. É o **contrato** com o receptor:
+                o daemon dimensiona o anel por este número, e se os
+                dois lados divergirem a fila cresce sem sinal.
+
+        854x480 a 30 fps com 300 kbit/s de vídeo e 32 de áudio são 344
+        kbit/s, ou seja 55 % do orçamento de 12,8 msg/s
+        (``docs/media.md`` §3.4.2).
+        """
+        for nome, valor, minimo in (
+            ("largura", largura, 16),
+            ("altura", altura, 16),
+            ("fps", fps, 1),
+            ("audio_kbps", audio_kbps, 1),
+            ("video_kbps", video_kbps, 1),
+        ):
+            if not isinstance(valor, int) or isinstance(valor, bool):
+                raise PedidoInvalido(f"{nome} tem de ser inteiro: {valor!r}")
+            if valor < minimo or valor > 0xFFFF:
+                raise PedidoInvalido(
+                    f"{nome} tem de estar entre {minimo} e 65535: {valor}"
+                )
+        corpo = b"".join(
+            v.to_bytes(2, "little") for v in (largura, altura, fps, audio_kbps, video_kbps)
+        )
+        _exigir_vazio(self._pedir(CMD_MEDIA_CAPTURAR, corpo), "MEDIA_CAPTURAR")
+
+    def media_ler(self) -> QuadroVideo:
+        """``MEDIA_LER``: o próximo quadro de VP8 da captura viva.
+
+        Não tem corpo de pedido: o ``ffmpeg`` já tem o que há para dar,
+        e pedir um quadro específico por ``stream`` ou ``seq`` seria o
+        receptor a controlar o que o ecrã de quem emite mostra.
+
+        Returns:
+            O quadro: sequência, tempo de media e **bytes de VP8**.
+
+        Raises:
+            ErroDaemon: se não há captura, ou se a captura terminou. São
+                duas coisas distintas e o receptor precisa de as
+                distinguir: a primeira pede ``MEDIA_CAPTURAR``, a
+                segunda manda parar de tentar.
+        """
+        resposta = self._pedir(CMD_MEDIA_LER, b"")
+        if len(resposta) < 12:
+            raise ErroRespostaCurta(CMD_MEDIA_LER, len(resposta), 12)
+        seq = int.from_bytes(resposta[0:4], "little")
+        clock_ms = int.from_bytes(resposta[4:12], "little", signed=True)
+        return QuadroVideo(
+            sequencia=seq,
+            clock_ms=clock_ms,
+            dados=bytes(resposta[12:]),
+        )
+
+    def media_audio(self, timeout_ms: int | None = None) -> bytes | None:
+        """``MEDIA_AUDIO``: o próximo pacote de Opus.
+
+        Bloqueia até haver pacote, ou devolve ``None`` se a captura
+        acabou. Não há cabeçalho e não há ``clock_ms``: o áudio **é** o
+        relógio, e o receptor conta os bytes e sabe o tempo
+        (``docs/media.md`` §5.3).
+
+        Args:
+            timeout_ms: Não usado — o ``MEDIA_AUDIO`` bloqueia até haver
+                pacote. Está aqui para a assinatura bater com os outros
+                métodos de media e não obrigar quem chama a saber qual
+                dos dois bloqueia.
+
+        Returns:
+            O pacote de Opus, ou ``None`` se a captura acabou.
+        """
+        try:
+            return self._pedir(CMD_MEDIA_AUDIO, b"")
+        except ErroDaemon as e:
+            # `ERR_MEDIA` no `MEDIA_AUDIO` é o `ffmpeg` a morrer, e é o
+            # fim da captura. Qualquer outro código é uma falha e sobe:
+            # uma rede que caiu não é «a chamada acabou».
+            if e.codigo == ERR_MEDIA:
+                return None
+            raise
+
+    def media_estado(self) -> EstadoMedia:
+        """``MEDIA_ESTADO``: o que o daemon pode fazer de media.
+
+        As três coisas falham **independentemente**: ter loja não
+        implica ter ``ffmpeg`` (que só interessa ao streaming), e
+        nenhum dos dois implica ter o ``mpv`` instalado. Por isso são
+        três bytes e não um estado único.
+        """
+        corpo = self._pedir(CMD_MEDIA_ESTADO, b"")
+        if len(corpo) != 3:
+            raise RespostaInvalida(f"MEDIA_ESTADO: resposta curta ({len(corpo)} bytes)")
+        return EstadoMedia(
+            loja_apontada=bool(corpo[0]),
+            ffmpeg_embebido=bool(corpo[1]),
+            leitor=-1 if corpo[2] == SEM_LEITOR else int(corpo[2]),
+        )
+
+    def media_reproduzir(self, transferencia_id: str, leitor: int) -> int:
+        """``MEDIA_REPRODUZIR``: monta em RAM e devolve o ``pid``.
+
+        :param transferencia_id: os 32 caracteres hex do ``id``.
+        :param leitor: o índice em :data:`LEITORES_MEDIA` que veio de
+            :meth:`media_estado`.
+        :returns: o ``pid`` do leitor lançado.
+        :raises ErroIpc: se o ``id`` não tiver a forma, se o índice não
+            for de um leitor conhecido, ou se o daemon não conseguir.
+
+        O ficheiro **nunca toca o disco**: o daemon escreve num
+        ``memfd`` selado e lança o leitor sobre ``/proc/self/fd/N``.
+        """
+        if len(transferencia_id) != 32:
+            raise ErroIpc(f"MEDIA_REPRODUZIR: o id tem {len(transferencia_id)} caracteres")
+        # Hex em minúsculas, e validado. A loja guarda minúsculas, e
+        # aceitar as duas formas daria dois ``id`` para a mesma
+        # transferência — um que existe e um que não, e a diferença
+        # só apareceria como «o vídeo não abre».
+        if not all(c in "0123456789abcdef" for c in transferencia_id):
+            raise ErroIpc("MEDIA_REPRODUZIR: o id não é hex minúsculo")
+        if not 0 <= leitor < len(LEITORES_MEDIA):
+            raise ErroIpc(f"MEDIA_REPRODUZIR: leitor {leitor} não existe")
+
+        corpo = bytes([leitor]) + transferencia_id.encode("ascii")
+        resposta = self._pedir(CMD_MEDIA_REPRODUZIR, corpo)
+        if len(resposta) != 4:
+            raise RespostaInvalida(f"MEDIA_REPRODUZIR: resposta curta ({len(resposta)} bytes)")
+        return int.from_bytes(resposta, "little")
+
     def estado(self) -> EstadoDaemon:
         """``ESTADO``: estado do backend Tor, ligação P2P e nº de amizades."""
         corpo = self._pedir(CMD_ESTADO, b"")
@@ -489,9 +784,29 @@ class ClienteIpc:
         )
         _exigir_vazio(self._pedir(CMD_LIGAR, corpo), "LIGAR")
 
-    def enviar(self, envelope: bytes) -> None:
-        """``ENVIAR``: frame ``CHAT 0x01`` com o envelope por corpo."""
-        _exigir_vazio(self._pedir(CMD_ENVIAR, envelope), "ENVIAR")
+    def enviar(self, envelope: bytes, media: bool = False) -> None:
+        """``ENVIAR``: frame ``CHAT 0x01`` com o envelope por corpo.
+
+        O primeiro byte do comando é a **origem**, que escolhe a janela
+        de rate-limit no daemon (``docs/p2p.rs``, excepção do streaming):
+
+        ```text
+        texto   0x00   128 mensagens por janela de 10 s
+        media   0x01   64 mensagens por janela de 10 s
+        ```
+
+        São janelas separadas e não um teto maior porque `CHAT` é o
+        mesmo tipo para os dois: o daemon não decifra, e quem sabe o
+        que é é quem envia. ``media=True`` gasta a janela de media e
+        nunca a de texto — uma chamada de vídeo a 480p usa 0,9 msg/s e
+        pode conviver com uma conversa a 12,8 msg/s.
+
+        Args:
+            envelope: o envelope já cifrado, como antes.
+            media: se o envio é streaming de áudio ou vídeo.
+        """
+        origem = bytes([ORIGEM_MEDIA if media else ORIGEM_TEXTO])
+        _exigir_vazio(self._pedir(CMD_ENVIAR, origem + envelope), "ENVIAR")
 
     def receber(self, timeout_ms: int) -> Frame:
         """``RECEBER``: bloqueia até haver frame (``0`` = espera infinita)."""

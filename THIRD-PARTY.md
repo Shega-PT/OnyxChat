@@ -104,11 +104,98 @@ Ambas permissivas, ambas com a sua licença original mantida no
 repositório. A libsodium é linkada estaticamente no `onyxchatd`, o que
 significa que o binário incorporates o seu código sob a ISC.
 
+## Compilado de fonte, com excepção à regra
+
+Esta secção é uma **excepção escrita**, e é exactamente o mesmo padrão
+da secção de cima: uma regra, um componente nomeado, uma justificação,
+e o mínimo possível fora dela. O que muda é que aqui a licença **não é
+permissiva**.
+
+| Componente | Versão | Licença | Onde | Como entra |
+| --- | --- | --- | --- | --- |
+| FFmpeg | 9.0.2 | **LGPL-2.1-or-later** | `tools/ffmpeg/` | compilado de fonte, comprimido com xz, **embebido no `onyxchatd`** |
+
+### A regra que esta excepção altera
+
+`deny.toml` recusa `GPL-2.0`, `GPL-3.0`, `LGPL-2.0`, `LGPL-2.1` e
+`LGPL-3.0`, com esta justificação: *«um único crate sob GPL, AGPL,
+SSPL… obriga a abrir o código derivado — comercial ou não — e torna a
+licença do projecto impossível de cumprir»*.
+
+O `deny.toml` **não foi alterado**, e essa é a decisão que importa. A
+lista avalia crates do registry; o FFmpeg não é um crate, é um
+executável que nós compilamos de fonte versionada — o mesmo que a
+libsodium. Acrescentar `LGPL` à lista tornaria a excepção **maior do que
+é**: passaria a admitir LGPL em qualquer dependência, em vez de num
+componente nomeado, justificado e com uma receita à vista.
+
+### Porquê LGPL é aceitável aqui, e GPL não
+
+A LGPL e a GPL têm a mesma obrigação central — o derivado tem de poder
+modificar e voltar a linkar — mas **a LGPL tem uma porta de saída que a
+GPL não tem**: a linking dinâmico. E há uma leitura melhor ainda, que é
+a que este projecto adopta:
+
+> O `ffmpeg` **não é ligado** ao `onyxchatd`. É um executável
+> separado, comprimido com xz e **embutido como dados**, e executado de
+> um `memfd`. O daemon não importa símbolos seus e o FFmpeg não vê o
+> código do daemon. Isto é **agregação**, não derivação: é o mesmo
+> regime de um `tar.gz` que acompanha um programa, não o de uma
+> biblioteca ligada.
+
+As obrigações que restam, e como se cumprem:
+
+| Obrigação da LGPL | Como é cumprida |
+| --- | --- |
+| poder modificar e voltar a linkar | `tools/ffmpeg/build.sh` **é** a receita, versionada neste repositório. Qualquer pessoa recompila o que quiser. |
+| acesso ao código fonte correspondente | `tools/ffmpeg/versoes.txt` fixa a **versão exacta** (9.0.2) e o **SHA-256 da fonte**, que fica no repositório. |
+| o aviso de licença acompanha o componente | A receita não o remove, e o `LICENSE` acompanha a fonte extraída. |
+
+### A garantia não está na palavra, está no binário
+
+Um `THIRD-PARTY.md` que diz «LGPL» é um documento. A garantia que o
+projecto costuma exigir de si — *uma propriedade verificada, não uma
+nota* — vem de `tools/ffmpeg/build.sh`, que no fim do build:
+
+1. lê `License:` do `configure` e recusa se não for `LGPL*`;
+2. corre `ffmpeg -buildconf` e recusa se **`--disable-gpl`** não lá
+   estiver;
+3. **apaga o executável** e sai com erro se qualquer uma das três falhar.
+
+E a receita é `--disable-gpl --disable-nonfree --disable-everything`
+seguido de uma lista de `--enable` **explícita**. O que não está na
+lista não entra, o que faz a receita independente da versão do FFmpeg:
+sem o `--disable-everything`, o que vem de origem mudaria a cada
+release, e uma receita que muda sozinha não é uma receita.
+
+### O que fica deliberadamente de fora
+
+| Fora | Porquê |
+| --- | --- |
+| `libx264`, `libx265` | **GPL**. É a razão de isto ser LGPL e não GPL. |
+| VP9 patentado (`libvpx` configurado com `vpx`) | **GPL**. O VP8 e o VP9 sem patents continuam disponíveis. |
+| `libaom`, `libopus`, `libvorbis`, `libmp3lame` | BSD, ISC ou LGPL — entram livremente. |
+| rede (`--disable-network`) | O `ffmpeg` deste projecto nunca fala com a rede. `docs/threat_model.md` §A2 é sobre um relay malicioso; um cliente HTTP dentro de um executável embebido é superfície que ninguém pediu. |
+| `ffplay` e SDL2 | O `ffmpeg` de captura não reproduz. A reprodução é feita pelo receptor, e o `ffplay` que a proposta menciona é uma dependência **à parte**, com a sua própria excepção a justificar se alguma vez entrar. |
+
+### O custo honesto desta excepção
+
+A licença do `onyxchatd` passa a ter uma obrigação que não tinha:
+quem o distribuir tem de poder oferecer a receita de compilação e a
+versão da fonte. Isso é `tools/ffmpeg/`. É um custo real e é a razão
+pelo qual a excepção é de **um** componente e não da categoria.
+
 ## Conclusão
 
-**Nenhum bloqueio.** O grafo é integralmente permissivo ou copyleft
-fraco-com-alternativa, e nenhum pacote vendorizado é copyleft. A
-PolyForm Noncommercial é compatível com tudo o que está no repositório.
+**Nenhum bloqueio.** O grafo de crates é integralmente permissivo, e
+o único componente vendorizado que não é é o FFmpeg — cuja excepção
+está escrita e verificada acima, e cujas obrigações se cumprem por a
+receita de compilação estar no repositório ao lado da fonte.
+
+A PolyForm Noncommercial continua a ser compatível com tudo o que está
+aqui. O que muda é que a distribuição passa a ter de anexar a receita e a
+versão da fonte do FFmpeg — o que `tools/ffmpeg/` já é, e o que esta
+secção diz em vez de o deixar implícito.
 
 O que fica declarado: esta auditoria olha para as **licenças declaradas**
 na data indicada. Uma dependência nova pode mudar isso.

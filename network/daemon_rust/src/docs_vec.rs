@@ -35,6 +35,7 @@ pub fn gerar_markdown(
     vetores: &[Value],
     hs: &[Value],
     identidade: &[Value],
+    media: &[Value],
 ) -> String {
     let mut md = String::new();
     md.push_str(
@@ -117,6 +118,64 @@ pub fn gerar_markdown(
             h["reject_hex"].as_str().unwrap_or("?"),
         ));
     }
+    md.push_str("---\n\n## Media (`docs/media.md`)\n\n");
+    md.push_str(
+        "K1 derivada por tipo de conteúdo e a moldura `ONX1`. Consumidores: \
+         `network/daemon_rust/tests/vetores.rs` (Rust) e \
+         `tests/test_media.py` (Python), que têm de produzir os mesmos \
+         bytes.\n\n\n\
+         O vector `102` é o que sustenta o formato: um `clock_ms` negativo é \
+         `FF FF FF 06` em dois's complement, e `FF` não é UTF-8 válido. Se o \
+         preâmbulo alguma vez voltar a ser binário, esse vector é o que \
+         falha — e a falha em produção seria o `ENCODE` a recusar a \
+         mensagem com `0x08`.\n\n\
+         ### Chaves por tipo\n\n```text\n\
+         k_emissor:   1111…11\nk_recetor:   2222…22\n\
+         nonce1:      0102030405060708090a0b0c\n```\n\n",
+    );
+    for v in media.iter().filter(|v| v["familia"] == "chaves") {
+        md.push_str(&format!(
+            "#### Vector {} — {}\n\n```text\ntipo: 0x{:02x}\nsaida: {}\n```\n\n",
+            v["id"].as_str().unwrap_or("?"),
+            v["nota"].as_str().unwrap_or(""),
+            v["tipo"].as_u64().unwrap_or(0),
+            v["saida_hex"].as_str().unwrap_or("?"),
+        ));
+    }
+    md.push_str("### Molduras\n\n");
+    for v in media.iter().filter(|v| v["familia"] == "molduras") {
+        md.push_str(&format!(
+            "#### Vector {} — {}\n\n```text\ntipo: {}\nmodo: {}\n{}\n\n({} bytes)\n```\n\n",
+            v["id"].as_str().unwrap_or("?"),
+            v["nota"].as_str().unwrap_or(""),
+            v["tipo"].as_str().unwrap_or("?"),
+            v["modo"].as_str().unwrap_or("?"),
+            v["texto"].as_str().unwrap_or("?"),
+            v["comprimento"].as_u64().unwrap_or(0),
+        ));
+    }
+
+    md.push_str("### Manifestos de transferência\n\n");
+    for v in media.iter().filter(|v| v["familia"] == "manifestos") {
+        md.push_str(&format!(
+            "#### Vector {} — {}\n\n```text\ntipo: {}   codec: 0x{:04x}   formato: 0x{:04x}\n\
+             total_bytes: {}   total_pedacos: {}   bytes_por_pedaco: {}\n\
+             sha256: {}\nid:      {}\n{}\n\n({} bytes)\n```\n\n",
+            v["id"].as_str().unwrap_or("?"),
+            v["nota"].as_str().unwrap_or(""),
+            v["tipo"].as_str().unwrap_or("?"),
+            v["codec"].as_u64().unwrap_or(0),
+            v["formato"].as_u64().unwrap_or(0),
+            v["total_bytes"].as_u64().unwrap_or(0),
+            v["total_pedacos"].as_u64().unwrap_or(0),
+            v["bytes_por_pedaco"].as_u64().unwrap_or(0),
+            v["sha256_hex"].as_str().unwrap_or("?"),
+            v["id_hex"].as_str().unwrap_or("?"),
+            v["texto"].as_str().unwrap_or("?"),
+            v["comprimento"].as_u64().unwrap_or(0),
+        ));
+    }
+
     md.push_str("---\n\n## Identidade (`messenger/identidade.py`)\n\n");
     md.push_str(
         "Gerados em Python e lidos aqui. Não são regerados: a fórmula é de \

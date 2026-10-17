@@ -28,12 +28,22 @@
 // =====================================================================
 
 pub mod anti_replay;
+/// Renderização de `docs/test_vectors.md` — só com a feature
+/// `docs`, porque precisa de `serde_json` e só é usada em build
+/// e teste. Ver `Cargo.toml` e `docs/testing.md` §Test vectors.
+#[cfg(feature = "docs")]
+pub mod docs_vec;
 pub mod envelope;
 pub mod erros;
 pub mod ffi_c;
 pub mod handshake;
 pub mod ipc;
 pub mod lua_camadas;
+/// `media` — áudio e vídeo **como texto**, dentro do envelope
+/// normal. O invariante é que o que sai para a rede é um `FRAME_CHAT`
+/// como qualquer outro: `p2p.rs`, `docs/relay.md` e o `OnyxMiniNode`
+/// não são tocados. Ver `docs/media.md`.
+pub mod media;
 pub mod orcamento;
 pub mod p2p;
 pub mod pipeline;
@@ -45,8 +55,3 @@ pub mod tor;
 /// do `rustc` várias vezes menor. Ver `network/daemon_rust/Cargo.toml`.
 #[cfg(feature = "tor-real")]
 pub mod tor_arti;
-/// Renderização de `docs/test_vectors.md` — só com a feature
-/// `docs`, porque precisa de `serde_json` e só é usada em build
-/// e teste. Ver `Cargo.toml` e `docs/testing.md` §Test vectors.
-#[cfg(feature = "docs")]
-pub mod docs_vec;

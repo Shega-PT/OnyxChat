@@ -201,3 +201,78 @@ def test_handshake_parseia_e_valida_em_python() -> None:
         assert not verificar(
             dominio_acc + pedido[:145], pedido[145:], pedido[1:33]
         ), f"{vid}: domínios não são intermutáveis"
+
+
+def test_molduras_de_media_reproduzem_os_vectores() -> None:
+    """As molduras ``ONX1`` são lidas em Python e dão o que o Rust deu.
+
+    O objectivo é a **paridade entre linguagens** do formato, e não a
+    correcção de ``messenger.media`` — isso é ``tests/test_media.py``.
+    Aqui importa que dois ``.json`` e dois ``.py`` concordem com o mesmo
+    ficheiro, e que o documento gerado não diverge de nenhum dos dois.
+
+    O teste vive aqui e não em ``test_media.py`` porque é um teste de
+    *vector*, e os vectores têm um sítio no projecto: ``test_vectors.py``.
+    """
+    from messenger import media
+
+    doc = _carregar("media.json")
+
+    assert doc["pre_ambulo"] == media.TAM_PRE_AMBULO, (
+        "a geometria do vector diverge do código — ou o `media.json` "
+        "está velho, ou `docs/media.md` §2.2 está"
+    )
+    assert doc["limite_media"] == media.TAM_MEDIA_MAX
+
+    for v in doc["vetores"]:
+        if v["familia"] != "molduras":
+            continue
+        m = media.Moldura(
+            tipo=media.TIPOS_POR_CARACTERE[v["tipo"]],
+            modo=media.MODOS[v["modo"].encode("ascii")],
+            stream=v["stream"],
+            seq=v["seq"],
+            clock_ms=v["clock_ms"],
+            flags=v["flags"],
+            corpo=bytes.fromhex(v["corpo_hex"]),
+        )
+        assert m.texto == v["texto"], f'vector {v["id"]}: o texto diverge do vector'
+
+        # E o plaintext é ASCII, que é o que o `ENCODE` exige
+        # (`ipc.rs` recusa o resto com `0x08 TextoInvalidoUtf8`).
+        assert m.para_bytes().isascii(), f'vector {v["id"]}: o plaintext não é ASCII'
+
+
+def test_as_chaves_de_media_reproduzem_os_vectores() -> None:
+    """A ``K1`` derivada por tipo bate com o valor congelado pelo Rust."""
+    from messenger.amizade import derivar_k1_por_tipo
+
+    doc = _carregar("media.json")
+    vistos = 0
+
+    for v in doc["vetores"]:
+        if v["familia"] != "chaves":
+            continue
+        vistos += 1
+        derivada = derivar_k1_por_tipo(
+            bytes.fromhex(v["k_emissor_hex"]),
+            bytes.fromhex(v["k_recetor_hex"]),
+            bytes.fromhex(v["publica_emissor_hex"]),
+            v["tipo"],
+        )
+        # O `salt` é o que a fórmula diz que é, e o vector diz-se.
+        # Confirma-lo aqui é impedir que o campo e a fórmula voltem a
+        # divergir em silêncio — que foi exactamente como o `nonce1_hex`
+        # ficou lá depois de deixar de entrar na derivação.
+        from messenger.amizade import DOMINIO_MEDIA
+
+        esperado = DOMINIO_MEDIA + bytes([v["tipo"]])
+        assert bytes.fromhex(v["salt_hex"]) == esperado, (
+            f'vector {v["id"]}: o `salt` do vector não é `DOMINIO_MEDIA || tipo`'
+        )
+        assert derivada.hex() == v["saida_hex"], (
+            f'vector {v["id"]}: a K1 derivada mudou — '
+            "é uma quebra de formato, não um bug"
+        )
+
+    assert vistos > 0, "media.json não tem nenhum vector de chave"

@@ -174,10 +174,7 @@ fn interpretar(args: &[String], ambiente: Option<&str>) -> Result<Acao, String> 
 ///
 /// Separar também evita que uma função de 30 linhas no arranque fique
 /// com uma cadeia de `format!` impossivel de cobrir.
-fn avisar_paginas_desbloqueadas(
-    paginas: crypto_core::EstadoPaginas,
-    limite: Option<u64>,
-) -> bool {
+fn avisar_paginas_desbloqueadas(paginas: crypto_core::EstadoPaginas, limite: Option<u64>) -> bool {
     let crypto_core::EstadoPaginas::Desbloqueadas(motivo) = paginas else {
         return false;
     };

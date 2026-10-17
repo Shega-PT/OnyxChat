@@ -102,7 +102,7 @@ fn pedidos_antes_do_hello_dao_0x02() {
     for pedido in [
         corpo_encode(&chaves, &seed, b"cedo demais"),
         vec![CMD_ESTADO],
-        vec![0x7F],                      // desconhecido: o portão precede a tabela
+        vec![0x7F], // desconhecido: o portão precede a tabela
         // Major diferente: `VERSAO_IPC + 1` seria compatível
         // (diferença de minor), que é o que a tolerância exige.
         vec![CMD_HELLO, 0x10],
@@ -197,8 +197,7 @@ fn hello_tolerante_a_minor_diferente() {
         // saiba que a sua foi aceite. A resposta é
         // `[estado][versao][build]`, logo a versão está em `r[1]`.
         assert_eq!(
-            r[1],
-            versao_cliente,
+            r[1], versao_cliente,
             "a resposta tem de ecoar a versão do cliente"
         );
         // E tem de incluir o build, para diagnóstico de versão.
@@ -218,8 +217,7 @@ fn hello_rejeita_major_diferente() {
         let mut hello = false;
         let r = processar_sessao(&estado, &[CMD_HELLO, versao], &mut hello);
         assert_eq!(
-            r[1],
-            ERR_VERSAO_INCOMPATIVEL,
+            r[1], ERR_VERSAO_INCOMPATIVEL,
             "major {major_da_cliente:#x} tem de ser incompatível"
         );
         assert!(!hello, "uma versão incompatível não abre sessão");
@@ -231,7 +229,10 @@ fn hello_rejeita_major_diferente() {
 #[test]
 fn versao_compativel_separa_major_de_minor() {
     assert!(versao_compativel(0x01, 0x01), "idêntica");
-    assert!(versao_compativel(0x00, 0x01), "mesmo major, minor diferente");
+    assert!(
+        versao_compativel(0x00, 0x01),
+        "mesmo major, minor diferente"
+    );
     assert!(versao_compativel(0x0F, 0x01), "mesmo major, minor extremo");
     assert!(versao_compativel(0x1F, 0x10), "major 1 = major 1");
     assert!(!versao_compativel(0x10, 0x01), "major diferente");
@@ -254,8 +255,14 @@ fn hello_versao_incompativel_0x12() {
     // versão é público, não é segredo, e sem ele o utilizador não sabe
     // que software tem do outro lado.
     let mensagem = std::str::from_utf8(&r[2..]).expect("mensagem UTF-8");
-    assert!(mensagem.contains("0x10"), "nomeia a versão do cliente: {mensagem}");
-    assert!(mensagem.contains("0x01"), "nomeia a versão do daemon: {mensagem}");
+    assert!(
+        mensagem.contains("0x10"),
+        "nomeia a versão do cliente: {mensagem}"
+    );
+    assert!(
+        mensagem.contains("0x01"),
+        "nomeia a versão do daemon: {mensagem}"
+    );
     assert!(!hello);
 }
 
@@ -960,6 +967,19 @@ impl BackendTor for BackendQueFalha {
 }
 
 /// Monta um corpo de comando: `comando ‖ resto`.
+/// Junta o byte de origem de **texto** a um corpo de `ENVIAR`.
+///
+/// O `ENVIAR` ganhou um byte à frente (F9): o daemon precisa de saber
+/// de que janela de rate-limit o envio gasta, e quem sabe é quem envia.
+/// Os testes usam `concat_texto` para não repetir um literal solto em
+/// cada chamada — `b"\x00"` numa posição isolada lê-se como um erro de
+/// indexação, e não como o que é.
+fn concat_texto(corpo: &[u8]) -> Vec<u8> {
+    let mut v = vec![0x00];
+    v.extend_from_slice(corpo);
+    v
+}
+
 fn cmd(comando: u8, resto: &[u8]) -> Vec<u8> {
     let mut corpo = vec![comando];
     corpo.extend_from_slice(resto);
@@ -974,8 +994,7 @@ fn cmd(comando: u8, resto: &[u8]) -> Vec<u8> {
 /// testes de `LIGAR` têm de usar endereços reais em forma — um
 /// `.onion` curto seria recusado antes de chegar ao `TorFalso`, e o
 /// teste deixaria de estar a testar o que dice ser.
-const ONION_DE_TESTE: &str =
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion";
+const ONION_DE_TESTE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion";
 
 /// `.onion` bem formado mas **não registado** no `TorFalso` — o que
 /// exercita o `DestinoDesconhecido` (0x0D) vindo da camada Tor, e não
@@ -1014,8 +1033,7 @@ fn ouvir(estado: &Estado) -> String {
 fn ligar_ate(a: &Estado, b: &Estado, onion_b: &str, pub_a: &[u8; 32], pub_b: &[u8; 32]) {
     let corpo = corpo_ligar(0x00, "", onion_b, pub_a, pub_b);
     let resposta = processar_pedido(a, &cmd(CMD_LIGAR, &corpo));
-    let diagnostico =
-        String::from_utf8_lossy(resposta.get(2..).unwrap_or_default()).into_owned();
+    let diagnostico = String::from_utf8_lossy(resposta.get(2..).unwrap_or_default()).into_owned();
     assert_eq!(resposta[0], ESTADO_OK, "LIGAR falhou: {diagnostico}");
     esperar_ligacao(b);
 }
@@ -1309,7 +1327,13 @@ fn ligar_relay_sem_endpoint() {
     let estado = estado_de_teste();
     ouvir(&estado);
     // `destino` em relay tem de ser o ID hex da `pub_par` do corpo.
-    let corpo = corpo_ligar(0x01, "", &p2p::hex_de_pub(&[2u8; 32]), &[1u8; 32], &[2u8; 32]);
+    let corpo = corpo_ligar(
+        0x01,
+        "",
+        &p2p::hex_de_pub(&[2u8; 32]),
+        &[1u8; 32],
+        &[2u8; 32],
+    );
     let r = processar_pedido(&estado, &cmd(CMD_LIGAR, &corpo));
     assert_eq!(r[1], ERR_RELAY, "{}", String::from_utf8_lossy(&r[2..]));
 }
@@ -1362,7 +1386,7 @@ fn ligacao_relay_contra_falso_relay() {
 
     // Enviar espera o `OK` do relay; FECHAR emite o `FECHO`.
     assert_eq!(
-        processar_pedido(&estado, &cmd(CMD_ENVIAR, b"envelope"))[0],
+        processar_pedido(&estado, &cmd(CMD_ENVIAR, &concat_texto(b"envelope")))[0],
         ESTADO_OK
     );
     assert_eq!(
@@ -1392,8 +1416,7 @@ fn destino_onion_e_aceite_em_modo_directo() {
     let estado = estado_de_teste();
     // Regista o endereço para que o `TorFalso` o resolva.
     ouvir(&estado);
-    let r = validar_destino(ModoLigacao::Direto, ONION_DE_TESTE, &pub_par)
-        .expect("onion aceite");
+    let r = validar_destino(ModoLigacao::Direto, ONION_DE_TESTE, &pub_par).expect("onion aceite");
     assert_eq!(r, ONION_DE_TESTE, "em directo o destino passa tal e qual");
 }
 
@@ -1427,8 +1450,7 @@ fn destino_vazio_e_recusado_em_modo_directo() {
 fn destino_id_hex_coerente_e_aceite_em_modo_relay() {
     let pub_par = [0xABu8; 32];
     let id = p2p::hex_de_pub(&pub_par);
-    let canonico = validar_destino(ModoLigacao::Relay, &id, &pub_par)
-        .expect("id coerente aceite");
+    let canonico = validar_destino(ModoLigacao::Relay, &id, &pub_par).expect("id coerente aceite");
     assert_eq!(canonico, id, "o valor canónico é o hex minúsculo da pub");
 }
 
@@ -1438,8 +1460,8 @@ fn destino_id_hex_coerente_e_aceite_em_modo_relay() {
 fn destino_id_hex_maiusculas_e_canonicalizado() {
     let pub_par = [0xABu8; 32];
     let id = p2p::hex_de_pub(&pub_par).to_uppercase();
-    let canonico = validar_destino(ModoLigacao::Relay, &id, &pub_par)
-        .expect("maiúsculas são o mesmo ID");
+    let canonico =
+        validar_destino(ModoLigacao::Relay, &id, &pub_par).expect("maiúsculas são o mesmo ID");
     assert_eq!(canonico, p2p::hex_de_pub(&pub_par));
     assert!(
         canonico.chars().all(|c| !c.is_ascii_uppercase()),
@@ -1473,8 +1495,7 @@ fn destino_invalido_em_modo_relay() {
             .err()
             .unwrap_or_else(|| panic!("{mau:?} tem de ser recusado"));
         assert_eq!(
-            erro.0,
-            ERR_DESTINO_INVALIDO,
+            erro.0, ERR_DESTINO_INVALIDO,
             "{mau:?} tem de dar 0x0D, não {:?}",
             erro.0
         );
@@ -1537,7 +1558,7 @@ fn comandos_de_rede_sem_ligacao() {
     aceitar.extend_from_slice(&corpo_pedido);
 
     let casos: &[(Vec<u8>, u8)] = &[
-        (cmd(CMD_ENVIAR, b"envelope"), ERR_NAO_LIGADO),
+        (cmd(CMD_ENVIAR, &concat_texto(b"envelope")), ERR_NAO_LIGADO),
         (cmd(CMD_RECEBER, &0u32.to_le_bytes()), ERR_NAO_LIGADO),
         (cmd(CMD_PEDIR_AMIZADE, &[0u8; 64]), ERR_NAO_LIGADO),
         (cmd(CMD_RECUSAR_AMIZADE, &[0u8; 48]), ERR_NAO_LIGADO),
@@ -1599,7 +1620,7 @@ fn fluxo_de_chat_entre_dois_nos() {
     assert_eq!(antes[2], 0x01, "B aceitou a ligação de A");
     assert_eq!(u16::from_le_bytes([antes[3], antes[4]]), 0);
 
-    let r = processar_pedido(&a, &cmd(CMD_ENVIAR, b"envelope-qualquer"));
+    let r = processar_pedido(&a, &cmd(CMD_ENVIAR, &concat_texto(b"envelope-qualquer")));
     assert_eq!(r[0], ESTADO_OK);
 
     // `timeout_ms = 0` → espera indefinida (cobre o prazo infinito).
@@ -1623,7 +1644,7 @@ fn fecho_do_par_mata_a_ligacao() {
     fechar_e_confirmar(&a, &b);
     // E já não há ligação nenhuma.
     assert_eq!(
-        processar_pedido(&b, &cmd(CMD_ENVIAR, b"x"))[1],
+        processar_pedido(&b, &cmd(CMD_ENVIAR, &concat_texto(b"x")))[1],
         ERR_NAO_LIGADO
     );
 }
@@ -1637,7 +1658,7 @@ fn fechar_e_volver_a_ligar() {
     ligar_ate(&a, &b, &ouvir(&b), &pa, &pb);
     assert!(a.ligado());
     assert_eq!(
-        processar_pedido(&a, &cmd(CMD_ENVIAR, b"de-volta"))[0],
+        processar_pedido(&a, &cmd(CMD_ENVIAR, &concat_texto(b"de-volta")))[0],
         ESTADO_OK
     );
     let frame = receber_frame(&b, 3_000);
@@ -1648,7 +1669,7 @@ fn fechar_e_volver_a_ligar() {
 #[test]
 fn enviar_com_ligacao_morta() {
     let (a, b, (_sa, pa), (_sb, pb)) = par_ligado();
-    let mut tentativa = || processar_pedido(&b, &cmd(CMD_ENVIAR, b"lixo"));
+    let mut tentativa = || processar_pedido(&b, &cmd(CMD_ENVIAR, &concat_texto(b"lixo")));
 
     // Com a ligação viva: oito envios seguidos sem falhar — só
     // assim se percorre o desfecho "desiste ao 8.º".
@@ -1836,8 +1857,7 @@ fn confirmar_aceite_sem_resposta_ao_nonce() {
     let _nonce = &frame[2 + 129..2 + 145];
     let k5 = crypto_core::gerar_chave();
     let k9 = crypto_core::gerar_chave();
-    let (_aceite, corpo_aceite) =
-        handshake::montar_aceite(&seed_b, &k5, &k9, &[9u8; TAM_NONCE]);
+    let (_aceite, corpo_aceite) = handshake::montar_aceite(&seed_b, &k5, &k9, &[9u8; TAM_NONCE]);
 
     let mut confirmar = vec![CMD_CONFIRMAR_AMIZADE];
     confirmar.extend_from_slice(&seed_a);
@@ -2022,236 +2042,795 @@ fn pedido_pendente_zeroiza_corpo() {
         "corpo de 209 B (com chaves) apagado"
     );
     assert_eq!(pendente.publica, [0x77u8; TAM_PUB], "publica fica");
+}
+
+/// O registo anti-replay sobrevive a um `Estado::novo`.
+///
+/// Este é o teste de integração da fase B3, e é o que fecha o buraco
+/// de ponta a ponta. `anti_replay::tests::o_registo_sobrevive_a_um_
+/// reinicio` prova que o *registo* persiste; este prova que o
+/// *daemon* o carrega. São coisas diferentes, e a segunda é a que
+/// interessa: um registo que persiste num ficheiro que ninguém lê é
+/// a mesma implementação de antes, com mais código.
+///
+/// `ONYXCHAT_ESTADO` é apontado para um directório temporário porque
+/// o caminho de estado é resolvido em `Estado::novo` — sem isto, o
+/// teste escreveria no estado real do utilizador.
+#[test]
+fn o_registo_anti_replay_sobrevive_a_um_reinicio_do_daemon() {
+    let dir = std::env::temp_dir().join(format!("onyxchat-estado-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("directório temporário");
+    // `set_var` é inseguro em Rust 2024; o binário de teste é
+    // single-threaded neste ponto do caso, e o aviso do compilador
+    // está documentado aqui em vez de silenciado.
+    #[allow(unused_unsafe)]
+    unsafe {
+        std::env::set_var("ONYXCHAT_ESTADO", &dir)
+    };
+
+    let caminho = caminho_anti_replay();
+    assert!(
+        caminho.starts_with(&dir),
+        "o caminho de estado não seguiu ONYXCHAT_ESTADO: {:?}",
+        caminho
+    );
+
+    // Instância 1: um nonce entra no registo.
+    {
+        let estado = estado_de_teste();
+        let mut registo = bloquear(&estado.nonces1);
+        let nonce = [0x2Bu8; 12];
+        assert!(registo.reservar(&nonce), "a primeira vez tem de passar");
+        registo.gravar_para(&caminho_anti_replay());
     }
 
-    /// O registo anti-replay sobrevive a um `Estado::novo`.
-    ///
-    /// Este é o teste de integração da fase B3, e é o que fecha o buraco
-    /// de ponta a ponta. `anti_replay::tests::o_registo_sobrevive_a_um_
-    /// reinicio` prova que o *registo* persiste; este prova que o
-    /// *daemon* o carrega. São coisas diferentes, e a segunda é a que
-    /// interessa: um registo que persiste num ficheiro que ninguém lê é
-    /// a mesma implementação de antes, com mais código.
-    ///
-    /// `ONYXCHAT_ESTADO` é apontado para um directório temporário porque
-    /// o caminho de estado é resolvido em `Estado::novo` — sem isto, o
-    /// teste escreveria no estado real do utilizador.
-    #[test]
-    fn o_registo_anti_replay_sobrevive_a_um_reinicio_do_daemon() {
-        let dir = std::env::temp_dir().join(format!("onyxchat-estado-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("directório temporário");
-        // `set_var` é inseguro em Rust 2024; o binário de teste é
-        // single-threaded neste ponto do caso, e o aviso do compilador
-        // está documentado aqui em vez de silenciado.
-        #[allow(unused_unsafe)]
-        unsafe { std::env::set_var("ONYXCHAT_ESTADO", &dir) };
-
-        let caminho = caminho_anti_replay();
+    // Instância 2: recria o estado do zero, como um arranque.
+    let estado2 = estado_de_teste();
+    {
+        let mut registo = bloquear(&estado2.nonces1);
+        assert_eq!(
+            registo.quantidade(),
+            1,
+            "o novo Estado não carregou o registo de disco"
+        );
         assert!(
-            caminho.starts_with(&dir),
-            "o caminho de estado não seguiu ONYXCHAT_ESTADO: {:?}",
-            caminho
+            !registo.reservar(&[0x2Bu8; 12]),
+            "REPLAY ACEITE depois do reinício do daemon"
+        );
+    }
+
+    unsafe { std::env::remove_var("ONYXCHAT_ESTADO") };
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `ONYXCHAT_ESTADO` tem precedência sobre o XDG.
+///
+/// O caminho de estado decide onde vive a informação de tráfego. Um
+/// teste (ou um utilizador com vários perfis) precisa de o apontar
+/// para outro sítio, e essa precedência é o que permite — sem código
+/// nem recompilação.
+#[test]
+fn o_caminho_de_estado_segue_o_ambiente() {
+    #[allow(unused_unsafe)]
+    unsafe {
+        std::env::set_var("ONYXCHAT_ESTADO", "/tmp/onyxchat-teste-estado");
+        assert_eq!(
+            caminho_estado(),
+            std::path::PathBuf::from("/tmp/onyxchat-teste-estado")
+        );
+        std::env::remove_var("ONYXCHAT_ESTADO");
+    }
+}
+
+/// A cadeia de precedência do caminho de estado, um degrau de cada vez.
+///
+/// O teste acima fixa o primeiro degrau (`ONYXCHAT_ESTADO`) e pára
+/// aí. Os dois seguintes — `$XDG_STATE_HOME/onyxchat` e
+/// `$HOME/.local/state/onyxchat` — eram linhas que nenhum teste
+/// executava, e são a parte da cadeia que decide **onde o ficheiro
+/// de anti-replay é criado** numa máquina normal, em que ninguém
+/// põe `ONYXCHAT_ESTADO`.
+///
+/// Um degrau que não funciona tem uma consequência silenciosa: o
+/// registo vai parar ao sítio errado, e o anti-replay parece não
+/// funcionar porque cada arranque lê um ficheiro diferente.
+#[test]
+fn o_caminho_de_estado_desce_a_cadeia_de_precedencia() {
+    #[allow(unused_unsafe)]
+    unsafe {
+        let guardar = |nome: &str| std::env::var(nome).ok();
+
+        let estado_anterior = guardar("ONYXCHAT_ESTADO");
+        let xdg_anterior = guardar("XDG_STATE_HOME");
+        let home_anterior = guardar("HOME");
+
+        // (a) `ONYXCHAT_ESTADO` ganha a tudo.
+        std::env::set_var("ONYXCHAT_ESTADO", "/tmp/onyxchat-estado-prioritario");
+        std::env::set_var("XDG_STATE_HOME", "/tmp/xdg-secundario");
+        assert_eq!(
+            caminho_estado(),
+            std::path::PathBuf::from("/tmp/onyxchat-estado-prioritario")
         );
 
-        // Instância 1: um nonce entra no registo.
-        {
-            let estado = estado_de_teste();
-            let mut registo = bloquear(&estado.nonces1);
-            let nonce = [0x2Bu8; 12];
-            assert!(registo.reservar(&nonce), "a primeira vez tem de passar");
-            registo.gravar_para(&caminho_anti_replay());
-        }
+        // (b) sem o primeiro, o XDG decide — e `onyxchat` é acrescentado.
+        std::env::remove_var("ONYXCHAT_ESTADO");
+        assert_eq!(
+            caminho_estado(),
+            std::path::PathBuf::from("/tmp/xdg-secundario").join("onyxchat")
+        );
 
-        // Instância 2: recria o estado do zero, como um arranque.
-        let estado2 = estado_de_teste();
-        {
-            let mut registo = bloquear(&estado2.nonces1);
-            assert_eq!(
-                registo.quantidade(),
-                1,
-                "o novo Estado não carregou o registo de disco"
-            );
-            assert!(
-                !registo.reservar(&[0x2Bu8; 12]),
-                "REPLAY ACEITE depois do reinício do daemon"
-            );
-        }
+        // (c) uma variável presente mas **vazia** não decide.
+        //
+        // `ONYXCHAT_ESTADO=""` é o caso que o primeiro `if !c.is_empty()`
+        // trata, e sem ele o caminho seria `""` — que o registo
+        // abriria como ficheiro sem directório, na raiz do
+        // sistema de ficheiros. `EACCES` para quem não é root, e uma
+        // falha que não menciona a variável que a causou.
+        std::env::remove_var("XDG_STATE_HOME");
+        std::env::set_var("ONYXCHAT_ESTADO", "");
+        std::env::set_var("HOME", "/home/testador");
+        assert_eq!(
+            caminho_estado(),
+            std::path::PathBuf::from("/home/testador")
+                .join(".local")
+                .join("state")
+                .join("onyxchat"),
+            "ONYXCHAT_ESTADO vazia não pode decidir o caminho"
+        );
 
-        unsafe { std::env::remove_var("ONYXCHAT_ESTADO") };
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+        // (d) `XDG_STATE_HOME` vazia também não decide.
+        //
+        // `XDG_STATE_HOME=""` é o degrau intermédio da mesma cadeia,
+        // e a especificação XDG diz que uma variável definida como
+        // vazia conta como não definida. Sem este `if`, o caminho
+        // seria `onyxchat` relativo ao directório de trabalho — que
+        // muda de sítio conforme quem lançou o daemon.
+        std::env::set_var("ONYXCHAT_ESTADO", "");
+        std::env::set_var("XDG_STATE_HOME", "");
+        assert_eq!(
+            caminho_estado(),
+            std::path::PathBuf::from("/home/testador")
+                .join(".local")
+                .join("state")
+                .join("onyxchat"),
+            "XDG_STATE_HOME vazia não pode decidir o caminho"
+        );
+        assert_ne!(
+            caminho_estado(),
+            std::path::PathBuf::from("onyxchat"),
+            "uma variável vazia não pode produzir um caminho relativo"
+        );
 
-    /// `ONYXCHAT_ESTADO` tem precedência sobre o XDG.
-    ///
-    /// O caminho de estado decide onde vive a informação de tráfego. Um
-    /// teste (ou um utilizador com vários perfis) precisa de o apontar
-    /// para outro sítio, e essa precedência é o que permite — sem código
-    /// nem recompilação.
-    #[test]
-    fn o_caminho_de_estado_segue_o_ambiente() {
-        #[allow(unused_unsafe)]
-        unsafe {
-            std::env::set_var("ONYXCHAT_ESTADO", "/tmp/onyxchat-teste-estado");
-            assert_eq!(
-                caminho_estado(),
-                std::path::PathBuf::from("/tmp/onyxchat-teste-estado")
-            );
-            std::env::remove_var("ONYXCHAT_ESTADO");
-        }
-    }
+        // (e) sem nenhum dos dois, o HOME decide.
+        std::env::remove_var("XDG_STATE_HOME");
+        std::env::remove_var("ONYXCHAT_ESTADO");
+        std::env::set_var("HOME", "/home/testador");
+        assert_eq!(
+            caminho_estado(),
+            std::path::PathBuf::from("/home/testador")
+                .join(".local")
+                .join("state")
+                .join("onyxchat")
+        );
 
-    /// A cadeia de precedência do caminho de estado, um degrau de cada vez.
-    ///
-    /// O teste acima fixa o primeiro degrau (`ONYXCHAT_ESTADO`) e pára
-    /// aí. Os dois seguintes — `$XDG_STATE_HOME/onyxchat` e
-    /// `$HOME/.local/state/onyxchat` — eram linhas que nenhum teste
-    /// executava, e são a parte da cadeia que decide **onde o ficheiro
-    /// de anti-replay é criado** numa máquina normal, em que ninguém
-    /// põe `ONYXCHAT_ESTADO`.
-    ///
-    /// Um degrau que não funciona tem uma consequência silenciosa: o
-    /// registo vai parar ao sítio errado, e o anti-replay parece não
-    /// funcionar porque cada arranque lê um ficheiro diferente.
-    #[test]
-    fn o_caminho_de_estado_desce_a_cadeia_de_precedencia() {
-        #[allow(unused_unsafe)]
-        unsafe {
-            let guardar = |nome: &str| std::env::var(nome).ok();
-
-            let estado_anterior = guardar("ONYXCHAT_ESTADO");
-            let xdg_anterior = guardar("XDG_STATE_HOME");
-            let home_anterior = guardar("HOME");
-
-            // (a) `ONYXCHAT_ESTADO` ganha a tudo.
-            std::env::set_var("ONYXCHAT_ESTADO", "/tmp/onyxchat-estado-prioritario");
-            std::env::set_var("XDG_STATE_HOME", "/tmp/xdg-secundario");
-            assert_eq!(
-                caminho_estado(),
-                std::path::PathBuf::from("/tmp/onyxchat-estado-prioritario")
-            );
-
-            // (b) sem o primeiro, o XDG decide — e `onyxchat` é acrescentado.
-            std::env::remove_var("ONYXCHAT_ESTADO");
-            assert_eq!(
-                caminho_estado(),
-                std::path::PathBuf::from("/tmp/xdg-secundario").join("onyxchat")
-            );
-
-            // (c) uma variável presente mas **vazia** não decide.
-            //
-            // `ONYXCHAT_ESTADO=""` é o caso que o primeiro `if !c.is_empty()`
-            // trata, e sem ele o caminho seria `""` — que o registo
-            // abriria como ficheiro sem directório, na raiz do
-            // sistema de ficheiros. `EACCES` para quem não é root, e uma
-            // falha que não menciona a variável que a causou.
-            std::env::remove_var("XDG_STATE_HOME");
-            std::env::set_var("ONYXCHAT_ESTADO", "");
-            std::env::set_var("HOME", "/home/testador");
-            assert_eq!(
-                caminho_estado(),
-                std::path::PathBuf::from("/home/testador")
-                    .join(".local")
-                    .join("state")
-                    .join("onyxchat"),
-                "ONYXCHAT_ESTADO vazia não pode decidir o caminho"
-            );
-
-            // (d) `XDG_STATE_HOME` vazia também não decide.
-            //
-            // `XDG_STATE_HOME=""` é o degrau intermédio da mesma cadeia,
-            // e a especificação XDG diz que uma variável definida como
-            // vazia conta como não definida. Sem este `if`, o caminho
-            // seria `onyxchat` relativo ao directório de trabalho — que
-            // muda de sítio conforme quem lançou o daemon.
-            std::env::set_var("ONYXCHAT_ESTADO", "");
-            std::env::set_var("XDG_STATE_HOME", "");
-            assert_eq!(
-                caminho_estado(),
-                std::path::PathBuf::from("/home/testador")
-                    .join(".local")
-                    .join("state")
-                    .join("onyxchat"),
-                "XDG_STATE_HOME vazia não pode decidir o caminho"
-            );
-            assert_ne!(
-                caminho_estado(),
-                std::path::PathBuf::from("onyxchat"),
-                "uma variável vazia não pode produzir um caminho relativo"
-            );
-
-            // (e) sem nenhum dos dois, o HOME decide.
-            std::env::remove_var("XDG_STATE_HOME");
-            std::env::remove_var("ONYXCHAT_ESTADO");
-            std::env::set_var("HOME", "/home/testador");
-            assert_eq!(
-                caminho_estado(),
-                std::path::PathBuf::from("/home/testador")
-                    .join(".local")
-                    .join("state")
-                    .join("onyxchat")
-            );
-
-            // Restaurar o ambiente: um teste que muda `HOME` e não o
-            // devolve muda a máquina de quem vem a seguir.
-            for (nome, valor) in [
-                ("ONYXCHAT_ESTADO", estado_anterior),
-                ("XDG_STATE_HOME", xdg_anterior),
-                ("HOME", home_anterior),
-            ] {
-                match valor {
-                    Some(v) => std::env::set_var(nome, v),
-                    None => std::env::remove_var(nome),
-                }
+        // Restaurar o ambiente: um teste que muda `HOME` e não o
+        // devolve muda a máquina de quem vem a seguir.
+        for (nome, valor) in [
+            ("ONYXCHAT_ESTADO", estado_anterior),
+            ("XDG_STATE_HOME", xdg_anterior),
+            ("HOME", home_anterior),
+        ] {
+            match valor {
+                Some(v) => std::env::set_var(nome, v),
+                None => std::env::remove_var(nome),
             }
         }
     }
+}
 
-    /// `ONYXCHAT_LIGACOES_MAX` é lido, validado e recusado sem crashar.
-    ///
-    /// O valor é uma protecção — o tecto de atendimentos em curso — e
-    /// não uma pré-condição. Um valor mal formado tem de cair no
-    /// omissão e deixar o daemon arrancar, porque o alternativa é não
-    /// arrancar por causa de uma variável de ambiente, que é uma falha
-    /// pior do que a limitação que ela queria ajustar.
-    #[test]
-    fn o_limite_de_ligacoes_segue_o_ambiente() {
-        #[allow(unused_unsafe)]
-        unsafe {
-            let anterior = std::env::var("ONYXCHAT_LIGACOES_MAX").ok();
+/// `ONYXCHAT_LIGACOES_MAX` é lido, validado e recusado sem crashar.
+///
+/// O valor é uma protecção — o tecto de atendimentos em curso — e
+/// não uma pré-condição. Um valor mal formado tem de cair no
+/// omissão e deixar o daemon arrancar, porque o alternativa é não
+/// arrancar por causa de uma variável de ambiente, que é uma falha
+/// pior do que a limitação que ela queria ajustar.
+#[test]
+fn o_limite_de_ligacoes_segue_o_ambiente() {
+    #[allow(unused_unsafe)]
+    unsafe {
+        let anterior = std::env::var("ONYXCHAT_LIGACOES_MAX").ok();
 
-            // Sem variável: o omissão.
-            std::env::remove_var("ONYXCHAT_LIGACOES_MAX");
-            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+        // Sem variável: o omissão.
+        std::env::remove_var("ONYXCHAT_LIGACOES_MAX");
+        assert_eq!(limite_ligacoes(), LIGACOES_MAX);
 
-            // Valor válido — e com espaços à volta, que o `trim` trata.
-            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "  7  ");
-            assert_eq!(limite_ligacoes(), 7);
+        // Valor válido — e com espaços à volta, que o `trim` trata.
+        std::env::set_var("ONYXCHAT_LIGACOES_MAX", "  7  ");
+        assert_eq!(limite_ligacoes(), 7);
 
-            // Valor mal formado: o omissão, não um panic.
-            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "muitos");
-            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+        // Valor mal formado: o omissão, não um panic.
+        std::env::set_var("ONYXCHAT_LIGACOES_MAX", "muitos");
+        assert_eq!(limite_ligacoes(), LIGACOES_MAX);
 
-            // Zero: recusado pelo `.filter(|n| *n > 0)`.
-            //
-            // Um tecto de zero seria um daemon que não atende ninguém,
-            // e é o valor que um utilizador obtém de uma variável que
-            // ficou a zero por engano. Cai no omissão.
-            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "0");
-            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+        // Zero: recusado pelo `.filter(|n| *n > 0)`.
+        //
+        // Um tecto de zero seria um daemon que não atende ninguém,
+        // e é o valor que um utilizador obtém de uma variável que
+        // ficou a zero por engano. Cai no omissão.
+        std::env::set_var("ONYXCHAT_LIGACOES_MAX", "0");
+        assert_eq!(limite_ligacoes(), LIGACOES_MAX);
 
-            // Negativo não é `usize`: o parse falha, e o omissão fica.
-            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "-1");
-            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+        // Negativo não é `usize`: o parse falha, e o omissão fica.
+        std::env::set_var("ONYXCHAT_LIGACOES_MAX", "-1");
+        assert_eq!(limite_ligacoes(), LIGACOES_MAX);
 
-            // Variável vazia: o `Some(v) if !v.is_empty()` não casa, e o
-            // omissão fica.
-            std::env::set_var("ONYXCHAT_LIGACOES_MAX", "");
-            assert_eq!(limite_ligacoes(), LIGACOES_MAX);
+        // Variável vazia: o `Some(v) if !v.is_empty()` não casa, e o
+        // omissão fica.
+        std::env::set_var("ONYXCHAT_LIGACOES_MAX", "");
+        assert_eq!(limite_ligacoes(), LIGACOES_MAX);
 
-            match anterior {
-                Some(v) => std::env::set_var("ONYXCHAT_LIGACOES_MAX", v),
-                None => std::env::remove_var("ONYXCHAT_LIGACOES_MAX"),
-            }
+        match anterior {
+            Some(v) => std::env::set_var("ONYXCHAT_LIGACOES_MAX", v),
+            None => std::env::remove_var("ONYXCHAT_LIGACOES_MAX"),
         }
     }
+}
+
+//
+// O que estes testes tentam estragar: fazer o daemon ler um ficheiro que
+// não deve, devolver um `fd` que não existe, e dizer que pode reproduzir
+// quando não pode.
+//
+// O `MEDIA_REPRODUZIR` de ponta a ponta é o último teste, e é o que
+// importa: monta um ficheiro de media numa loja real, pede a
+// reprodução, e lê os bytes de volta do `memfd` que o daemon criou. Sem
+// ele, os outros provam que o daemon não crasha — e não que reproduz.
+
+/// O caminho temporário de uma loja de media de teste.
+///
+/// A loja é criada pelo **sidecar**, e o `daemon` só a abre. Por isso o
+/// esquema vem do `sidecar` e é o mesmo que `server/loja.py` cria.
+fn loja_de_media(rotulo: &str) -> (PathBuf, rusqlite::Connection) {
+    let dir = std::env::temp_dir().join(format!("onyx-ipc-media-{rotulo}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("dir temporário");
+    let caminho = dir.join("loja.db");
+    let cx = rusqlite::Connection::open(&caminho).expect("base");
+
+    cx.execute_batch(
+        "CREATE TABLE conversas (id TEXT PRIMARY KEY, contacto_id TEXT, criada_em REAL NOT NULL);
+         CREATE TABLE mensagens (id TEXT PRIMARY KEY, conversa_id TEXT NOT NULL, de TEXT NOT NULL,
+                                 texto TEXT NOT NULL, em REAL NOT NULL, estado TEXT NOT NULL,
+                                 envelope BLOB, transferencia_id TEXT);
+         CREATE TABLE transferencias (id TEXT PRIMARY KEY, conversa_id TEXT NOT NULL,
+                                     de TEXT NOT NULL, tipo TEXT NOT NULL, codec TEXT NOT NULL,
+                                     formato TEXT NOT NULL, nome TEXT NOT NULL,
+                                     total_bytes INTEGER NOT NULL, total_pedacos INTEGER NOT NULL,
+                                     bytes_por_pedaco INTEGER NOT NULL, duracao_s INTEGER,
+                                     sha256 BLOB NOT NULL, recebido_em REAL NOT NULL,
+                                     completo INTEGER NOT NULL DEFAULT 0);",
+    )
+    .expect("esquema");
+
+    cx.execute(
+        "INSERT INTO conversas (id, contacto_id, criada_em) VALUES ('c1', 'a1', 1.0)",
+        [],
+    )
+    .expect("conversa");
+
+    (caminho, cx)
+}
+
+/// Preenche uma loja com uma transferência completa.
+///
+/// O conteúdo tem de passar o SHA-256 do manifesto, e o manifesto tem de
+/// dizer o número de fatias que o conteúdo ocupa — por isso é o
+/// `Manifesto` do próprio módulo que monta as molduras, e não bytes
+/// escritos à mão.
+fn encher_loja(cx: &rusqlite::Connection, conteudo: &[u8]) -> String {
+    use crate::media::moldura::{construir_com_flags, Flags};
+
+    let manifesto = crate::media::Manifesto::novo(
+        crate::media::Tipo::Video,
+        crate::media::Codec::Matroska,
+        crate::media::Formato::Matroska,
+        42,
+        "praia.mkv",
+        conteudo,
+    )
+    .expect("manifesto");
+    let id = manifesto.id();
+
+    let corpo_manifesto = manifesto.corpo();
+    let moldura_manifesto = construir_com_flags(
+        crate::media::Tipo::Video,
+        crate::media::Modo::NaoStreaming,
+        Flags::VAZIO.com(Flags::MANIFESTO),
+        7,
+        0,
+        0,
+        &corpo_manifesto,
+    );
+
+    cx.execute(
+        "INSERT INTO transferencias (id, conversa_id, de, tipo, codec, formato, nome,
+         total_bytes, total_pedacos, bytes_por_pedaco, duracao_s, sha256, recebido_em, completo)
+         VALUES (?1, 'c1', 'them', 'video', 'matroska', 'matroska', 'praia.mkv',
+         ?2, ?3, ?4, 42, ?5, 1.0, 1)",
+        rusqlite::params![
+            crate::media::ficheiro::id_em_hex(&id),
+            manifesto.total_bytes,
+            manifesto.total_pedacos,
+            manifesto.bytes_por_pedaco,
+            manifesto.sha256.to_vec(),
+        ],
+    )
+    .expect("transferência");
+
+    let inserir = |i: usize, texto: &str| {
+        cx.execute(
+            "INSERT INTO mensagens (id, conversa_id, de, texto, em, estado, envelope,
+                                   transferencia_id)
+             VALUES (?1, 'c1', 'them', ?2, ?3, 'recebida', NULL, ?4)",
+            rusqlite::params![
+                format!("m{i}"),
+                texto,
+                i as f64,
+                crate::media::ficheiro::id_em_hex(&id),
+            ],
+        )
+        .expect("mensagem");
+    };
+
+    inserir(0, moldura_manifesto.como_texto());
+    for (i, pedaco) in manifesto
+        .fatias(conteudo)
+        .expect("fatias")
+        .iter()
+        .enumerate()
+    {
+        let moldura = crate::media::moldura::construir(
+            crate::media::Tipo::Video,
+            crate::media::Modo::NaoStreaming,
+            7,
+            i as u32 + 1,
+            0,
+            pedaco,
+        );
+        inserir(i + 1, moldura.como_texto());
+    }
+
+    crate::media::ficheiro::id_em_hex(&id)
+}
+
+/// `MEDIA_INICIAR` com o caminho dado.
+fn corpo_media_iniciar(caminho: &str) -> Vec<u8> {
+    let mut corpo = vec![CMD_MEDIA_INICIAR];
+    corpo.extend_from_slice(&(caminho.len() as u16).to_le_bytes());
+    corpo.extend_from_slice(caminho.as_bytes());
+    corpo
+}
+
+/// O corpo de `MEDIA_REPRODUZIR` para um `id` hex e um índice de leitor.
+fn corpo_media_reproduzir(id_hex: &str, leitor: u8) -> Vec<u8> {
+    let mut corpo = vec![CMD_MEDIA_REPRODUZIR, leitor];
+    corpo.extend_from_slice(id_hex.as_bytes());
+    corpo
+}
+
+/// O erro de uma resposta, ou `None` se foi `OK`.
+fn erro_de(resposta: &[u8]) -> Option<(u8, String)> {
+    match resposta.first() {
+        Some(&ESTADO_OK) => None,
+        Some(&ESTADO_ERRO) => {
+            let codigo = resposta.get(1).copied().unwrap_or(0);
+            Some((codigo, String::from_utf8_lossy(&resposta[2..]).into_owned()))
+        }
+        _ => Some((0xFF, "resposta sem estado".into())),
+    }
+}
+
+#[test]
+fn media_estado_diz_que_nao_ha_loja_no_arranque() {
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &[CMD_MEDIA_ESTADO]);
+
+    assert_eq!(erro_de(&resposta), None);
+    // A resposta é `OK ‖ loja ‖ ffmpeg ‖ leitor`, e o estado é o byte 0.
+    assert_eq!(resposta[0], ESTADO_OK);
+    assert_eq!(resposta[1], 0, "loja: ainda não houve MEDIA_INICIAR");
+    // O `ffmpeg` depende da build, e por isso o seu valor não é
+    // conferido. O que interessa é que os três bytes existem.
+    assert_eq!(resposta.len(), 4, "loja, ffmpeg e leitor");
+}
+
+#[test]
+fn um_caminho_relativo_e_recusado() {
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &corpo_media_iniciar("loja.db"));
+
+    // Recusado, e não resolvido: um caminho relativo parece funcionar e
+    // falha depois, no `MEDIA_REPRODUZIR`, onde já não há forma de
+    // saber que a loja errada é que está aberta.
+    let (codigo, _) = erro_de(&resposta).expect("erro");
+    assert_eq!(codigo, ERR_MEDIA);
+
+    let estado_media = super::processar_pedido(&estado, &[CMD_MEDIA_ESTADO]);
+    assert_eq!(estado_media[1], 0, "e a loja continua por apontar");
+}
+
+#[test]
+fn um_caminho_vazio_e_recusado() {
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &corpo_media_iniciar(""));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_PAYLOAD_MALFORMADO);
+}
+
+#[test]
+fn um_caminho_que_nao_existe_da_erro_de_media() {
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &corpo_media_iniciar("/nao/existe/loja.db"));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_MEDIA);
+}
+
+#[test]
+fn um_ficheiro_que_nao_e_base_da_erro_de_media() {
+    let dir = std::env::temp_dir().join(format!("onyx-ipc-lixo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let caminho = dir.join("nao-e-base.db");
+    std::fs::write(&caminho, b"lixo").expect("escreve");
+
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_MEDIA);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn media_iniciar_com_bytes_a_mais_e_recusado() {
+    let estado = estado_de_teste();
+    let (caminho, _cx) = loja_de_media("excesso");
+    let mut corpo = corpo_media_iniciar(caminho.to_str().expect("utf8"));
+    corpo.push(0);
+
+    // Bytes a mais são um cliente a falar de outra coisa, e aceitar o
+    // resto seria adivinhar o que ele queria dizer.
+    assert_eq!(
+        erro_de(&super::processar_pedido(&estado, &corpo))
+            .expect("erro")
+            .0,
+        ERR_PAYLOAD_MALFORMADO
+    );
+}
+
+#[test]
+fn media_iniciar_aponta_a_loja() {
+    let estado = estado_de_teste();
+    let (caminho, _cx) = loja_de_media("apontar");
+
+    assert_eq!(
+        erro_de(&super::processar_pedido(
+            &estado,
+            &corpo_media_iniciar(caminho.to_str().expect("utf8"))
+        )),
+        None
+    );
+
+    let resposta = super::processar_pedido(&estado, &[CMD_MEDIA_ESTADO]);
+    assert_eq!(resposta[1], 1, "a loja passou a estar apontada");
+}
+
+#[test]
+fn reproduzir_sem_media_iniciar_da_estado_invalido() {
+    // `EstadoInvalido` e não `Media`: o comando não é impossível, é
+    // que ainda não se compilou o que ele precisa.
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&"11".repeat(16), 0));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_ESTADO_INVALIDO);
+}
+
+#[test]
+fn um_id_do_comprimento_certo_mas_nao_hex_e_recusado() {
+    let estado = estado_de_teste();
+    let (caminho, _cx) = loja_de_media("hex");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&"ZZ".repeat(16), 0));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_PAYLOAD_MALFORMADO);
+}
+
+#[test]
+fn um_id_em_maiusculas_e_recusado() {
+    // A loja guarda o `id` em minúsculas. Aceitar as duas formas daria
+    // dois `id` para a mesma transferência — um que existe e um que não —
+    // e a diferença só apareceria como «o vídeo não abre».
+    let estado = estado_de_teste();
+    let (caminho, _cx) = loja_de_media("maiusculas");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&"AA".repeat(16), 0));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_PAYLOAD_MALFORMADO);
+}
+
+#[test]
+fn um_id_do_comprimento_errado_e_recusado() {
+    let estado = estado_de_teste();
+    for id in ["", "aa", &"a".repeat(31), &"a".repeat(33), &"a".repeat(64)] {
+        let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(id, 0));
+        assert_eq!(
+            erro_de(&resposta).expect("erro").0,
+            ERR_PAYLOAD_MALFORMADO,
+            "o id {id:?} devia ser recusado"
+        );
+    }
+}
+
+#[test]
+fn um_leitor_fora_da_lista_e_recusado() {
+    let estado = estado_de_teste();
+    let (caminho, _cx) = loja_de_media("leitor");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    // `0xFF` é o valor de «nenhum leitor» em `MEDIA_ESTADO`, e não é um
+    // índice. Passá-lo aqui é o erro natural de um cliente que não
+    // viu a resposta do `ESTADO`.
+    let resposta =
+        super::processar_pedido(&estado, &corpo_media_reproduzir(&"11".repeat(16), 0xFF));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_MEDIA);
+}
+
+#[test]
+fn uma_transferencia_inexistente_da_erro_de_media() {
+    let estado = estado_de_teste();
+    let (caminho, _cx) = loja_de_media("inexistente");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&"11".repeat(16), 0));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_MEDIA);
+}
+
+#[test]
+fn uma_transferencia_incompleta_da_erro_de_media() {
+    // O que impede §4.6: reproduzir um ficheiro truncado.
+    let estado = estado_de_teste();
+    let (caminho, cx) = loja_de_media("incompleta");
+    let id = encher_loja(&cx, b"conteudo");
+    // Apaga a última fatia. O manifesto continua a declarar duas.
+    cx.execute("DELETE FROM mensagens WHERE id = 'm2'", [])
+        .expect("apaga a fatia");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 0));
+    let (codigo, mensagem) = erro_de(&resposta).expect("erro");
+    assert_eq!(codigo, ERR_MEDIA);
+    assert!(!mensagem.is_empty());
+}
+
+#[test]
+fn uma_transferencia_que_nao_bate_no_resumo_da_erro() {
+    // O resumo é a **única** protecção, e por isso tem de falhar.
+    let estado = estado_de_teste();
+    let (caminho, cx) = loja_de_media("resumo");
+    let id = encher_loja(&cx, b"conteudo original");
+    let adulterada = crate::media::moldura::construir(
+        crate::media::Tipo::Video,
+        crate::media::Modo::NaoStreaming,
+        7,
+        1,
+        0,
+        b"outro conteudo",
+    );
+    cx.execute(
+        "UPDATE mensagens SET texto = ?1 WHERE id = 'm2'",
+        rusqlite::params![adulterada.como_texto()],
+    )
+    .expect("adultera a fatia");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 0));
+    assert_eq!(erro_de(&resposta).expect("erro").0, ERR_MEDIA);
+    let _ = id;
+}
+
+#[test]
+fn media_capturar_com_o_corpo_certo_precisa_do_ffmpeg() {
+    // O `ffmpeg` embebido é o que falta ao ambiente de testes: não há
+    // headers de captura e o artefacto mínimo não traz `x11grab`.
+    //
+    // O que o teste fixa é o **erro certo**: `0x14 Media` e não
+    // `0x01 ComandoDesconhecido`. Um opcode registado que responde
+    // «desconhecido» é um opcode que não existe.
+    let estado = estado_de_teste();
+    let corpo = vec![
+        CMD_MEDIA_CAPTURAR,
+        0x80,
+        0x02,
+        0xe0,
+        0x01,
+        0x1e,
+        0x00,
+        0x20,
+        0x00,
+        // video_kbps = 300 (F9): o `-b:v` do VP8, que e' o contrato
+        // com o receptor. O corpo passou de 8 a 10 bytes com ele.
+        0x2c,
+        0x01,
+    ];
+    let resposta = super::processar_pedido(&estado, &corpo);
+
+    if crate::media::ffmpeg_embutido::disponivel() {
+        // Com o executável presente, o erro tem de ser de captura e não
+        // de geometria: 640×480 são válidos.
+        let (codigo, mensagem) = erro_de(&resposta).expect("erro");
+        assert_eq!(codigo, ERR_MEDIA, "mensagem: {mensagem}");
+        // E tem de ser a **do ffmpeg**. Um erro genérico seria o mesmo
+        // que antes disto: a pessoa ficava sem saber o que fazer.
+        assert!(
+            mensagem.contains("ffmpeg"),
+            "a mensagem não diz que foi o ffmpeg: {mensagem}"
+        );
+    } else {
+        assert_eq!(
+            erro_de(&resposta).expect("erro").0,
+            ERR_MEDIA,
+            "sem ffmpeg embebido, a resposta tem de ser de media"
+        );
+    }
+}
+
+#[test]
+fn media_capturar_recusa_uma_geometria_invalida_antes_de_lancar_o_ffmpeg() {
+    // A geometria de teste deixou de ser «360 não é múltiplo de 16»
+    // porque essa regra foi com a grelha de telhas (F9). Passou a ser
+    // `fps` zero, que continua a ser erro e continua a merecer a ordem
+    // que importa: o `ffmpeg` embebido é um `memfd` de dezenas de MB, e
+    // deitar um fora por causa de um `fps` zero seria alocar tudo para
+    // nada.
+    let estado = estado_de_teste();
+    // 640×480, fps = 0
+    let corpo = vec![
+        CMD_MEDIA_CAPTURAR,
+        0x80,
+        0x02,
+        0xe0,
+        0x01,
+        0x00,
+        0x00,
+        0x20,
+        0x00,
+        0x2c,
+        0x01,
+    ];
+    let resposta = super::processar_pedido(&estado, &corpo);
+    let (codigo, mensagem) = erro_de(&resposta).expect("erro");
+    assert_eq!(codigo, ERR_MEDIA, "mensagem: {mensagem}");
+    assert!(
+        mensagem.contains("fps"),
+        "a mensagem tem de dizer o que está errado: {mensagem}"
+    );
+}
+
+#[test]
+fn media_ler_sem_captura_da_erro_e_nao_uma_resposta_vazia() {
+    // Sem captura há uma diferença entre «ainda não chegou» e «não há
+    // nada e nunca haverá», e quem lê precisa de saber qual das duas
+    // é para decidir se espera ou se desiste.
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &[CMD_MEDIA_LER]);
+    let (codigo, mensagem) = erro_de(&resposta).expect("erro, não uma resposta vazia");
+    assert_eq!(codigo, ERR_MEDIA, "mensagem: {mensagem}");
+    assert!(
+        mensagem.contains("captura"),
+        "a mensagem tem de dizer o que falta: {mensagem}"
+    );
+}
+
+#[test]
+#[test]
+fn media_ler_aceita_um_pedido_vazio() {
+    // O pedido é vazio: não há nada a pedir. O `ffmpeg` já tem o que há
+    // para dar, e pedir um quadro específico (`stream`, `seq`) seria o
+    // receptor a controlar o ecrã de quem emite.
+    //
+    // O teste confirma que um pedido **vazio** chega ao comando e não é
+    // confundido com um pedido mal formado — que daria
+    // `PayloadMalformado` em vez do erro de media. A diferença entre os
+    // dois é o que separa «não há captura» de «falaste mal».
+    let estado = estado_de_teste();
+    // Sem o byte de origem: esse byte é do `ENVIAR` (F9), e o
+    // `MEDIA_LER` lê o pipe — não gasta janela de rate-limit nenhuma.
+    let resposta = super::processar_pedido(&estado, &[CMD_MEDIA_LER]);
+    let (codigo, mensagem) = erro_de(&resposta).expect("erro de media");
+    assert_eq!(
+        codigo, ERR_MEDIA,
+        "um pedido vazio tem de chegar ao comando: {mensagem}"
+    );
+    assert!(
+        mensagem.contains("captura"),
+        "e o erro tem de ser o de não há captura: {mensagem}"
+    );
+}
+
+#[test]
+fn media_capturar_com_o_corpo_errado_da_payload_malformado() {
+    let estado = estado_de_teste();
+    for corpo in [
+        vec![CMD_MEDIA_CAPTURAR],
+        vec![CMD_MEDIA_CAPTURAR, 0, 1],
+        vec![CMD_MEDIA_CAPTURAR, 0x80, 0x02, 0xe0, 0x01, 0x1e, 0x00, 0x20],
+        vec![
+            CMD_MEDIA_CAPTURAR,
+            0x80,
+            0x02,
+            0xe0,
+            0x01,
+            0x1e,
+            0x00,
+            0x20,
+            0x00,
+            0xff,
+        ],
+    ] {
+        let resposta = super::processar_pedido(&estado, &corpo);
+        assert_eq!(
+            erro_de(&resposta).expect("erro").0,
+            ERR_PAYLOAD_MALFORMADO,
+            "o corpo {corpo:?} devia ser recusado"
+        );
+    }
+}
+
+#[test]
+fn media_capturar_da_503_sem_o_ffmpeg_embebido() {
+    // O modo degradado de §7.6: sem `tools/ffmpeg/cache/ffmpeg.xz`, o
+    // `build.rs` escreve um ficheiro de zero bytes e a captura não
+    // existe — mas o **texto** funciona exactamente como antes.
+    //
+    // O teste não pode obrigar a que o `ffmpeg` esteja lá, porque
+    // depends da máquina. O que fixa é a **forma** da resposta: se o
+    // `ffmpeg` falta, é `0x14` com a mensagem que diz isso, e nunca um
+    // pânico.
+    let estado = estado_de_teste();
+    let corpo = vec![
+        CMD_MEDIA_CAPTURAR,
+        0x80,
+        0x02,
+        0xe0,
+        0x01,
+        0x1e,
+        0x00,
+        0x20,
+        0x00,
+    ];
+    let resposta = super::processar_pedido(&estado, &corpo);
+    assert_eq!(resposta[0], ESTADO_ERRO);
+    assert!(resposta.len() >= 2);
+
+    // E o estado do daemon não ficou nenhum meio caminho feito: nem
+    // uma captura a meio, nem um `fd` vazado.
+    let guarda = super::bloquear(&estado.captura);
+    assert!(guarda.is_none(), "uma captura falhada ficou registada");
+}

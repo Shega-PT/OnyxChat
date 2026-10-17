@@ -47,9 +47,9 @@ use std::time::{Duration, Instant};
 
 use crate::anti_replay::RegistoNonce1;
 use crate::envelope::TAM_MINIMO;
-use crate::orcamento;
 use crate::erros::ErroPipeline;
 use crate::handshake::{self, Amizade, RegistoAmigos, TAM_NONCE, TAM_PUB};
+use crate::orcamento;
 use crate::p2p::{self, ErroP2P, LigacaoP2P, ModoLigacao, PedidoLigacao, ServidorP2P};
 use crate::pipeline::{self, Chaves};
 use crate::tor::{BackendTor, EstadoTor};
@@ -107,23 +107,82 @@ pub const CMD_ACEITAR_AMIZADE: u8 = 0x0A;
 pub const CMD_RECUSAR_AMIZADE: u8 = 0x0B;
 /// Comando CONFIRMAR_AMIZADE: valida o `FRIEND_ACCEPT` e fecha amizade.
 pub const CMD_CONFIRMAR_AMIZADE: u8 = 0x0C;
+/// Comando MEDIA_INICIAR: aponta o daemon para a loja do `sidecar`.
+///
+/// O caminho vem do `sidecar` e **nunca** do cliente — ver
+/// `docs/media.md` §4.6.1. Um caminho que o cliente escolhesse seria o
+/// cliente a dizer ao daemon que ficheiro ler.
+pub const CMD_MEDIA_INICIAR: u8 = 0x0D;
+/// Comando MEDIA_ESTADO: o que o daemon pode fazer de media.
+pub const CMD_MEDIA_ESTADO: u8 = 0x0E;
+/// Comando MEDIA_CAPTURAR: streaming de vídeo e áudio. Reservado para
+/// F7; até lá responde `0x01 ComandoDesconhecido`.
+pub const CMD_MEDIA_CAPTURAR: u8 = 0x0F;
+/// Comando MEDIA_REPRODUZIR: monta um ficheiro guardado em RAM e lança
+/// o leitor. `docs/media.md` §4.6.
+pub const CMD_MEDIA_REPRODUZIR: u8 = 0x10;
+/// `MEDIA_LER` — o próximo quadro de vídeo da captura viva.
+///
+/// **Corpo da resposta:** `sequência:u32le ‖ timestamp:u64le ‖ dados`,
+/// com `dados` a ser um quadro de **VP8** (não pixéis) — ver
+/// `docs/media.md` §8.0.2.
+///
+/// ## Porque este comando é necessário
+///
+/// `MEDIA_CAPTURAR` liga o `ffmpeg`, mas sem este comando os quadros
+/// ficavam num pipe que ninguém lia: o `ffmpeg` bloqueava na primeira
+/// frame depois de a janela do pipe encher, e a captura «funcionava»
+/// durante dois segundos.
+///
+/// ## Por que devolve bytes de VP8 e não pixéis
+///
+/// Porque o daemon não tem um descodificador — `tools/ffmpeg/build.sh`
+/// liga o `libvpx` para codificar, e ligar também para descodificar
+/// duplicaria o executável por uma coisa que o emissor nunca precisa.
+/// Transporta; quem descodifica é o receptor.
+pub const CMD_MEDIA_LER: u8 = 0x11;
+/// `MEDIA_AUDIO` — o próximo pacote de Opus da captura viva.
+///
+/// **Corpo da resposta:** `dados`, Opus cru. Sem cabeçalho nenhum, e a
+/// razão está em [`MEDIA_LER`].
+///
+/// ## Por que este comando não tem `clock_ms`
+///
+/// Porque o áudio **é** o relógio. §5.3: o relógio de media avança por
+/// contagem de bytes dividida por `bytes_por_ms`, e um pacote de Opus de
+/// 20 ms a 32 kbit/s são 80 bytes — o receptor sabe que se passaram
+/// 20 ms sem lhe dizermos.
+///
+/// E o Opus não tem picture boundaries: cada pacote tem um índice
+/// interno, e o receptor descodifica o que receber e sabe o número de
+/// amostras por dentro. Um `clock_ms` aqui seria um segundo relógio que
+/// discordaria do primeiro.
+///
+/// ## E o limitador fica de quem envia
+///
+/// A §8.0 diz que o áudio não pode passar o vídeo à frente. Esse
+/// limitador é do `messenger` e não deste comando: o daemon produz o
+/// áudio à taxa a que o `ffmpeg` o produz — 20 ms por pacote — e quem
+/// decide o que vai à rede é quem conhece o ritmo do vídeo, que é o
+/// emissor. Um limitador aqui cortaria áudio por uma comparação com um
+/// relógio que o daemon não tem.
+pub const CMD_MEDIA_AUDIO: u8 = 0x12;
+pub const ERR_DECIFRAGEM_FALHOU: u8 = 0x05;
+/// Opcode fora da tabela (`docs/ipc.md` §Erros).
+pub const ERR_COMANDO_DESCONHECIDO: u8 = 0x01;
+/// Tamanho ou campo de chave inválido — defensivo (`docs/ipc.md`).
+pub const ERR_CHAVE_INVALIDA: u8 = 0x03;
+/// A Ed25519 do envelope foi rejeitada.
+pub const ERR_ASSINATURA_INVALIDA: u8 = 0x04;
 
-/// Estado de resposta: sucesso.
+/// Corpo curto demais, ou longo demais, para o comando.
+pub const ERR_PAYLOAD_MALFORMADO: u8 = 0x02;
+
+/// `OK` — resposta sem erro.
 pub const ESTADO_OK: u8 = 0x00;
-/// Estado de resposta: erro estruturado.
+/// `ERRO` — resposta com erro; o byte seguinte é o código.
 pub const ESTADO_ERRO: u8 = 0x01;
 
-// Códigos de erro (docs/ipc.md).
-/// Comando fora da tabela de comandos.
-pub const ERR_COMANDO_DESCONHECIDO: u8 = 0x01;
-/// Corpo curto demais para o comando.
-pub const ERR_PAYLOAD_MALFORMADO: u8 = 0x02;
-/// Tamanho/campo de chave inválido.
-pub const ERR_CHAVE_INVALIDA: u8 = 0x03;
-/// Assinatura Ed25519 rejeitada (DECODE/handshake).
-pub const ERR_ASSINATURA_INVALIDA: u8 = 0x04;
-/// Tag AEAD inválida (DECODE).
-pub const ERR_DECIFRAGEM_FALHOU: u8 = 0x05;
 /// Versão/comprimento do envelope errados.
 pub const ERR_ENVELOPE_INVALIDO: u8 = 0x06;
 /// Falha interna AEAD (ENCODE).
@@ -152,6 +211,15 @@ pub const ERR_RELAY: u8 = 0x11;
 pub const ERR_VERSAO_INCOMPATIVEL: u8 = 0x12;
 /// `nonce1` de chat já visto no registo anti-replay (DECODE).
 pub const ERR_NONCE_REPETIDO: u8 = 0x13;
+/// A operação de media não é possível agora.
+///
+/// Deliberadamente **não** se confundem: `LojaIndisponivel` é a base
+/// ilegível, e este é tudo o resto. Este
+/// cobre o caso em que a loja está bem e o que falta é o `ffmpeg`,
+/// cobre o caso em que a loja está bem e o que falta é o `ffmpeg`,
+/// o leitor, ou
+/// um `mediaId` malformado. Ver `docs/media.md` §7.6.
+pub const ERR_MEDIA: u8 = 0x14;
 
 /// Versão do protocolo IPC (`major`/`minor` em nibbles: high/low).
 ///
@@ -211,7 +279,10 @@ pub fn caminho_estado() -> PathBuf {
         }
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".local").join("state").join("onyxchat")
+    PathBuf::from(home)
+        .join(".local")
+        .join("state")
+        .join("onyxchat")
 }
 
 /// Ficheiro do registo anti-replay de `nonce1`.
@@ -295,6 +366,12 @@ pub fn processar_pedido(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
         CMD_ACEITAR_AMIZADE => processar_aceitar_amizade(estado, resto),
         CMD_RECUSAR_AMIZADE => processar_recusar_amizade(estado, resto),
         CMD_CONFIRMAR_AMIZADE => processar_confirmar_amizade(estado, resto),
+        CMD_MEDIA_INICIAR => processar_media_iniciar(estado, resto),
+        CMD_MEDIA_ESTADO => processar_media_estado(estado),
+        CMD_MEDIA_CAPTURAR => processar_media_capturar(estado, resto),
+        CMD_MEDIA_LER => processar_media_ler(estado),
+        CMD_MEDIA_AUDIO => processar_media_audio(estado),
+        CMD_MEDIA_REPRODUZIR => processar_media_reproduzir(estado, resto),
         _ => resposta_erro(ERR_COMANDO_DESCONHECIDO, "comando desconhecido"),
     }
 }
@@ -474,8 +551,8 @@ fn processar_decode(estado: &Estado, pedido: &[u8]) -> Vec<u8> {
     let publica: [u8; 32] = publica.try_into().expect("32B validados");
     let resultado = {
         let mut registo = bloquear(&estado.nonces1);
-        let r = pipeline::decifrar(envelope, &chaves, &publica, &mut registo)
-            .map(|t| t.into_bytes());
+        let r =
+            pipeline::decifrar(envelope, &chaves, &publica, &mut registo).map(|t| t.into_bytes());
         // Persiste **depois** da decifragem e ainda dentro do mesmo
         // lock, por duas razões:
         //
@@ -557,6 +634,21 @@ pub struct Estado {
     ligado: Arc<AtomicBool>,
     /// Espelho do `.onion` publicado (vazio = não escuta).
     onion: Mutex<Option<String>>,
+    /// A loja do `sidecar`, para montar media (`docs/media.md` §4.6).
+    ///
+    /// `None` antes de `MEDIA_INICIAR`, e é assim que `MEDIA_ESTADO` diz
+    /// «ainda não apontado» em vez de tentar abrir um caminho adivinhado.
+    ///
+    /// Sem chaves de amizade, e sem precisar delas: a montagem lê a
+    /// coluna `texto` da loja, e desencriptar rebateria no anti-replay.
+    /// Ver a nota no cabeçalho de [`crate::media::loja`].
+    loja_media: Mutex<Option<crate::media::loja::Loja>>,
+    /// A captura de vídeo viva, se alguma estiver a correr.
+    ///
+    /// `Mutex<Option<…>>` e não um `Arc`: a captura é de uma sessão e
+    /// morre com ela. Ver [`processar_media_capturar`] para o que
+    /// acontece a uma segunda captura.
+    captura: Mutex<Option<crate::media::ffmpeg::Stream>>,
     /// Registo anti-replay de `nonce1` do chat (bloqueio de ordem 3).
     ///
     /// É o registo do *receptor* (`message_format.md` §Anti-replay);
@@ -594,6 +686,13 @@ impl Estado {
             // vida do processo — e um reinício é precisamente a janela
             // em que um envelope capturado volta a passar.
             nonces1: Mutex::new(RegistoNonce1::carregar_de(&caminho_anti_replay())),
+            // `None` até `MEDIA_INICIAR`: o daemon não adivinha onde
+            // está a loja. Um caminho adivinhado seria o daemon a
+            // procurar ficheiros de outra pessoa no directório
+            // errado, e a erro de permissão seria a mesma que a de um
+            // ficheiro inexistente.
+            loja_media: Mutex::new(None),
+            captura: Mutex::new(None),
         }
     }
 
@@ -849,10 +948,7 @@ fn validar_destino(
     match modo {
         ModoLigacao::Direto => {
             if destino.is_empty() {
-                return Err((
-                    ERR_DESTINO_INVALIDO,
-                    "modo direto exige destino (.onion)",
-                ));
+                return Err((ERR_DESTINO_INVALIDO, "modo direto exige destino (.onion)"));
             }
             if !parece_onion {
                 // Não tentamos resolver: o daemon não tem discovery.
@@ -894,12 +990,40 @@ fn validar_destino(
 }
 
 /// `ENVIAR 0x06` → frame `CHAT 0x01` com o envelope por corpo.
+///
+/// ## O primeiro byte é a origem, e porquê
+///
+/// O corpo do `ENVIAR` passa a levar um byte antes do envelope:
+///
+/// ```text
+/// origem: 1 B   0x00 texto, 0x01 media
+/// corpo:  n B   o envelope, como antes
+/// ```
+///
+/// O `p2p.rs` não decifra nada e por isso não sabe se um `CHAT` é
+/// texto ou media. Quem sabe é o emissor, e o emissor é o único que
+/// pode dizer. A origem é declarada no comando e **não** se deduce do
+/// plaintext, porque deduzir exigiria decifrar no caminho de escrita —
+/// e essa é exactamente a propriedade que o projecto não quer perder.
 fn processar_enviar(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
+    let Some((&origem_byte, envelope)) = corpo.split_first() else {
+        return resposta_erro(ERR_ENVELOPE_INVALIDO, "ENVIAR sem byte de origem");
+    };
+    let origem = match origem_byte {
+        0x00 => p2p::Origem::Texto,
+        0x01 => p2p::Origem::Media,
+        outro => {
+            return resposta_erro(
+                ERR_ENVELOPE_INVALIDO,
+                &format!("origem de envio desconhecida: {outro:#04x}"),
+            );
+        }
+    };
     let mut rede = bloquear(&estado.rede);
     let Some(ligacao) = rede.ligacao.as_mut() else {
         return resposta_erro(ERR_NAO_LIGADO, "sem ligação ativa ao par");
     };
-    match ligacao.enviar(p2p::FRAME_CHAT, corpo) {
+    match ligacao.enviar(p2p::FRAME_CHAT, envelope, origem) {
         Ok(()) => resposta_ok(&[]),
         Err(erro) => {
             let morta = Estado::limpar_se_morta(&erro, false);
@@ -1022,7 +1146,7 @@ fn processar_pedir_amizade(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
     resposta.extend_from_slice(&pedido.k9);
     resposta.extend_from_slice(&corpo_pedido);
     let mut resposta = resposta_ok(&resposta);
-    if let Err(erro) = ligacao.enviar(handshake::TIPO_PEDIDO, &corpo_pedido) {
+    if let Err(erro) = ligacao.enviar(handshake::TIPO_PEDIDO, &corpo_pedido, p2p::Origem::Texto) {
         let morta = Estado::limpar_se_morta(&erro, false);
         if morta {
             rede.ligacao = None;
@@ -1078,7 +1202,7 @@ fn processar_aceitar_amizade(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
     };
     // 4. Aceite: infallível porque o pedido já foi validado no passo 1.
     let (amizade, mut corpo_aceite) = handshake::aceitar_pedido(seed.como_bytes(), &pedido);
-    let envio = ligacao.enviar(handshake::TIPO_ACEITE, &corpo_aceite);
+    let envio = ligacao.enviar(handshake::TIPO_ACEITE, &corpo_aceite, p2p::Origem::Texto);
     if let Err(erro) = envio {
         let morta = Estado::limpar_se_morta(&erro, false);
         if morta {
@@ -1130,7 +1254,7 @@ fn processar_recusar_amizade(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
         return resposta_erro(ERR_NAO_LIGADO, "sem ligação ativa ao par");
     };
     let corpo_recusa = handshake::montar_recusa(seed.como_bytes(), &nonce);
-    if let Err(erro) = ligacao.enviar(handshake::TIPO_RECUSA, &corpo_recusa) {
+    if let Err(erro) = ligacao.enviar(handshake::TIPO_RECUSA, &corpo_recusa, p2p::Origem::Texto) {
         let morta = Estado::limpar_se_morta(&erro, false);
         if morta {
             rede.ligacao = None;
@@ -1477,7 +1601,7 @@ pub fn servir_com_paragem(
             Some(uid) if par_do_uid_proprio(uid) => {}
             _ => continue, // `fluxo` descartado aqui → fecho silencioso.
         }
-// Espera por uma vaga. Bloquear aqui, e não antes, é
+        // Espera por uma vaga. Bloquear aqui, e não antes, é
         // deliberado: a autenticação por uid é o filtro que deve
         // aplicar-se a toda a gente, mesmo a quem vai ser recusado
         // depois por falta de vaga.
@@ -1514,3 +1638,320 @@ pub fn servir(caminho: &Path, estado: Arc<Estado>) -> io::Result<()> {
 #[cfg(test)]
 #[path = "ipc_testes.rs"]
 mod testes;
+
+// ---------------------------------------------------------------------
+// Media (`docs/media.md` §4.6) — o non-streaming
+// ---------------------------------------------------------------------
+//
+// Três comandos, e nenhum deles leva uma chave.
+//
+// `MEDIA_INICIAR` aponta o daemon para a loja do `sidecar`.
+// `MEDIA_ESTADO` diz o que é possível.
+// `MEDIA_REPRODUZIR` monta um ficheiro em RAM e lança o leitor.
+//
+// O quarto opcode, `MEDIA_CAPTURAR 0x0F`, é streaming e pertence a F7.
+// Não está no `match` de propósito: cai em `ComandoDesconhecido`, que é
+// a resposta certa para um opcode que existe no papel e não na
+// implementação. Registá-lo como «não implementado» seria um código
+// novo a descrever a nossa própria falta.
+
+/// `MEDIA_INICIAR 0x0D` → `caminho: u16 LE ‖ UTF-8`; resposta `OK` vazia.
+///
+/// ## O caminho vem do `sidecar`
+///
+/// E é por isso que este comando existe em vez de o daemon o adivinhar.
+/// O daemon e a loja são processos diferentes; o caminho tem de vir de
+/// quem tem a loja.
+///
+/// A validação é que o caminho é **absoluto** e existe. Um caminho
+/// relativo resolveria contra o directório de trabalho do daemon, que
+/// não é o do `sidecar` — e o resultado seria abrir a base errada sem
+/// dar erro, que é o pior resultado possível.
+///
+/// A abertura é em modo `ro` (ver [`crate::media::loja`]), e por isso
+/// um `MEDIA_INICIAR` repetido com outro caminho **substitui** o
+/// anterior: a loja do `sidecar` pode mudar de sítio se o utilizador
+/// a mover, e o daemon tem de acompanhar.
+fn processar_media_iniciar(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
+    let Some((caminho, resto)) = tirar_cadeia(corpo) else {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_INICIAR: caminho ausente");
+    };
+    if !resto.is_empty() {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_INICIAR: bytes a mais");
+    }
+    if caminho.is_empty() {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_INICIAR: caminho vazio");
+    }
+
+    let caminho = std::path::PathBuf::from(caminho);
+    if !caminho.is_absolute() {
+        // Recusado em vez de resolvido. Um caminho relativo parece
+        // funcionar e falhar mais tarde, no `MEDIA_REPRODUZIR`, e
+        // nesse ponto já não há forma de saber que a loja errada é que
+        // está aberta.
+        return resposta_erro(ERR_MEDIA, "MEDIA_INICIAR: o caminho tem de ser absoluto");
+    }
+    if !caminho.is_file() {
+        return resposta_erro(ERR_MEDIA, "MEDIA_INICIAR: não existe loja nesse caminho");
+    }
+
+    match crate::media::loja::Loja::abrir(&caminho) {
+        Ok(loja) => {
+            *bloquear(&estado.loja_media) = Some(loja);
+            resposta_ok(&[])
+        }
+        Err(_) => resposta_erro(ERR_MEDIA, "MEDIA_INICIAR: a loja não pôde ser lida"),
+    }
+}
+
+/// `MEDIA_ESTADO 0x0E` → sem corpo; resposta `loja:1B ‖ ffmpeg:1B ‖ leitor: u8`.
+///
+/// `loja` é 1 depois de um `MEDIA_INICIAR` com sucesso. `ffmpeg` é 1
+/// quando o executável está embebido nesta compilação — que é 0 numa
+/// build sem artefacto, e o texto não é afectado (modo degradado,
+/// `docs/media.md` §7.6).
+///
+/// `leitor` é o índice em [`crate::media::reproduzir::LEITORES`] do
+/// primeiro leitor disponível, ou `0xFF` se não houver nenhum.
+///
+/// Os três bytes são **separados** porque as três coisas falham
+/// independentemente: ter loja não implica ter `ffmpeg` (que só interessa
+/// ao streaming), e nenhum dos dois implica ter `mpv` instalado.
+fn processar_media_estado(estado: &Estado) -> Vec<u8> {
+    let loja = bloquear(&estado.loja_media).is_some();
+    let ffmpeg = u8::from(crate::media::ffmpeg_embutido::disponivel());
+    let leitor = match crate::media::reproduzir::leitor_disponivel() {
+        Some(nome) => crate::media::reproduzir::LEITORES
+            .iter()
+            .position(|n| *n == nome)
+            .unwrap_or(0xFF) as u8,
+        None => 0xFF,
+    };
+    resposta_ok(&[u8::from(loja), ffmpeg, leitor])
+}
+
+/// `MEDIA_REPRODUZIR 0x10` → `id: 16 bytes hex ‖ leitor: u8`; resposta
+/// `pid: u32 LE`.
+///
+/// ## Porque o `id` são **16 bytes hex** e não 16 bytes crus
+///
+/// Uma string de 32 caracteres é mais fácil de gerar e de comparar, e
+/// o `sqlite3` liga-a a um `?` como um `BLOB` de 16 bytes faz. O que
+/// decide é a validação: hex tem exactamente um formato válido, e um
+/// cliente que mande lixo é recado antes de tocar em qualquer coisa.
+///
+/// ## E porque não há chaves no corpo
+///
+/// Ver `docs/media.md` §4.6.4: desencriptar os envelopes guardados
+/// rebateria no anti-replay, e ler a coluna `texto` não perde nada.
+fn processar_media_reproduzir(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
+    let Some((&leitor_byte, id_hex)) = corpo.split_first() else {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_REPRODUZIR: corpo curto");
+    };
+    if id_hex.len() != 32 {
+        return resposta_erro(
+            ERR_PAYLOAD_MALFORMADO,
+            "MEDIA_REPRODUZIR: o id são 32 caracteres hex",
+        );
+    }
+    let Some(id) = id_de_hex(id_hex) else {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_REPRODUZIR: id não é hex");
+    };
+
+    let nome_leitor = match crate::media::reproduzir::LEITORES.get(leitor_byte as usize) {
+        Some(nome) => *nome,
+        None => {
+            return resposta_erro(ERR_MEDIA, "MEDIA_REPRODUZIR: leitor desconhecido");
+        }
+    };
+
+    let guarda = bloquear(&estado.loja_media);
+    let Some(loja) = guarda.as_ref() else {
+        return resposta_erro(
+            ERR_ESTADO_INVALIDO,
+            "MEDIA_REPRODUZIR: ainda não houve MEDIA_INICIAR",
+        );
+    };
+
+    let ficheiro = match crate::media::reproduzir::montar(loja, &id) {
+        Ok(f) => f,
+        Err(e) => return resposta_erro(ERR_MEDIA, &format!("MEDIA_REPRODUZIR: {e}")),
+    };
+
+    match crate::media::reproduzir::executar(ficheiro, nome_leitor) {
+        Ok(pid) => resposta_ok(&pid.to_le_bytes()),
+        Err(e) => resposta_erro(ERR_MEDIA, &format!("MEDIA_REPRODUZIR: {e}")),
+    }
+}
+
+/// 32 caracteres hex em 16 bytes, ou `None`.
+///
+/// A validação é character a character, e recusa maiúsculas. Não por
+/// estilo: o `id` que a loja tem é minúsculo, e aceitar as duas
+/// formas daria dois `id` para a mesma transferência — um que existe e
+/// um que não, e a diferença só apareceria como «o vídeo não abre».
+fn id_de_hex(hex: &[u8]) -> Option<crate::media::ficheiro::IdTransferencia> {
+    if hex.len() != 32 {
+        return None;
+    }
+    let mut id = [0u8; 16];
+    for (i, par) in hex.chunks_exact(2).enumerate() {
+        let alto = digito_hex(par[0])?;
+        let baixo = digito_hex(par[1])?;
+        id[i] = (alto << 4) | baixo;
+    }
+    Some(id)
+}
+
+/// Um dígito hexadecimal em minúsculas.
+fn digito_hex(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        _ => None,
+    }
+}
+
+/// `MEDIA_CAPTURAR 0x0F` → `largura: u16 LE ‖ altura: u16 LE ‖
+/// fps: u16 LE ‖ audio_kbps: u16 LE`; resposta `largura ‖ altura`,
+/// ambos `u16 LE`.
+///
+/// ## Porquê **não** há um `MEDIA_PARAR`
+///
+/// Porque a captura pertence à **ligação IPC** que a pediu. Quando o
+/// `sidecar` fecha — ou morre, ou o `daemon` é reiniciado — a captura
+/// morre com ela, e um `ffmpeg` vivo seria um `x11grab` a ler o ecrã de
+/// uma pessoa sem que ninguém consuma.
+///
+/// Um comando de paragem exigiria um `pid` guardado no daemon para
+/// poder falar de «aquela» captura, e um `pid` guardado é um estado que
+/// sobrevive à coisa que o justificava. A captura não sobrevive a nada.
+///
+/// ## E o que devolve
+///
+/// A geometria **efectiva**, e não a pedida. Com `format=gray` e
+/// `scale`, o `ffmpeg` pode arredondar, e devolver o que se pediu seria
+/// um contrato que mente. O receptor usa estes números para saber
+/// quantos bytes ler por quadro.
+fn processar_media_capturar(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
+    // `10` bytes: 2 de largura, 2 de altura, 2 de fps, 2 de áudio,
+    // 2 de vídeo.
+    //
+    // A última dupla é o bitrate de **vídeo**, que entrou com o VP8
+    // (F9). Antes eram 8 bytes com uma taxa só, e era o áudio: o vídeo
+    // ia em `rawvideo` e não tinha taxa nenhuma. Agora o `-b:v` é o
+    // contrato com o receptor, e o receptor dimensiona o anel por ele —
+    // um número que fosse um literal aqui e uma constante lá seria uma
+    // fila que cresce sem ninguém dar por isso.
+    if corpo.len() != 10 {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_CAPTURAR: corpo curto");
+    }
+    let largura = u16::from_le_bytes([corpo[0], corpo[1]]);
+    let altura = u16::from_le_bytes([corpo[2], corpo[3]]);
+    let fps = u16::from_le_bytes([corpo[4], corpo[5]]);
+    let audio_kbps = u16::from_le_bytes([corpo[6], corpo[7]]);
+    let video_kbps = u16::from_le_bytes([corpo[8], corpo[9]]);
+
+    let captura = crate::media::ffmpeg::Captura {
+        largura,
+        altura,
+        fps,
+        audio_kbps,
+        video_kbps,
+    };
+
+    let mut guarda = bloquear(&estado.captura);
+    if guarda.is_some() {
+        // Uma segunda captura não substitui a primeira: seria uma
+        // segunda leitura do mesmo ecrã, a competir com a primeira, e
+        // quem pediu a primeira ficaria sem som sem saber porquê.
+        return resposta_erro(
+            ERR_ESTADO_INVALIDO,
+            "MEDIA_CAPTURAR: já há uma captura a correr nesta ligação",
+        );
+    }
+
+    // `Streaming` e não o modo do transporte: `MEDIA_CAPTURAR` **é**
+    // streaming, e derivar o modo do estado da ligação faria a mesma
+    // captura chamar-se `nao-streaming` conforme a pessoa estivesse ou
+    // não ligada — que é o oposto do que §4.1 diz sobre os dois modos.
+    match crate::media::ffmpeg::lancar(captura, crate::media::Modo::Streaming) {
+        Ok(stream) => {
+            *guarda = Some(stream);
+            let mut resposta = Vec::with_capacity(4);
+            resposta.extend_from_slice(&largura.to_le_bytes());
+            resposta.extend_from_slice(&altura.to_le_bytes());
+            resposta_ok(&resposta)
+        }
+        Err(e) => resposta_erro(ERR_MEDIA, &format!("MEDIA_CAPTURAR: {e}")),
+    }
+}
+
+/// `MEDIA_LER 0x11` → o próximo quadro de VP8 da captura viva.
+///
+/// ## O corpo do pedido
+///
+/// **Vazio.** Não há nada a pedir: o `ffmpeg` já tem o que há para dar,
+/// e um `stream` ou um `seq` aqui duplicariam o estado que o daemon já
+/// tem e que o receptor não pode escolher — porque escolher o quadro é
+/// escolha do **emissor**, e o receptor pedir um quadro específico
+/// seria o receptor a controlar o que o ecrã mostra.
+///
+/// ## O que devolve quando a captura não existe
+///
+/// `0x15` com «não há captura». E não um EOF silencioso: sem captura há
+/// uma diferença entre «ainda não chegou» e «não há nada e nunca
+/// haverá», e o receptor precisa de saber qual das duas é para
+/// decidir se espera ou se desiste.
+fn processar_media_ler(estado: &Estado) -> Vec<u8> {
+    let mut guarda = bloquear(&estado.captura);
+    let Some(stream) = guarda.as_mut() else {
+        return resposta_erro(ERR_MEDIA, "MEDIA_LER: não há captura");
+    };
+
+    match stream.captura.ler_quadro() {
+        Some(dados) => {
+            // A sequência é do daemon, não do IVF: o `ffmpeg` não a
+            // escreve, e um contador local é o que permite ao receptor
+            // saber que um quadro se perdeu sem esperar pelo
+            // timestamp.
+            let seq = stream.captura.sequencia;
+            stream.captura.sequencia = seq.wrapping_add(1);
+
+            let ts = stream.captura.relogio.media_ms;
+            let mut resposta = Vec::with_capacity(12 + dados.len());
+            resposta.extend_from_slice(&seq.to_le_bytes());
+            resposta.extend_from_slice(&ts.to_le_bytes());
+            resposta.extend_from_slice(&dados);
+            resposta_ok(&resposta)
+        }
+        None => {
+            // O `ffmpeg` morreu. A resposta é um erro e não um EOF
+            // vazio, porque o receptor precisa de distinguir «não há
+            // mais quadros» de «não lês o suficiente».
+            resposta_erro(ERR_MEDIA, "MEDIA_LER: a captura terminou")
+        }
+    }
+}
+
+/// `MEDIA_AUDIO 0x12` → o próximo pacote de Opus.
+///
+/// Bloqueia até o `pump_audio` do `ffmpeg` entregar um pacote, ou até
+/// a captura acabar. E o mesmo ritmo do [`MEDIA_LER`]: quem lê decide
+/// a velocidade da chamada, e um `try_recv` que devolvesse «não há nada
+/// ainda» transformaria isto num laço que gira sem parar.
+fn processar_media_audio(estado: &Estado) -> Vec<u8> {
+    let mut guarda = bloquear(&estado.captura);
+    let Some(stream) = guarda.as_mut() else {
+        return resposta_erro(ERR_MEDIA, "MEDIA_AUDIO: não há captura");
+    };
+
+    match stream.audio.recv() {
+        Ok(pacote) => resposta_ok(&pacote),
+        // O canal fechou: o `pump_audio` terminou porque o `ffmpeg`
+        // morreu ou porque o `Stream` foi largado. Nos dois casos a
+        // captura acabou, e a resposta é a mesma que o `MEDIA_LER` dá
+        // quando o `ffmpeg` morre.
+        Err(_) => resposta_erro(ERR_MEDIA, "MEDIA_AUDIO: a captura terminou"),
+    }
+}

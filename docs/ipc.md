@@ -170,6 +170,10 @@ mensagem** (opcode incluído), mínimo possível — ou seja,
 | `ACEITAR_AMIZADE`   | `0x0A` | cliente→daemon | `seed(32) ‖ request_corpo(209)`                              | 242         | binário             |
 | `RECUSAR_AMIZADE`   | `0x0B` | cliente→daemon | `seed(32) ‖ nonce(16)`                                       | 49          | binário             |
 | `CONFIRMAR_AMIZADE` | `0x0C` | cliente→daemon | `seed(32) ‖ accept_corpo(177)`                               | 210         | binário             |
+| `MEDIA_INICIAR`    | `0x0D` | cliente→daemon | `caminho: u16 LE ‖ UTF-8`                                    | ≥ 3         | UTF-8 com prefixo `u16 LE` |
+| `MEDIA_ESTADO`     | `0x0E` | cliente→daemon | vazio                                                        | 1           | —                   |
+| `MEDIA_CAPTURAR`   | `0x0F` | cliente→daemon | `largura: u16 LE ‖ altura: u16 LE ‖ fps: u16 LE ‖ audio_kbps: u16 LE` | 9 | quatro inteiros |
+| `MEDIA_REPRODUZIR` | `0x10` | cliente→daemon | `leitor: 1B ‖ transferencia: 32 ASCII hex`                     | 34          | hex                 |
 
 Notas:
 
@@ -206,6 +210,10 @@ Notas:
 | `ACEITAR_AMIZADE`   | `k1‖k5_b‖k9_b‖k5_a‖k9_a‖pub_a (192) ‖ accept_corpo(177)`      | 369     |
 | `RECUSAR_AMIZADE`   | `reject_corpo(81)`                                             | 81      |
 | `CONFIRMAR_AMIZADE` | `k1‖k5_a‖k9_a‖k5_b‖k9_b‖pub_b` (`TAM_AMIZADE`)                | 192     |
+| `MEDIA_INICIAR`    | vazio                                                          | 1       |
+| `MEDIA_ESTADO`     | `loja:1B ‖ ffmpeg:1B ‖ leitor:1B`                              | 4       |
+| `MEDIA_CAPTURAR`   | `largura: u16 LE ‖ altura: u16 LE` — a **efectiva**            | 5       |
+| `MEDIA_REPRODUZIR` | `pid: u32 LE`                                                  | 5       |
 
 ### Tipos de frame P2P (corpo de `RECEBER`)
 
@@ -325,6 +333,16 @@ nunca ter duvidado, e um leitor novo não sabe o que perguntar.
 | `0x10` | `RateLimit`               | teto de frames/janela excedido                     | `p2p`, relay                           |
 | `0x11` | `Relay`                   | modo relay sem endpoint ou erro do relé            | `LIGAR`/`ENVIAR` em modo relay         |
 | `0x12` | `VersaoIncompativel`      | versão do protocolo IPC incompatível                | `HELLO`                                |
+| `0x13` | `NonceRepetido`           | `nonce1` de chat já visto                            | `DECODE`                               |
+| `0x14` | `Media`                   | a operação de media é impossível agora              | `0x0D`/`0x0E`/`0x0F`/`0x10`             |
+
+`0x14 Media` é **um** código para o que a §7.6 de
+[`media.md`](media.md) chama modo degradado, e é um só de propósito:
+o `sidecar` precisa de distinguir «a loja não abre» de «não há
+`mpv` instalado» de «o `ffmpeg` não está embebido» — e a mensagem
+UTF-8 do `ERRO` diz qual. Um código por causa seria uma tabela que
+cresce com cada coisa que pode faltar, e o cliente teria de os
+conhecer todos para poder escrever um mensagem de erro útil.
 | `0x13` | `NonceRepetido`           | `nonce1` de chat já visto (anti-replay)            | `DECODE`                               |
 
 ### Notas sobre dois códigos

@@ -62,6 +62,8 @@ __all__ = [
     "semente",
     "info",
     "derivar_k1",
+    "derivar_k1_por_tipo",
+    "chaves_por_tipo",
 ]
 
 #: Rótulo de derivação do segredo de amizade. Igual ao
@@ -70,6 +72,26 @@ DOMINIO_AMIZADE = b"ONYX/AMIZADE/v1"
 
 #: Rótulo do HKDF para a K1 derivada. Igual ao `INFO_K1` de Rust.
 INFO_K1 = b"ONYX/K1/v1"
+
+#: Rótulo que separa as chaves de media das chaves de texto. Igual ao
+#: `DOMINIO_MEDIA` de `crypto/rust/src/amizade.rs`.
+#:
+#: Entra no `info` do HKDF e não noutro lado, porque o `info` é a
+#: única parte do contexto que não é preciso manter secreta — e por isso
+#: a única que pode viajar para o outro lado sem custo. Nada disto é
+#: transmitido: o `TIPO` está no `info`, o `info` está **dentro** da
+#: chave, e a chave não sai do host de quem cifra.
+DOMINIO_MEDIA = b"ONYX/MEDIA/"
+
+#: Tipos de conteúdo que têm chave derivada. O texto **não** aparece:
+#: continua a usar a K1 de longa duração, e por isso o texto produced
+#: é byte-a-byte igual ao que produzia antes de existir media.
+TIPO_AUDIO = 0x01
+TIPO_VIDEO = 0x02
+
+#: Os tipos que a derivação aceita. Um tipo fora daqui não deriva —
+#: falha, em vez de produzir uma chave que ninguém sabe desambiguar.
+TIPOS_CONHECIDOS = (TIPO_AUDIO, TIPO_VIDEO)
 
 TAM_CHAVE = 32
 TAM_NONCE = 12
@@ -186,3 +208,103 @@ def derivar_k1(
     nonce = _exigir(nonce1, TAM_NONCE, "nonce1")
     segredo = semente(k_emissor, k_recetor)
     return _hkdf_sha256(segredo, nonce, info(publica_emissor), TAM_CHAVE)
+
+
+def derivar_k1_por_tipo(
+    k_emissor: bytes,
+    k_recetor: bytes,
+    publica_emissor: bytes,
+    tipo: int,
+) -> bytes:
+    """K1 derivada de uma mensagem de media, por tipo de conteúdo.
+
+    É :func:`derivar_k1` com o tipo no ``info`` do HKDF:
+
+    .. code-block:: text
+
+        info = INFO_K1 ‖ publica_emissor ‖ DOMINIO_MEDIA ‖ tipo
+
+    A mesma semente e o mesmo ``info`` — mais um byte. É a razão pela
+    qual a rede não consegue distinguir uma mensagem de audio de uma de
+    texto: a distinção está **dentro** da chave, e a chave não é
+    observável do lado de fora.
+
+    O ``salt`` é o rótulo de domínio e o tipo, e **não** um nonce —
+    ver a nota longa no fim do docstring.
+
+    Só a K1 é derivada. K5 e K9 entram no ``ENCODE`` inalteradas, porque
+    a K1 é a **primeira** camada e é AEAD: uma etiqueta errada morre
+    ali. Logo, sondar o tipo custa uma verificação Poly1305 — não uma
+    descifra completa.
+
+    ## O ``salt`` é o rótulo e o tipo, e não um nonce
+
+    A primeira versão punha ``salt = nonce1``, herdado de
+    :func:`derivar_k1`. E isso **não funciona**, por uma razão que só
+    aparece em execução.
+
+    O emissor teria de cifrar **duas vezes** — uma para obter um
+    envelope com um ``nonce1`` conhecido, e outra com a chave derivada
+    desse nonce. Mas a segunda ``ENCODE`` gera um ``nonce1`` **novo**,
+    e o envelope que vai para a rede tem esse nonce novo, não o que a
+    chave usou.
+
+    O receptor deriva a chave a partir do envelope que **recebeu**, logo
+    deriva com ``Q`` e não com ``P`` — e a cifra falha.
+
+    E a falha é do tipo mais caro que existe: **cifra bem e não abre**.
+    ``0x05 DecifragemFalhou`` não aponta para a chave, que é a pista
+    mais errada que se pode dar.
+
+    Com um ``salt`` constante, os dois lados derivam a mesma chave a
+    partir do que **já sabem ambos** — o par de chaves e a identidade do
+    remetente — e uma passagem única resolve. O ``nonce1`` continua a
+    ser o nonce do AEAD, que é onde tem de estar, e é o que garante que
+    duas mensagens com a mesma chave usam nonces diferentes.
+
+    A consequência de segurança é a mesma que o texto já tem: a K1 de
+    media é de longa duração dentro do par. Ver ``docs/media.md`` §1.4
+    — que é por isso que está escrita como limitação declarada e não
+    como detalhe omitido.
+
+    :param tipo: ``TIPO_AUDIO`` ou ``TIPO_VIDEO``.
+    :raises ErroDerivacao: se ``tipo`` não for um tipo conhecido.
+    :returns: 32 bytes.
+    """
+    if tipo not in TIPOS_CONHECIDOS:
+        raise ErroDerivacao(
+            f"tipo de media desconhecido: 0x{tipo:02x} "
+            f"(conhecidos: {', '.join(f'0x{t:02x}' for t in TIPOS_CONHECIDOS)})"
+        )
+
+    publica = _exigir(publica_emissor, TAM_PUBLICA, "publica_emissor")
+    segredo = semente(k_emissor, k_recetor)
+    contexto = INFO_K1 + publica + DOMINIO_MEDIA + bytes([tipo])
+    sal = DOMINIO_MEDIA + bytes([tipo])
+    return _hkdf_sha256(segredo, sal, contexto, TAM_CHAVE)
+
+
+def chaves_por_tipo(
+    k1: bytes,
+    k_emissor: bytes,
+    k_recetor: bytes,
+    publica_emissor: bytes,
+) -> dict[int, bytes]:
+    """As chaves K1 de media para este envelope, por tipo.
+
+    Devolve um dicionário em vez de uma lista porque o tipo **é** a
+    chave de procura: quem chama isto quer tentar um tipo e saber se
+    era aquele, e uma estrutura indexada pelo tipo diz isso sem
+    posições a lembrar.
+
+    O texto **não** entra. Quem quiser o texto usa a ``k1`` de longa
+    duração que passou — a mesma que usaria sem este módulo existir.
+
+    :returns: ``{0x01: k1_audio, 0x02: k1_video}``.
+    """
+    return {
+        tipo: derivar_k1_por_tipo(
+            k_emissor, k_recetor, publica_emissor, nonce1, tipo
+        )
+        for tipo in TIPOS_CONHECIDOS
+    }

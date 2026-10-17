@@ -256,3 +256,9 @@ desktop.ini
 # Medido em 2026-10-07 num clone de prova: sem esta linha, o ficheiro
 # entrava no índice sem o `git status` mostrar um único aviso.
 node_modules/
+tools/ffmpeg/cache/
+
+# Dependências desempacotadas sem `sudo`: headers e bibliotecas de
+# `libvpx`, `libopus`, `libX11`, `libasound` e o `pkg-config`.
+# Mesmo sítio onde o Node é desempacotado.
+.cache/

@@ -173,6 +173,66 @@ export const conversations = [
   },
 ];
 
+/**
+ * Transferências de media, por conversa.
+ *
+ * A demonstração precisa disto porque a interface chama estas rotas
+ * sempre que abre uma conversa — e um adaptador de demonstração que
+ * devolvesse `[]` faria a conversa aparecer sem qualquer media, o que
+ * é uma diferença visível entre a demonstração e a aplicação real.
+ *
+ * `c3` tem uma a meio e uma pronta, para que os dois estados do filtro
+ * `completas` tenham dado de demonstração.
+ */
+export const transferencias = {
+  c2: [
+    {
+      id: '7f3c9a1b5e2d4061887ca9e5b3d1f0a2c',
+      tipo: 'audio',
+      codec: 'opus',
+      formato: 'ogg',
+      nome: 'nota-rufia.opus',
+      totalBytes: 41208,
+      totalPedacos: 1,
+      bytesPorPedaco: 49125,
+      duracaoS: 9,
+      recebidoEm: '2026-02-14T21:31:00Z',
+      completo: true,
+      recebidasPedacos: 1,
+    },
+  ],
+  c3: [
+    {
+      id: '2b81e5c40d7a936f1e4c0b8a5d2f7093',
+      tipo: 'video',
+      codec: 'matroska',
+      formato: 'matroska',
+      nome: 'praia-praia.mkv',
+      totalBytes: 10021500,
+      totalPedacos: 204,
+      bytesPorPedaco: 49125,
+      duracaoS: 42,
+      recebidoEm: '2026-02-14T19:02:00Z',
+      completo: false,
+      recebidasPedacos: 42,
+    },
+    {
+      id: '9c4f17b2e83a605db1704e2c6a9f35d8',
+      tipo: 'video',
+      codec: 'matroska',
+      formato: 'matroska',
+      nome: 'casa.mkv',
+      totalBytes: 3981200,
+      totalPedacos: 81,
+      bytesPorPedaco: 49125,
+      duracaoS: 18,
+      recebidoEm: '2026-02-13T22:15:00Z',
+      completo: true,
+      recebidasPedacos: 81,
+    },
+  ],
+};
+
 export const requests = [
   { id: 'r1', personId: 'J5K7L9', identifier: 'ONYX-CLE7LR-@H+2#', fingerprint: 'E5:2A:4E:6F:00:45:B7:3B:3D:1C:7F:52:78:A8:60:58', name: 'Vasco Pontes', status: 'away', verified: false, message: 'Encontrámo-nos na auditoria de março. Podes adicionar-me?', at: ago(48), mutual: 2 },
   { id: 'r2', personId: 'K1P3R5', identifier: 'ONYX-KKBT9C-~U+7#', fingerprint: '76:15:FE:74:CF:D0:C3:5D:1B:1D:98:A3:E3:4E:78:C6', name: 'Lídia Serra', status: 'online', verified: false, message: 'Preciso de confirmar a tua chave para o ficheiro partilhado.', at: ago(266), mutual: 1 },

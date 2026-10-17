@@ -171,7 +171,7 @@ UI/
    │  └─ onyx/
    │     ├─ data-adapter.js   # A costura — ver abaixo
    │     ├─ mock-adapter.js   # implementação de demonstração
-   │     ├─ bridge-adapter.js # 25 métodos sobre o sidecar (Etapa da interface)
+   │     ├─ bridge-adapter.js # 34 métodos sobre o sidecar (Etapa da interface)
    │     ├─ runtime.js        # interruptor de demonstração
    │     ├─ mock-data.js      # Os dados fictícios
    │     ├─ onyx-context.jsx  # Estado partilhado da casca
@@ -180,7 +180,7 @@ UI/
    │     ├─ format.js         # Datas, truncagem, avatares
    │     └─ nav.js            # Rotas da barra lateral
    ├─ components/
-   │  ├─ onyx/                # 45 componentes do sistema de design
+   │  ├─ onyx/                # 46 componentes do sistema de design
    │  ├─ AuthLayout.jsx       # invólucro dos ecrãs de acesso
    │  └─ ui/                  # ⚠ 8 ficheiros do shadcn (7 componentes + 1 gancho)
    └─ pages/                  # Os 11 ecrãs
@@ -223,7 +223,10 @@ uma vista tenta chamar a que falta.
 
 ### `bridge-adapter.js` — o que recusa
 
-São **25 métodos** implementados contra o `sidecar`. `PonteIndisponivel`
+São **34 métodos** implementados contra o `sidecar`. Quatro deles são de
+streaming de chamada (`startVideoStream`, `readVideoFrame`, `readAudioFrame`,
+`stopVideoStream`) e foram acrescentados com o VP8: o vídeo é um `CHAT`
+como o texto, e o que o torna vídeo é estar comprimido. `PonteIndisponivel`
 fica para três casos, e são os três legítimos:
 
 1. o utilizador está em modo de demonstração, e o `dataAdapter` nunca

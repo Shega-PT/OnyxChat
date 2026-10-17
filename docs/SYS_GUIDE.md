@@ -653,9 +653,14 @@ relay por `.onion` · Argon2id na conta · chaves de sessão fora do `argv`.
 
 ### CONCEITO
 
-Identificadores de algoritmo por camada · Fake-IP · pipelines multimédia
-(áudio, imagem, vídeo) · suporte a ficheiros arbitrários ·
-mitigação activa de tráfego.
+Identificadores de algoritmo por camada · Fake-IP · suporte a ficheiros
+arbitrários · mitigação activa de tráfego.
+
+O áudio e o vídeo **já não estão aqui**: são `PLANEADO`, especificados em
+[`media.md`](media.md), e entram no pipeline como texto — sem canal
+próprio, sem tipo de frame novo e sem que a rede saiba o que são. O que
+continua em `CONCEITO` é o que a media **não** faz: pipelines novos por
+tipo de conteúdo.
 
 ---
 
@@ -672,7 +677,8 @@ NÃO  esconde o IP real de forma absoluta (ver §3.3)
 NÃO  garante entrega de mensagens
 NÃO  implementa routing descentralizado (PLANEADO)
 NÃO  implementa discovery descentralizado (PLANEADO)
-NÃO  suporta áudio, imagem, vídeo ou ficheiros (CONCEITO)
+NÃO  suporta ficheiros arbitrários (CONCEITO) — áudio e vídeo são
+      PLANEADO e entram como texto (media.md), sem canal próprio
 NÃO  implementa Fake-IP (CONCEITO)
 NÃO  protege contra um observador total (depende do Tor)
 NÃO  resiste à compromissão da seed do utilizador — as chaves são o sistema

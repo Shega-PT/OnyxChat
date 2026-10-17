@@ -72,6 +72,36 @@ libc = "0.2"
 # `docs/key_management.md`) — structs de chaves e buffers de
 # pedido/resposta apagam-se no descarte.
 zeroize = "1"
+# Descompressão xz em Rust puro, para extrair o `ffmpeg` embebido de um
+# `memfd` (`media/ffmpeg_embutido.rs`). Escolhido em vez do `flate2`, que
+# já está no `Cargo.lock`, por duas razões que o `Cargo.toml` do
+# workspace partilha:
+#
+#   * `flate2` chega aqui **só** pelo `tor-dirclient` → `arti-client`,
+#     e apenas com a feature `tor-real`. Promovê-lo a dependência
+#     directa arrastava-o para o build mínimo — que o próprio crate
+#     trabalha ativamente para manter pequeno (`Cargo.toml` §Perfis).
+#   * xz dá 21 MB para um `ffmpeg` de 80 MB onde o gzip dá 70. São
+#     49 MB de binário transportado, e o binário é o artefacto que
+#     cada instalação paga.
+#
+# `lzma-rs` **não tem dependências transitivas**, o que é o que o torna
+# aceitável: acrescentar uma dependência é um custo permanente, e esta
+# custa zero unidades de compilação à partida.
+lzma-rs = "0.3"
+
+# Leitura da loja do sidecar para montar um ficheiro de media em RAM
+# (`docs/media.md` §4.6, opção A). Já vinha no `Cargo.lock` pelo
+# `tor-dirclient` → `arti-client`, com a `sqlite` compilada dentro
+# (`bundled`) e ligação dinâmica — por isso não acrescenta uma única
+# unidade de compilação ao build mínimo.
+#
+# `bundled` **não** é um detalhe: sem ele, o binário exigiria
+# `libsqlite3.so` no sistema, e `deny.toml` não tem como avaliar isso.
+# `ffi` fica desligado de propósito — é o que permite passar um `memfd`
+# ao sqlite por `VFS` em vez de um caminho em disco, se algum dia for
+# preciso. Hoje abre-se com `mode=ro`, que é o que interessa.
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # ---------------------------------------------------------------------
 # Etapa 7 — rede (Tor embutido + P2P + handshake)

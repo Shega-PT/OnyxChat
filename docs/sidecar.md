@@ -48,9 +48,12 @@ misterioso em que a interface aparente funcionar.
 
 ## §A tabela de rotas
 
-**26 rotas**, todas em `server/rotas.py`. A contagem é conferida por
-`tests/test_sidecar.py` e não é decorativa: uma rota acrescentada sem
-documentar aqui é uma rota que responde a pedidos que ninguém espera.
+**35 rotas**, todas em `server/rotas.py`. A contagem e a correspondência
+caminho a caminho são conferidas por
+`tests/test_sidecar.py::test_a_tabela_de_rotas_da_documentacao_esta_certa`,
+e não é decorativa: uma rota acrescentada sem documentar aqui é uma rota
+que responde a pedidos que ninguém espera, e uma rota documentada que
+já não existe é um botão partido que ainda parece vivo.
 
 | Método | Caminho | Efeito |
 | --- | --- | --- |
@@ -63,6 +66,15 @@ documentar aqui é uma rota que responde a pedidos que ninguém espera.
 | `POST` | `/conversas/{id}/fixada` | fixa ou desfixa — corpo `{"valor": true\|false}` |
 | `POST` | `/conversas/{id}/silenciada` | silencia ou dessilencia — corpo `{"valor": true\|false}` |
 | `POST` | `/conversas/{id}/limpar` | apaga as mensagens, mantém a conversa |
+| `GET` | `/conversas/{id}/transferencias` | transferências de media, com `?completas=` |
+| `GET` | `/transferencias/{id}` | uma transferência, com `recebidasPedacos` |
+| `DELETE` | `/transferencias/{id}` | apaga a transferência e **as suas** fatias |
+| `POST` | `/transferencias/{id}/reproduzir` | monta em RAM e lança o leitor; devolve o `pid` |
+| `GET` | `/media/estado` | se há leitor, e porque não há se não há |
+| `POST` | `/media/streaming/iniciar` | liga a captura e a codificação VP8 |
+| `GET` | `/media/streaming/quadro` | o próximo quadro de VP8, em base-64 |
+| `GET` | `/media/streaming/audio` | o próximo pacote de Opus, em base-64 |
+| `POST` | `/media/streaming/parar` | diz à UI que pode deixar de pedir |
 | `GET` | `/contactos` | lista, com `?pesquisa=` |
 | `POST` | `/contactos/{id}/bloqueado` | bloqueia ou desbloqueia — corpo `{"valor": true\|false}` |
 | `POST` | `/pedidos` | pede contacto |
@@ -80,6 +92,34 @@ documentar aqui é uma rota que responde a pedidos que ninguém espera.
 | `POST` | `/conta/trancar` | tranca a sessão |
 | `GET` | `/conta/exportar` | devolve o keystore cifrado, em base64 |
 | `POST` | `/conta/restaurar` | repõe de uma cópia |
+
+### As cinco rotas de media
+
+Vêm de [`media.md`](media.md) §4 e são as **únicas** que a interface
+pode chamar para media: a reprodução não passa por aqui (`docs/sidecar.md`
+§O canal de eventos e `media.md` §4.6), e o que chega ao ecrã é sempre o
+**envelope**, nunca texto claro.
+
+* `GET /conversas/{id}/transferencias` devolve **as incompletas também**,
+  por omissão. Uma transferência a meio é informação, e escondê-la faz
+  o utilizador concluir que não existe em vez de estar a chegar. O
+  filtro `?completas=` tem três estados — `1`, `0` e `todos` — e
+  `0` **não** é a mesma coisa que omitir o parâmetro.
+* `GET /transferencias/{id}` acrescenta `recebidasPedacos`, que é o
+  número que permite «a chegar, 42 de 204» sem o cliente contar
+  envelopes.
+* `DELETE /transferencias/{id}` apaga a transferência e as suas fatias,
+  filtradas pelo `transferencia_id`. **Não** apaga o texto da conversa
+  nem as outras transferências — e **não propaga** para o outro
+  participante, porque nunca houve canal para isso.
+* `POST /transferencias/{id}/reproduzir` pede ao daemon que monte em
+  RAM e lance o leitor, e devolve o `pid`. Uma transferência
+  **incompleta** dá `409` e não `404`: ela existe e está a meio, e
+  escondê-la faria a interface dizer que não chegou nada.
+* `GET /media/estado` diz se há leitor e porque não há se não há. As três
+  coisas que podem faltar — daemon, loja apontada, leitor — falham
+  **independentemente**, e oferecer um botão que vai falhar é pior do que
+  não o oferecer.
 
 ### As cinco acções do menu de contexto
 
@@ -130,12 +170,17 @@ Um `501` com a razão é melhor do que as duas alternativas: um
 WebSocket meio implementado, que a interface não sabe usar, ou um `404`
 que não diz nada e transforma uma decisão em mistério.
 
-> A contagem é **25**, não 21 nem 22. `bridge-adapter.js` e
-> `mock-adapter.js` têm 25 métodos cada, e `data-adapter.js` declara 25.
-> O **22** era o número de **rotas** desta tabela numa versão anterior, e
-> as contagens foram trocadas na documentação até 2026-10-13: `sidecar.py`
+> A contagem é **30**, não 28 nem 22. `bridge-adapter.js` e
+> `mock-adapter.js` têm 30 métodos cada, e `data-adapter.js` declara 30.
+> Os **28** eram os métodos antes das rotas de reprodução; o **22** era o
+> número de **rotas** desta tabela numa versão ainda mais antiga, e as
+> contagens foram trocadas na documentação até 2026-10-13: `sidecar.py`
 > dizia «vinte e uma funções do contrato» e `UI/README.md` dizia «22
 > métodos» — nenhum dos dois era certo, e nenhum era o número do outro.
+>
+> A relação entre rotas e métodos não é de um para um: as **31** rotas
+> dão 30 métodos, porque `/api/eventos` não tem método nenhum — não é
+> pedido/resposta, responde `501` de propósito.
 
 ---
 

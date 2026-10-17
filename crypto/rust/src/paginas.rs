@@ -230,11 +230,7 @@ pub fn limite_memlock() -> Option<u64> {
     let actual: u64 = limite.rlim_cur;
     let maximo: u64 = limite.rlim_max;
     // RLIM_INFINITY lê-se como o valor máximo da largura.
-    Some(if actual == u64::MAX {
-        maximo
-    } else {
-        actual
-    })
+    Some(if actual == u64::MAX { maximo } else { actual })
 }
 
 #[cfg(test)]
@@ -261,7 +257,7 @@ mod tests {
     /// Devolve `None` se o `setrlimit` for recusado (limite hard baixo,
     /// o que acontece sem privilégios): nesse caso o teste não pode
     /// forçar a falha e tem de o declarar em vez de fingir.
-    fn com_limite_memlock( bytes: libc::rlim_t) -> Option<libc::rlimit> {
+    fn com_limite_memlock(bytes: libc::rlim_t) -> Option<libc::rlimit> {
         let original = limite_actual();
         let restrito = libc::rlimit {
             rlim_cur: bytes,
@@ -393,16 +389,31 @@ mod tests {
     #[test]
     fn display_e_acionavel() {
         let trancadas = EstadoPaginas::Trancadas.to_string();
-        assert!(trancadas.contains("trancadas"), "falta dizer o que fez: {trancadas}");
-        assert!(trancadas.contains("mlockall"), "tem de citar a chamada: {trancadas}");
+        assert!(
+            trancadas.contains("trancadas"),
+            "falta dizer o que fez: {trancadas}"
+        );
+        assert!(
+            trancadas.contains("mlockall"),
+            "tem de citar a chamada: {trancadas}"
+        );
 
         let limite = EstadoPaginas::Desbloqueadas(MotivoFalha::LimiteMemlock).to_string();
-        assert!(limite.contains("NÃO"), "tem de salientar que falhou: {limite}");
-        assert!(limite.contains("ulimit"), "tem de dizer como resolver: {limite}");
+        assert!(
+            limite.contains("NÃO"),
+            "tem de salientar que falhou: {limite}"
+        );
+        assert!(
+            limite.contains("ulimit"),
+            "tem de dizer como resolver: {limite}"
+        );
 
         let errno = EstadoPaginas::Desbloqueadas(MotivoFalha::Outro(libc::EIO)).to_string();
         assert!(errno.contains("errno"), "tem de indicar o errno: {errno}");
-        assert!(errno.contains(&libc::EIO.to_string()), "tem de dar o valor: {errno}");
+        assert!(
+            errno.contains(&libc::EIO.to_string()),
+            "tem de dar o valor: {errno}"
+        );
     }
 
     /// A classificação de `errno` distingue dois casos com mitigações
@@ -410,9 +421,18 @@ mod tests {
     /// desconhecido não.
     #[test]
     fn classificar_errno_distingue_limite_de_erro() {
-        assert_eq!(MotivoFalha::classificar(libc::ENOMEM), MotivoFalha::LimiteMemlock);
-        assert_eq!(MotivoFalha::classificar(libc::EPERM), MotivoFalha::LimiteMemlock);
-        assert_eq!(MotivoFalha::classificar(libc::EACCES), MotivoFalha::LimiteMemlock);
+        assert_eq!(
+            MotivoFalha::classificar(libc::ENOMEM),
+            MotivoFalha::LimiteMemlock
+        );
+        assert_eq!(
+            MotivoFalha::classificar(libc::EPERM),
+            MotivoFalha::LimiteMemlock
+        );
+        assert_eq!(
+            MotivoFalha::classificar(libc::EACCES),
+            MotivoFalha::LimiteMemlock
+        );
         assert_eq!(
             MotivoFalha::classificar(libc::EINVAL),
             MotivoFalha::Outro(libc::EINVAL)

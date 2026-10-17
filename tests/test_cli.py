@@ -567,7 +567,10 @@ def test_enviar_p2p_envia_hex_como_frame(
     assert "onyxchat:" in erros.err  # ValueError (hex par)
     assert "enviado (2 bytes)" in erros.out
     assert recebidos[0][0] == 0x06  # CMD_ENVIAR
-    assert recebidos[0][1:] == b"\xaa\xbb"
+    # O `ENVIAR` leva um byte de origem à frente do envelope (F9):
+    # `0x00` é texto. O daemon precisa de saber de que janela de
+    # rate-limit o envio gasta, e quem sabe é quem envia.
+    assert recebidos[0][1:] == b"\x00\xaa\xbb"
 
 
 def test_receber_p2p_imprime_tipo_e_corpo(
