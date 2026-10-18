@@ -2414,6 +2414,26 @@ fn corpo_media_iniciar(caminho: &str) -> Vec<u8> {
 }
 
 /// O corpo de `MEDIA_REPRODUZIR` para um `id` hex e um índice de leitor.
+///
+/// ## Porque os testes de falha usam o leitor `1`, e não o `0`
+///
+/// O byte é o **identificador** de [`crate::media::reproduzir::BYTES_DE_LEITOR`],
+/// e o `0` é o leitor embutido — o `ffmpeg` que o daemon tem num `memfd`.
+///
+/// Com o `0`, um teste que espera um erro de conteúdo tem um
+/// comportamento surprise: o `spawn` **sucede** (o binário existe e é
+/// executável), a resposta ao `MEDIA_REPRODUZIR` é `OK` com um `pid`, e
+/// o `ffmpeg` do fundo descobre o ficheiro truncado e sai com erro — a
+/// que ninguém vai ler, porque o `stderr` vai para `/dev/null`.
+///
+/// Isto não é um bug do IPC: [`crate::media::loja::Loja::montar`] valida
+/// **antes** de o leitor arrancar, e um ficheiro truncado nunca chega a
+/// ser executado. Mas um teste que aponta o leitor ao embebido só mede
+/// aasesidade de o processo arrancar.
+///
+/// O `1` é `mpv`, que não está instalado: o `spawn` dá `ENOENT` e o
+/// `Err` volta por `LeitorDesconhecido`. É o leitor que faz o teste
+/// medir o que diz medir.
 fn corpo_media_reproduzir(id_hex: &str, leitor: u8) -> Vec<u8> {
     let mut corpo = vec![CMD_MEDIA_REPRODUZIR, leitor];
     corpo.extend_from_slice(id_hex.as_bytes());
@@ -2611,8 +2631,15 @@ fn uma_transferencia_incompleta_da_erro_de_media() {
     // O que impede §4.6: reproduzir um ficheiro truncado.
     let estado = estado_de_teste();
     let (caminho, cx) = loja_de_media("incompleta");
-    let id = encher_loja(&cx, b"conteudo");
-    // Apaga a última fatia. O manifesto continua a declarar duas.
+
+    // O conteúdo tem de dar **duas** fatias, porque é `m2` que se
+    // apaga a seguir. Com oito bytes cabia numa só, `DELETE … WHERE
+    // id = 'm2'` não apagava nada, e o ficheiro ficava completo — o
+    // teste passava a provar o contrário do que diz medir.
+    //
+    // `bytes_por_pedaco` é `TAM_FATIA` (49 125), por isso 60 000 bytes
+    // dão duas.
+    let id = encher_loja(&cx, &vec![0xABu8; 60_000]);
     cx.execute("DELETE FROM mensagens WHERE id = 'm2'", [])
         .expect("apaga a fatia");
     super::processar_pedido(
@@ -2620,7 +2647,7 @@ fn uma_transferencia_incompleta_da_erro_de_media() {
         &corpo_media_iniciar(caminho.to_str().expect("utf8")),
     );
 
-    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 0));
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 1));
     let (codigo, mensagem) = erro_de(&resposta).expect("erro");
     assert_eq!(codigo, ERR_MEDIA);
     assert!(!mensagem.is_empty());
@@ -2631,12 +2658,15 @@ fn uma_transferencia_que_nao_bate_no_resumo_da_erro() {
     // O resumo é a **única** protecção, e por isso tem de falhar.
     let estado = estado_de_teste();
     let (caminho, cx) = loja_de_media("resumo");
-    let id = encher_loja(&cx, b"conteudo original");
+
+    // Duas fatias, pela mesma razão do teste anterior: a adulteração
+    // aponta para `m2`, e `m2` só existe se o conteúdo precisar dela.
+    let id = encher_loja(&cx, &vec![0xABu8; 60_000]);
     let adulterada = crate::media::moldura::construir(
         crate::media::Tipo::Video,
         crate::media::Modo::NaoStreaming,
         7,
-        1,
+        2,
         0,
         b"outro conteudo",
     );
@@ -2650,7 +2680,7 @@ fn uma_transferencia_que_nao_bate_no_resumo_da_erro() {
         &corpo_media_iniciar(caminho.to_str().expect("utf8")),
     );
 
-    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 0));
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 1));
     assert_eq!(erro_de(&resposta).expect("erro").0, ERR_MEDIA);
     let _ = id;
 }
@@ -2833,4 +2863,51 @@ fn media_capturar_da_503_sem_o_ffmpeg_embebido() {
     // uma captura a meio, nem um `fd` vazado.
     let guarda = super::bloquear(&estado.captura);
     assert!(guarda.is_none(), "uma captura falhada ficou registada");
+}
+
+/// O conteúdo é validado **antes** do leitor arrancar, e o leitor
+/// embebido não é uma excepção.
+///
+/// ## O que este teste fixa
+///
+/// A validação está em [`crate::media::loja::Loja::montar`], e corre
+/// antes de [`crate::media::reproduzir::executar`]. Isso é o que
+/// garante que um ficheiro truncado ou adulterado nunca chegue a ser
+/// executado — e o leitor embebido não muda nada disso, porque
+/// `executar` só recebe um `FicheiroEmRam` que `montar` já selou.
+///
+/// Sem este teste, trocar o leitor de um teste para o `0` faria a
+/// validação parecer estar a funcionar quando o `Err` vinha do `ENOENT`
+/// de um programa que não existe.
+#[test]
+fn o_ficheiro_e_validado_antes_do_leitor_embebido_arrancar() {
+    let estado = estado_de_teste();
+    let (caminho, cx) = loja_de_media("antes-de-executar");
+    // Duas fatias, e apaga-se a segunda.
+    let id = encher_loja(&cx, &vec![0xABu8; 60_000]);
+    cx.execute("DELETE FROM mensagens WHERE id = 'm2'", [])
+        .expect("apaga a fatia");
+    super::processar_pedido(
+        &estado,
+        &corpo_media_iniciar(caminho.to_str().expect("utf8")),
+    );
+
+    // O leitor `0` é o embebido: existe, é executável, e arranjaria.
+    let resposta = super::processar_pedido(&estado, &corpo_media_reproduzir(&id, 0));
+    let (codigo, mensagem) = erro_de(&resposta).expect(
+        "um ficheiro truncado tem de dar erro com qualquer leitor,          incluindo um que arrancaria",
+    );
+    assert_eq!(codigo, ERR_MEDIA);
+    // E a mensagem diz que é de peças, e não de leitor: é a diferença
+    // entre «o ficheiro está incompleto» e «o programa não existe».
+    //
+    // A busca é por «pedac» e não por «peç» porque a mensagem é escrita
+    // sem acentos — `ErroMedia::PedacosEmFalta` diz «faltam pedacos e
+    // as tentativas acabaram» — e um teste que procura o acento falha
+    // contra a mensagem que está a verificar.
+    assert!(
+        mensagem.to_lowercase().contains("pedac"),
+        "a mensagem é «{mensagem}» e não diz que faltam peças — o que \
+         sugere que o erro veio do leitor e não da validação"
+    );
 }

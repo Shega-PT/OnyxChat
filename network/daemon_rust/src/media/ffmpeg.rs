@@ -666,7 +666,7 @@ pub fn linha_de_comandos(captura: Captura) -> Vec<String> {
     linha.extend(["-map", "0:v", "-f", "ivf", "-"].map(String::from));
 
     // --- entrada de áudio --------------------------------------------------
-    linha.extend(["-i", "default"].map(String::from));
+    linha.extend(entrada_de_audio(captura_usa_pulse()));
 
     // --- saída de áudio: descritor 3 ---------------------------------------
     linha.extend(["-map", "1:a", "-c:a", "libopus", "-b:a"].map(String::from));
@@ -693,30 +693,199 @@ pub fn linha_de_comandos(captura: Captura) -> Vec<String> {
 
 /// Os argumentos de entrada de vídeo, antes do `-filter:v`.
 ///
-/// Separados numa função porque a escolha do dispositivo de captura é a
-/// parte que muda com a sessão gráfica — e porque é a parte que o
-/// `WAYLAND_DISPLAY` decide.
-pub fn entrada_de_video() -> Vec<&'static str> {
-    if em_wayland() {
-        // `-f pipewiregrab` existe desde o ffmpeg 6.1. Numa build mais
-        // antiga, o `ffmpeg` sai com erro e a mensagem diz qual é o
-        // formato — que é mais útil do que um fallback silencioso para
-        // `x11grab` que gravaria o ecrã errado (o do XWayland, que
-        // não é o ecrã do utilizador).
-        vec!["-f", "pipewiregrab", "-i", "default"]
+/// ## O que isto procura, e o que deixou de procurar
+///
+/// Uma **câmara**, e não um ecrã. A primeira versão escolhia `x11grab`
+/// em X11 e `pipewiregrab` em Wayland, o que era captura de ecrã — e
+/// `docs/media.md` §10.3.1.2 chega a dizer que uma chamada «não escolhe
+/// quem chama». Um convite a mostrar a cara de quem chamou é a coisa
+/// mais óbvia que uma chamada faz, e o código não a fazia.
+///
+/// ## A ordem, e porquê nesta ordem
+///
+/// 1. **`ONYXCAMERA`**, se a pessoa puser.
+/// 2. **`/dev/video*`** — a câmara USB ou a webcam, por V4L2. É a
+///    primeira porque não depende de nada: `/dev/video*` é uma
+///    interface do kernel, não uma biblioteca, e a receita do FFmpeg
+///    liga `v4l2` sem pedir header nenhum.
+/// 3. **`pipewiregrab`** — para quem usa PipeWire e não tem
+///    `/dev/video*`, o que é raro mas possível (câmara só por PipeWire).
+///    Fica depois do V4L2 porque o `pipewiregrab` precisa da biblioteca
+///    do PipeWire, e o V4L2 não.
+///
+/// ## E o `x11grab` ficou fora
+///
+/// Porque ecrã não é câmara. E porque habilitar `libxcb` aborta o
+/// `configure` numa máquina sem `xau`/`xdmcp` — ver a nota em
+/// `tools/ffmpeg/build.sh`.
+///
+/// ## A variável de ambiente
+///
+/// `ONYXCAMERA` é o caminho do dispositivo, ou o índice numérico do
+/// `/dev/video*`. É a saída para quem tem duas câmaras e quer escolher,
+/// e é a forma de testar sem hardware: `ONYXCAMERA=/dev/video1`.
+pub fn entrada_de_video() -> Vec<String> {
+    // --- o que a pessoa pediu ------------------------------------------
+    if let Ok(escolhido) = std::env::var("ONYXCAMERA") {
+        let escolhido = escolhido.trim();
+        if !escolhido.is_empty() {
+            // Numérico é um índice de `/dev/video*`; o resto é um
+            // caminho. A distinção é `/dev/` no começo, e não «são
+            // dígitos», porque um caminho pode ser tudo menos dígitos
+            // e um índice pode ter zeros à esquerda.
+            if escolhido.bytes().all(|b| b.is_ascii_digit()) {
+                return vec![
+                    "-f".into(),
+                    "v4l2".into(),
+                    "-i".into(),
+                    format!("/dev/video{escolhido}"),
+                ];
+            }
+            return vec![
+                "-f".into(),
+                "v4l2".into(),
+                "-i".into(),
+                escolhido.to_string(),
+            ];
+        }
+    }
+
+    // --- a primeira câmara que existe -----------------------------------
+    //
+    // A enumeração é feita aqui e não pelo `ffmpeg` porque o V4L2 do
+    // FFmpeg não sabe qual é o primeiro dispositivo: `-i default` no
+    // `v4l2` é um nome de dispositivo específico, não um atalho.
+    if let Some(caminho) = primeira_camera() {
+        return vec![
+            "-f".into(),
+            "v4l2".into(),
+            "-i".into(),
+            caminho.to_string_lossy().into_owned(),
+        ];
+    }
+
+    // --- PipeWire, que não tem /dev/video* -------------------------------
+    vec![
+        "-f".into(),
+        "pipewiregrab".into(),
+        "-i".into(),
+        "default".into(),
+    ]
+}
+
+/// O primeiro `/dev/video*` que existe, em ordem numérica.
+///
+/// ## Porque se enumera e não se adivinha
+///
+/// Porque `/dev/video0` pode não existir. Numa máquina com uma câmara
+/// USB e um cartão de captura, os índices são 0 e 2, e o 1 é um
+/// dispositivo que não é câmara. Adivinhar o 0 daria um erro do
+/// `ffmpeg` sobre um dispositivo que existe mas não é o que se quer.
+///
+/// ## E porque em ordem numérica
+///
+/// Porque `read_dir` devolve na ordem do sistema de ficheiros, que num
+/// directório de dispositivos é por ordem de criação. Num `/dev` recriado
+/// a cada arranque, isso muda entre arranques — e uma chamada que
+/// ontem usava a câmara e hoje usa outra sem dizer qual é o tipo
+/// exacto de falha que ninguém consegue reproduzir.
+fn primeira_camera() -> Option<std::path::PathBuf> {
+    let dir = std::path::Path::new("/dev");
+    let entradas = std::fs::read_dir(dir).ok()?;
+
+    let mut indices: Vec<(u32, std::path::PathBuf)> = entradas
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let nome = e.file_name();
+            let nome = nome.to_str()?;
+            let resto = nome.strip_prefix("video")?;
+            // Só dígitos: `/dev/video0` é câmara e `/dev/video0-dv` é o
+            // nó de controlo do mesmo dispositivo — e o V4L2 de saída
+            // precisa do nó de *dados*, não do de controlo.
+            if resto.is_empty() || !resto.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            let indice = resto.parse::<u32>().ok()?;
+            Some((indice, e.path()))
+        })
+        .collect();
+
+    indices.sort_by_key(|(i, _)| *i);
+    indices.into_iter().next().map(|(_, caminho)| caminho)
+}
+
+/// Os argumentos de entrada de áudio, antes do `-c:a`.
+///
+/// ## O `-i default` e o que ele significa
+///
+/// `default` é o dispositivo de captura por omissão do ALSA, e é o que
+/// o `ffmpeg` documenta. Mas `default` no ALSA é muitas vezes o
+/// dispositivo `null`, que devolve silêncio sem erro — e uma chamada
+/// muda que não se ouve nenhum é o pior tipo de falha: não há
+/// mensagem, não há erro, e o sintoma é «o outro não me ouve».
+///
+/// A区別 é esta: se `ONYXMICROFONE` estiver definido, usa-se esse
+/// dispositivo; senão usa-se `default`, que é o que a maioria das
+/// máquinas tem e é o que funciona.
+///
+/// ## E o `pulse`
+///
+/// Não é uma entrada separada aqui. `-f pulse -i default` dá acesso ao
+/// microfone quando há PulseAudio/PipeWire a gerir os dispositivos, e é
+/// isso que :data:`captura_usa_pulse` decide.
+pub fn entrada_de_audio(pulse: bool) -> Vec<String> {
+    if let Ok(escolhido) = std::env::var("ONYXMICROFONE") {
+        let escolhido = escolhido.trim();
+        if !escolhido.is_empty() {
+            return if pulse {
+                vec![
+                    "-f".into(),
+                    "pulse".into(),
+                    "-i".into(),
+                    escolhido.to_string(),
+                ]
+            } else {
+                vec![
+                    "-f".into(),
+                    "alsa".into(),
+                    "-i".into(),
+                    escolhido.to_string(),
+                ]
+            };
+        }
+    }
+
+    if pulse {
+        vec!["-f".into(), "pulse".into(), "-i".into(), "default".into()]
     } else {
-        vec!["-f", "x11grab", "-i", ":0.0"]
+        vec!["-f".into(), "alsa".into(), "-i".into(), "default".into()]
     }
 }
 
-/// A sessão é Wayland?
+/// Há PulseAudio/PipeWire a gerir o áudio.
 ///
-/// Por variável de ambiente e não por tentativas: uma tentativa que
-/// falha significa um `ffmpeg` que arranca, não captura e morre, e o
-/// utilizador vê um stream sem imagem com um erro no `stderr` que ele
-/// não vê. Ler a variável dá a resposta certa sem custo.
-fn em_wayland() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+/// Por variável de ambiente e por existência do socket, e não por
+/// tentativa: tentar significaria um `ffmpeg` que arranca, não captura e
+/// morre — e o utilizador veria um stream sem som com um erro no
+/// `stderr` que ele não vê.
+///
+/// O `XDG_RUNTIME_DIR` é onde o PulseAudio põe o socket, e é a forma
+/// canónica de o encontrar sem saber o `$HOME` de ninguém.
+fn captura_usa_pulse() -> bool {
+    let dir_runtime = match std::env::var_os("XDG_RUNTIME_DIR") {
+        Some(d) => std::path::PathBuf::from(d),
+        None => return false,
+    };
+    dir_runtime.join("pulse/native").exists()
+        || std::path::Path::new("/run/user").join(current_uid_str()).join("pulse/native").exists()
+}
+
+/// O `uid` como texto, para o caminho do `/run/user`.
+fn current_uid_str() -> String {
+    // `unsafe { libc::getuid() }` e não `std::process::id()`: o
+    // `XDG_RUNTIME_DIR` é do **utilizador**, e o `pid` é do processo. São
+    // números diferentes e confundir daria o caminho de outra pessoa.
+    unsafe { libc::getuid() }.to_string()
 }
 
 /// Lê o pipe de áudio até ao fim, depositando no canal.
@@ -1017,29 +1186,88 @@ mod testes {
     /// mock, porque `std::env` num teste é seguro com
     /// `RUST_TEST_THREADS=1` — que é o que `.cargo/config.toml` já
     /// declara precisamente para isto.
+    /// A câmara vem de `/dev/video*` antes de qualquer coisa.
+    ///
+    /// O teste não assume que existe uma câmara: verifica a **forma**
+    /// do que a função devolve, e que o `x11grab` deixou de aparecer.
+    /// Numa máquina sem câmara a função devolve o `pipewiregrab`, e o
+    /// teste tem de passar nas duas.
     #[test]
-    fn o_wayland_muda_o_dispositivo_de_captura() {
-        let anterior = std::env::var_os("WAYLAND_DISPLAY");
+    fn a_entrada_de_video_procura_uma_camera() {
+        let anterior = std::env::var_os("ONYXCAMERA");
+        std::env::remove_var("ONYXCAMERA");
 
-        std::env::remove_var("WAYLAND_DISPLAY");
-        assert_eq!(entrada_de_video(), vec!["-f", "x11grab", "-i", ":0.0"]);
+        let args = entrada_de_video();
+        let linha = args.join(" ");
 
-        std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-        assert_eq!(
-            entrada_de_video(),
-            vec!["-f", "pipewiregrab", "-i", "default"]
+        assert!(
+            linha.contains("v4l2") || linha.contains("pipewiregrab"),
+            "a entrada de vídeo é «{linha}» e não é nem V4L2 nem PipeWire"
+        );
+        assert!(
+            !linha.contains("x11grab"),
+            "a entrada de vídeo ainda é «{linha}»: é captura de ecrã, não de câmara"
         );
 
-        // Uma variável vazia não conta: é o que um ambiente mal
-        // configurado deixa, e tratá-la como Wayland daria um erro
-        // Depois de um fallback que nunca existiu.
-        std::env::set_var("WAYLAND_DISPLAY", "");
-        assert_eq!(entrada_de_video(), vec!["-f", "x11grab", "-i", ":0.0"]);
+        match anterior {
+            Some(v) => std::env::set_var("ONYXCAMERA", v),
+            None => std::env::remove_var("ONYXCAMERA"),
+        }
+    }
+
+    /// `ONYXCAMERA` manda, e um índice vira caminho.
+    ///
+    /// Os dois ramos existem porque quem escreve `ONYXCAMERA=1` espera
+    /// `/dev/video1`, e quem escreve `ONYXCAMERA=/dev/video2` espera
+    /// esse caminho. Tratar o número como caminho daria um erro de
+    /// «ficheiro não encontrado» para um valor que é perfeitamente
+    /// válido.
+    #[test]
+    fn a_variavel_de_ambiente_escolhe_a_camera() {
+        let anterior = std::env::var_os("ONYXCAMERA");
+
+        std::env::set_var("ONYXCAMERA", "1");
+        assert_eq!(
+            entrada_de_video(),
+            vec!["-f", "v4l2", "-i", "/dev/video1"]
+        );
+
+        std::env::set_var("ONYXCAMERA", "/dev/video2");
+        assert_eq!(
+            entrada_de_video(),
+            vec!["-f", "v4l2", "-i", "/dev/video2"]
+        );
+
+        // Uma variável vazia ou só com espaços não escolhe nada: o
+        // `x11grab` não volta, e o que acontece é a enumeração normal.
+        std::env::set_var("ONYXCAMERA", "   ");
+        let linha = entrada_de_video().join(" ");
+        assert!(!linha.contains("ONYXCAMERA"));
 
         match anterior {
-            Some(v) => std::env::set_var("WAYLAND_DISPLAY", v),
-            None => std::env::remove_var("WAYLAND_DISPLAY"),
+            Some(v) => std::env::set_var("ONYXCAMERA", v),
+            None => std::env::remove_var("ONYXCAMERA"),
         }
+    }
+
+    /// O áudio vai ao ALSA, ou ao PulseAudio se houver socket.
+    ///
+    /// E o `-f default` sem `-f` explícito era o que a receita antiga
+    /// tinha: `-i default` sem `-f` é um nome de ficheiro, e o `ffmpeg`
+    /// adivinha o formato a partir do conteúdo — o que para um socket
+    /// não funciona.
+    #[test]
+    fn a_entrada_de_audio_declara_o_formato() {
+        let args = entrada_de_audio(false);
+        assert_eq!(
+            args.first().map(String::as_str),
+            Some("-f"),
+            "a entrada de áudio é {args:?} e não declara o formato"
+        );
+        assert_eq!(args.get(1).map(String::as_str), Some("alsa"));
+
+        let args = entrada_de_audio(true);
+        assert_eq!(args.get(1).map(String::as_str), Some("pulse"));
     }
 
     /// Sem executável embebido, `lancar` dá `DependenciaAusente`.

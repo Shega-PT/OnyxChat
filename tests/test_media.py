@@ -38,7 +38,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from messenger import media
+from messenger import amizade, media
 from messenger.amizade import ErroDerivacao, derivar_k1_por_tipo
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -81,14 +81,36 @@ def test_o_texto_nao_e_derivado():
 
     A propriedade de ``docs/media.md`` §1.2 que garante que o texto
     continua byte-a-byte igual ao que produzia antes de existir media.
+
+    ## E porque o texto **entra** no dicionário
+
+    A primeira versão deste teste afirmava ``"texto" not in derivadas``.
+    A mudança é deliberada: com os tipos de controlo (`call`,
+    `ficheiro`), quem sonda um envelope precisa de ter **todas** as
+    chaves num sítio só, e um dicionário sem o texto obrigaria o
+    chamador a lembrar de o juntar à mão — o que é exactamente o
+    caminho para um envelope de texto deixar de abrir.
+
+    O que a invariante exige não é que o texto esteja fora do
+    dicionário; é que a **sua chave não seja derivada**. E continua
+    não a ser: o valor é a ``k_texto`` que entrou, byte a byte.
     """
     k_texto = bytes([0x55] * 32)
     derivadas = media.chaves_media(k_texto, KA, KB, PUB_A)
 
-    assert "texto" not in derivadas, "o texto tem de ficar de fora do dicionário"
-    assert derivadas["audio"] != k_texto
-    assert derivadas["video"] != k_texto
-    assert derivadas["audio"] != derivadas["video"]
+    assert derivadas["texto"] == k_texto, "o texto tem de ser a chave que entrou, sem derivar"
+
+    # E os quatro tipos derivados têm de ser distintos uns dos outros e
+    # do texto — uma colisão daria duas mensagens de tipos diferentes a
+    # abrir com a mesma chave.
+    derivadas_de_media = {
+        nome: v for nome, v in derivadas.items() if nome != "texto"
+    }
+    assert len(set(derivadas_de_media.values())) == len(derivadas_de_media), (
+        f"dois tipos partilham chave: {derivadas_de_media}"
+    )
+    for nome, chave in derivadas_de_media.items():
+        assert chave != k_texto, f"«{nome}» devolveu a chave do texto"
 
 
 def test_um_tipo_desconhecido_nao_deriva():
@@ -97,8 +119,14 @@ def test_um_tipo_desconhecido_nao_deriva():
     A alternativa — devolver 32 bytes para qualquer ``tipo`` — geraria
     chaves que ninguém sabe distinguir umas das outras, e o erro
     apareceria como «a imagem não abre», muito longe da sua causa.
+
+    E os valores que **foram** ocupados por `call` e `ficheiro` antes de
+    os tipos existirem (0x03, 0x04) agora são **conhecidos**, porque os
+    valores de derivação são congelados: reatribuí-los a outro tipo
+    abriria envelopes antigos com a chave do tipo novo, e o sintoma é
+    texto ilegível em vez de um erro.
     """
-    for tipo in (0x00, 0x03, 0x10, 0xFF):
+    for tipo in (0x00, 0x05, 0x10, 0xFF):
         with pytest.raises(ErroDerivacao, match="tipo de media desconhecido"):
             derivar_k1_por_tipo(KA, KB, PUB_A, tipo)
 
@@ -109,10 +137,33 @@ def test_a_ordem_de_sondagem_comeca_pelo_texto():
     Uma conversa normal custa **uma** verificação. Se o texto fosse o
     último, todas as mensagens do sistema pagariam três verificações
     Poly1305 para nada.
+
+    ## E os tipos de controlo vêm no fim, por uma razão de custo
+
+    A ordem é `texto`, os dois de media, e os dois de controlo. Um
+    convite de chamada é raro comparado com uma conversa, e pagar
+    quatro verificações por convite em vez de duas não é nada — mas
+    pagar quatro verificações por **cada mensagem de texto** seria.
     """
     ordem = media.order_de_sondagem()
     assert ordem[0] == "texto"
-    assert ordem[1:] == ("audio", "video")
+    assert ordem[1:] == ("audio", "video", "call", "ficheiro"), ordem[1:]
+
+
+def test_a_ordem_de_sondagem_cobre_exatamente_os_tipos_com_chave():
+    """A ordem de sondagem e :data:`TIPOS_DE_CHAVE` não podem divergir.
+
+    São duas fontes de verdade sobre os mesmos tipos, e divergirem daria
+    um envelope de `call` que ninguém sonda — que se traduz num erro de
+    «nenhuma das chaves abriu», sem dizer qual tipo falta.
+    """
+    ordem = media.order_de_sondagem()
+    assert set(ordem) == {"texto", *media.TIPOS_DE_CHAVE}, (
+        f"a ordem {ordem} e os tipos {sorted(media.TIPOS_DE_CHAVE)} não são o mesmo conjunto"
+    )
+    # E a ordem é a mesma que o Rust declara, tipo a tipo. Ver a nota em
+    # `order_de_sondagem`.
+    assert ordem == ("texto", *media.TIPOS_DE_CHAVE)
 
 
 def test_a_sondagem_devolve_o_tipo_que_abriu():
@@ -563,3 +614,111 @@ def test_a_geometria_do_manifesto_esta_em_acordo():
         "ba7816bf8f01cfea414140de5dae2223"
         "b00361a396177a9cb410ff61f20015ad"
     )
+
+
+# ---------------------------------------------------------------------
+# Os tipos de controlo (Fase 1)
+# ---------------------------------------------------------------------
+
+
+def test_os_tipos_de_controle_derivam_e_sao_distintos():
+    """``call`` e ``ficheiro`` têm chave própria, e ela é diferente.
+
+    É a propriedade de que depende tudo o resto da Fase 1: um convite de
+    chamada e um ficheiro têm de abrir com chaves que **só o par**
+    conhece, e que são diferentes entre si.
+
+    Sem a distinção, um convite seria um envelope de texto e a rede
+    veria uma conversa — que é o que o projecto recusa em
+    ``docs/media.md`` §1.2.
+    """
+    k_texto = bytes([0x55] * 32)
+    derivadas = media.chaves_media(k_texto, KA, KB, PUB_A)
+
+    for nome in ("call", "ficheiro"):
+        assert nome in derivadas, f"«{nome}» não deriva chave"
+        assert derivadas[nome] != k_texto, f"«{nome}» devolveu a chave do texto"
+
+    assert derivadas["call"] != derivadas["ficheiro"], "convite e ficheiro partilham chave"
+    assert derivadas["call"] != derivadas["audio"], "convite e áudio partilham chave"
+    assert derivadas["call"] != derivadas["video"], "convite e vídeo partilham chave"
+
+
+def test_o_tipo_de_um_envelope_de_controlo_diz_o_que_e():
+    """A sondagem devolve o nome do tipo que abriu.
+
+    Sem isto, um receptor de chamada teria de adivinhar pelo conteúdo, e
+    um ficheiro que principiasse por `ONYX-CALL` seria lido como um
+    convite — o que é a mesma classe de bug que ler um pacote de áudio
+    como se fosse um vídeo.
+    """
+    derivadas = media.chaves_media(bytes([0x55] * 32), KA, KB, PUB_A)
+
+    for nome in ("call", "ficheiro"):
+        chave = derivadas[nome]
+
+        # A sondagem recebe uma chave e devolve o plaintext se a
+        # etiqueta verificar, ou `None`. Aqui o «plaintext» é o nome do
+        # tipo que abriu, o que torna a falha legível: se a sondagem
+        # parasse no tipo errado, a comparação abaixo diz qual.
+        def tentar(c: bytes, esperado: str = nome) -> str | None:
+            return f"corpo de {esperado}" if c == chave else None
+
+        tipo_aberto, corpo = media.sondar(derivadas, tentar)
+        assert tipo_aberto == nome, f"«{nome}» foi lido como «{tipo_aberto}»"
+        assert corpo == f"corpo de {nome}"
+
+
+def test_o_valor_do_tipo_de_derivacao_esta_congelado():
+    """Os bytes de tipo não mudam, e o teste diz porquê.
+
+    Um valor de derivação é um **contrato**: mudar ``TIPO_CALL`` de
+    ``0x03`` para outra coisa faria um convite antigo abrir com a chave
+    nova — sem erro, sem aviso, e com texto ilegível. O sintoma está
+    longe da causa, que é a pior propriedade possível num protocolo.
+    """
+    assert amizade.TIPO_AUDIO == 0x01
+    assert amizade.TIPO_VIDEO == 0x02
+    assert amizade.TIPO_CALL == 0x03
+    assert amizade.TIPO_FICHEIRO == 0x04
+
+    # E o Rust tem de ter os mesmos quatro. É o teste que impede as
+    # duas implementações de divergirem: o cliente deriva a chave e o
+    # daemon valida a etiqueta, e um valor diferente num dos lados
+    # daria um erro de descifragem que não menciona tipos.
+    rust = Path(__file__).resolve().parent.parent / "crypto" / "rust" / "src" / "amizade.rs"
+    texto_rust = rust.read_text(encoding="utf-8")
+    for nome in ("TIPO_AUDIO", "TIPO_VIDEO", "TIPO_CALL", "TIPO_FICHEIRO"):
+        valor = getattr(amizade, nome)
+        # O Rust escreve os bytes em minúsculas e o Python não precisa de
+        # os declarar; a comparação é feita sobre ambos para aceitar os dois.
+        declarado = f"pub const {nome}: u8 = 0x{valor:02x};"
+        assert declarado in texto_rust, (
+            f"o Rust não declara «{declarado}» e o Python diz 0x{valor:02X}: "
+            "as duas implementações derivam chaves diferentes"
+        )
+
+
+def test_a_ordem_e_a_tabela_dos_tipos_nao_podem_divergir():
+    """Duas fontes de verdade sobre os mesmos tipos, e um teste que as liga.
+
+    A ordem de sondagem e :data:`TIPOS_DE_CHAVE` dizem a mesma coisa de
+    duas maneiras. Divergirem daria um tipo de que ninguém tem chave —
+    e o erro seria «nenhuma das chaves abriu este envelope», que não
+    menciona tipos e por isso não aponta para a causa.
+    """
+    assert media.order_de_sondagem() == ("texto", *media.TIPOS_DE_CHAVE)
+    assert set(media.TIPOS_DE_CHAVE) == {"audio", "video", "call", "ficheiro"}
+
+
+def test_o_texto_da_chave_continua_byte_a_byte():
+    """A invariante de ``docs/media.md`` §1.2, verificada depois de tudo.
+
+    Derivar quatro chaves novas não pode mudar o que o texto produz.
+    A chave de texto é a ``k_texto`` que entrou, e o ``ENCODE`` com ela
+    dá exactamente o envelope de antes de existir media.
+    """
+    k_texto = bytes([0x55] * 32)
+    derivadas = media.chaves_media(k_texto, KA, KB, PUB_A)
+    assert derivadas["texto"] is not None
+    assert derivadas["texto"] == k_texto, "a chave de texto foi derivada e não devia"

@@ -27,30 +27,50 @@
 //!
 //! ## E o leitor de media
 //!
-//! Não é o `ffmpeg` embebido. O `ffmpeg` embebido é um binário
-//! **mínimo**, compilado para transformar (`--enable-everything` está
-//! desligado em §7.2) — não sabe reproduzir.
+//! **Primeiro o do sistema, e o `ffmpeg` embebido como último recurso.**
 //!
-//! Reproduzir é um problema diferente, e a decisão está escrita:
+//! A ordem é esta, e cada degrau tem uma razão:
 //!
-//! * **`ffplay`** traria um segundo binário de 30 MB para um
-//!   executável que já não está embebido, e a dependência de `SDL2` que
-//!   ele arrasta.
-//! * **O que o sistema tem** — `mpv`, `ffplay`, `cvlc` — é o
-//!   executável certo, e não vale a pena reescrevê-lo.
+//! 1. **`mpv`, `ffplay`, `cvlc`** — o que a pessoa já tem. É a opção
+//!    certa: respeita o volume do sistema, a pausa, a legenda, e não
+//!    traz um segundo player dentro da aplicação.
+//! 2. **`ffmpeg` embebido** — o binário que este mesmo módulo já
+//!    executa para capturar. Não abre uma janela e não tem interface;
+//!    por isso reproduz **para um ficheiro de saída**, e a abertura
+//!    fica a cargo de quem pediu.
 //!
-//! Por isso o leitor é **o do sistema**, encontrado por nome no `PATH`.
-//! Se não houver nenhum, a resposta é um erro de media e nada mais: a
-//! transferência continua guardada, e o botão de reproduzir é que não
-//! funciona. Perder o ficheiro por não haver leitor seria absurdamente
-//! caro.
+//! ### Porquê o degrau 2 passou a existir
 //!
-//! ### O que acontece se não houver leitor
+//! Este módulo escrevia que o `ffmpeg` embebido «não sabe reproduzir»,
+//! e era verdade na altura em que foi escrito: a receita era
+//! `--enable-everything` desligado com **só** encoders e um
+//! `--enable-filter=null`.
 //!
-//! Erro de media, e o texto não é afectado. É o modo degradado de §7.6,
-//! e vale a pena ser explícito sobre o que é: um daemon que não sabe
-//! reproduzir **continua completo** para tudo o resto, e o que falha é
-//! um botão, não a aplicação.
+//! A receita mudou (F10) e o binário ganhou **demuxers e decoders**:
+//! `matroska`, `mov`, `wav`, `ivf`, e os decoders de `vp8`, `opus`,
+//! `rawvideo` e `pcm_s16le`. E ganhou `image2` e `mjpeg` para o
+//! caminho de imagem da UI. O que transformava um stream num ficheiro
+//! é exactamente o que faz a operação inversa.
+//!
+//! A consequência prática é que, numa máquina sem `mpv` e sem `ffplay` —
+//! que é o caso desta, e o `MEDIA_ESTADO` devolvia `leitor = 0xFF` — o
+//! botão de reproduzir não tinha resposta. Com o degrau 2, o daemon
+//! descodifica para PCM e escreve o resultado, e quem abre o ficheiro é
+//! o sistema.
+//!
+//! ### E porque o degrau 2 vai para PCM, e não para um leitor
+//!
+//! Porque o `ffmpeg` embebido **não tem interface**. Não há `sdout`, não
+//! há `aout`, não há `avfilter` de vídeo — o `alsa_outdev` nem sequer
+//! está na receita. Um `ffmpeg` que descodifica e escreve um `.wav` é
+//! meia peça; a outra metade é mostrar o `.wav`, e essa é uma
+//! responsabilidade do sistema operativo, que já sabe.
+//!
+//! ### O que acontece se não houver nenhum dos dois
+//!
+//! Erro de media, e o texto não é afectado. É o modo degradado de §7.6:
+//! um daemon que não sabe reproduzir **continua completo** para tudo o
+//! resto, e o que falha é um botão, não a aplicação.
 
 use super::erros::ErroMedia;
 use super::ficheiro::IdTransferencia;
@@ -63,7 +83,72 @@ use super::ram::FicheiroEmRam;
 /// quase todo o lado onde há alguém a ouvir áudio. `ffplay` é o segundo
 /// porque vem com o `ffmpeg` — e quem tem `ffmpeg` no sistema quase
 /// sempre tem `ffplay` ao lado.
+///
+/// E `cvlc` é o terceiro porque está na lista desde sempre e porque
+/// ninguém se chateia por um leitor a mais na lista: os que não existirem
+/// são simplesmente ignorados por [`existe_no_caminho`].
 pub const LEITORES: &[&str] = &["mpv", "ffplay", "cvlc"];
+
+/// O nome interno do leitor embebido.
+///
+/// **Não** é um programa no `PATH`: é o `ffmpeg` que este processo tem
+/// dentro de um `memfd` selado, e que executa por `/proc/self/fd/21`.
+///
+/// O nome entra em [`BYTES_DE_LEITOR`] com o byte `0x00`, e é por isso
+/// que o `ipc.rs` o pode mandar como um `u8` sem um quarto caminho de
+/// código: há um quarto nome no mesmo mapa.
+pub const LEITOR_EMBUTIDO: &str = "embutido";
+
+/// O byte que significa «não há nenhum leitor».
+///
+/// `0xFF` por escolha, e não por acaso: é o único valor do `u8` que não
+/// é usado por nenhum leitor, e é o que o `MEDIA_ESTADO` já devolvia
+/// quando a lista estava vazia. A resposta mantém-se compatível com o
+/// que o `sidecar` já sabe ler.
+pub const LEITOR_NENHUM: u8 = 0xFF;
+
+/// O byte de um leitor, se for um leitor conhecido.
+///
+/// ## O mapa é fixo, e é essa a razão de existir
+///
+/// A primeira versão era um índice sobre [`LEITORES`], e um índice é
+/// uma posição — que muda quando a lista muda. Acrescentar `embutido`
+/// ao fim moveu `mpv` de `0` para `1`, e um `sidecar` que tivesse
+/// guardado o `0` de uma sessão anterior passaria a pedir `mpv` a um
+/// índice que já não era `mpv`.
+///
+/// Um mapa nome→byte não sofre disso: os bytes dos leitores que já
+/// existiam ficam onde estavam, e o novo leitor recebe um byte novo.
+///
+/// ## Porque `embutido` fica a `0x00`
+///
+/// Porque é o único que **não depende do sistema**, e o estado de
+/// `MEDIA_ESTADO` que mais importa comunicar é «consigo descodificar
+/// isto, aqui». Um byte que muda conforme instalações passa a dizer
+/// mais sobre a máquina do que sobre a capacidade.
+const BYTES_DE_LEITOR: &[(&str, u8)] = &[
+    (LEITOR_EMBUTIDO, 0x00),
+    ("mpv", 0x01),
+    ("ffplay", 0x02),
+    ("cvlc", 0x03),
+];
+
+/// O byte de um leitor pelo nome.
+pub fn byte_de_leitor(nome: &str) -> Option<u8> {
+    BYTES_DE_LEITOR
+        .iter()
+        .find(|(n, _)| *n == nome)
+        .map(|(_, b)| *b)
+}
+
+/// O nome de um leitor pelo byte.
+pub fn nome_de_byte_leitor(byte: u8) -> Result<&'static str, ErroMedia> {
+    BYTES_DE_LEITOR
+        .iter()
+        .find(|(_, b)| *b == byte)
+        .map(|(n, _)| *n)
+        .ok_or(ErroMedia::LeitorDesconhecido(format!("byte {byte}")))
+}
 
 /// Monta o ficheiro e devolve o descritor, **sem** o executar.
 ///
@@ -131,7 +216,20 @@ pub fn executar(ficheiro: FicheiroEmRam, leitor: &str) -> Result<u32, ErroMedia>
     // processo com várias threads — um sítio onde um erro é um `SIGSEGV`
     // em vez de um `errno`.
     let caminho = format!("/proc/self/fd/{}", ficheiro.fd());
-    let nome = nome_de_leitor(leitor)?;
+
+    // O leitor embebido não é um nome no `PATH`: é um descritor, e o
+    // `Command` precisa de um caminho de executável. Desempacotá-lo
+    // aqui é o mesmo trabalho que a captura faz, e a garantia é a
+    // mesma — o que executa é o que está no binário.
+    if leitor == LEITOR_EMBUTIDO {
+        return executar_embutido(ficheiro, &caminho);
+    }
+
+    let nome = BYTES_DE_LEITOR
+        .iter()
+        .find(|(n, _)| *n == leitor)
+        .map(|(n, _)| *n)
+        .ok_or_else(|| ErroMedia::LeitorDesconhecido(leitor.to_string()))?;
 
     let comando = std::process::Command::new(nome)
         .args(argumentos_de_leitor(leitor, &caminho))
@@ -158,11 +256,127 @@ pub fn executar(ficheiro: FicheiroEmRam, leitor: &str) -> Result<u32, ErroMedia>
     }
 }
 
-fn nome_de_leitor(leitor: &str) -> Result<&'static str, ErroMedia> {
-    match leitor {
-        "mpv" => Ok("mpv"),
-        "ffplay" => Ok("ffplay"),
-        outro => Err(ErroMedia::LeitorDesconhecido(outro.to_string())),
+/// Executa a descodificação com o `ffmpeg` embebido, e devolve o `pid`.
+///
+/// ## O que este degrau faz, e o que não faz
+///
+/// **Faz:** descodificar o media guardado e escrevê-lo como PCM num
+/// `memfd` — o caminho inverso de `ffmpeg -i captura.ivf -f opus …`.
+///
+/// **Não faz:** mostrar nada. O `ffmpeg` embebido não tem interface,
+/// não tem `sdout` nem `aout`, e `alsa_outdev` não está na receita.
+/// Escrever um `.wav` é metade; a outra metade é uma janela, e essa é
+/// uma responsabilidade do sistema operativo.
+///
+/// ## Porquê PCM e não outro contentor
+///
+/// Porque `pcm_s16le` é o único contentor em que a operação é
+/// reversível sem mais decisões: o que sai é exactamente o que o
+/// emissor gravou, amostra a amostra. Um `.mp4` ou `.webm` seria uma
+/// nova codificação, com as suas próprias perdas e com um `mov`/`matroska`
+/// demuxer a caminho — para um ficheiro que já estava guardado.
+///
+/// ## E porquê `-f wav` e não `-f s16le`
+///
+/// Porque `s16le` é um contentor **cru**: não tem cabeçalho, e o
+/// sistema não sabe que é áudio sem o ver. O `wav` tem os 44 bytes de
+/// cabeçalho que fazem um leitor dizer «isto é áudio» sem fazer
+/// perguntas — e o demuxer `wav` está na receita, o que faz o `ffmpeg`
+/// poder também ler um.
+///
+/// ## E porquê um `memfd` de saída separado
+///
+/// Porque o `ffmpeg` lê um contentor enquanto escreve noutro. Reescrever
+/// a entrada por cima pareceria mais simples e é pior: o resultado passa
+/// a depender da ordem de bloqueio entre leitura e escrita, e um ficheiro
+/// meio reescrito não é nem a entrada nem a saída. Com dois descritores
+/// o `ffmpeg` é um transformador normal, que é o que ele é.
+///
+/// O `memfd` de saída é criado **antes** do `spawn`, sem `MFD_CLOEXEC`,
+/// e por isso o filho herda o descritor — que é o mesmo arranjo da
+/// captura.
+fn executar_embutido(_ficheiro: FicheiroEmRam, caminho: &str) -> Result<u32, ErroMedia> {
+    // O `_ficheiro` é a **entrada**, e o seu conteúdo entrou em `caminho`
+    // — que é `/proc/self/fd/N` desse mesmo descritor, já preparado
+    // por quem chamou. O parâmetro fica aqui por simetria com
+    // [`executar`] e não por ser usado.
+    //
+    // E o facto de não ser lido **não** o torna dispensável: o
+    // `FicheiroEmRam` tem um `Drop` que fecha o descritor, e recebê-lo
+    // por valor garante que ele sobrevive até ao `spawn` — o `ffmpeg`
+    // filho precisa dele para ler a entrada.
+    let fd_exec = super::ffmpeg_embutido::preparar()?;
+    let caminho_exec = format!("/proc/self/fd/{}", fd_exec);
+
+    // A saída é um `memfd` **novo**, não o ficheiro de entrada.
+    //
+    // Escrever por cima da entrada pareceria mais simples e é pior: o
+    // `ffmpeg` lê o contentor enquanto escreve no mesmo descritor, o
+    // resultado depende da ordem de bloqueio, e um ficheiro meio
+    // reescrito não é nem a entrada nem a saída. Dois descritores
+    // separados tornam o `ffmpeg` um transformador normal, que é
+    // exactamente o que ele é.
+    let saida = FicheiroEmRam::de_conteudo("onyx-media-wav", &[])?;
+    let caminho_saida = format!("/proc/self/fd/{}", saida.fd());
+
+// A lista é de `OsString` e não de `&str` por uma razão concreta: o
+    // `Command` recebe `S: AsRef<OsStr>` por valor e **copia** o
+    // argumento para o seu próprio armazenamento. Passar `&OsStr`
+    // diretamente obrigaria a viver um temporário que o `Command` não
+    // guarda, e o compilador acusa-o. Converter para `OsString` resolve
+    // isso sem `Box::leak` e sem vazar memória por reprodução.
+    let argumentos: Vec<std::ffi::OsString> = [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        caminho,
+        "-f",
+        "wav",
+        caminho_saida.as_str(),
+    ]
+    .into_iter()
+    .map(std::ffi::OsString::from)
+    .collect();
+
+    // O `Command` vive num `let` próprio, e não numa expressão encadeada.
+    //
+    // Uma expressão `Command::new(x).args(y)…;` que termine em ponto e
+    // vírgula cria um valor temporário que o compilador julga livre no
+    // fim da instrução, e o `spawn` seguinte — que é a primeira coisa
+    // que usa esse `Command` — passa a ser um uso depois de libertação.
+    // Separar em bindings é o que dá ao `Command` a vida que o
+    // encadeamento lhe negava.
+    let executavel: std::ffi::OsString = caminho_exec.into();
+    let mut comando = std::process::Command::new(&executavel);
+    comando.args(&argumentos);
+    comando.stdin(std::process::Stdio::null());
+    comando.stdout(std::process::Stdio::null());
+    comando.stderr(std::process::Stdio::null());
+
+    let resultado = comando.spawn();
+    // O `preparar` deu-nos um descritor próprio; se o `spawn` não o usa,
+    // fica aberto. Fechá-lo aqui é o que evita um descritor por
+    // reprodução.
+    //
+    // O `ficheiro` (a entrada) e a `saida` saem de cena com esta
+    // função: o `spawn` **não espera** pelo fim. O `ffmpeg` filho tem os
+    // descritores herdados — sem `MFD_CLOEXEC`, como a captura —, e
+    // continua a escrever no `memfd` de saída depois de o pai já ter
+    // devolvido o `pid`. É este arranjo que faz o conteúdo aparecer no
+    // ficheiro depois de a resposta ao `MEDIA_REPRODUZIR` já ter saído.
+    match resultado {
+        Ok(child) => {
+            super::ffmpeg_embutido::fechar();
+            Ok(child.id())
+        }
+        Err(e) => {
+            super::ffmpeg_embutido::fechar();
+            Err(match e.kind() {
+                std::io::ErrorKind::NotFound => ErroMedia::LeitorDesconhecido(LEITOR_EMBUTIDO.to_string()),
+                _ => ErroMedia::ExecucaoFalhou(e.raw_os_error().unwrap_or(libc::EIO)),
+            })
+        }
     }
 }
 
@@ -181,12 +395,23 @@ fn argumentos_de_leitor<'a>(leitor: &str, caminho: &'a str) -> Vec<&'a str> {
 }
 
 /// Os leitores que este sistema tem.
+///
+/// O `embutido` entra **primeiro** na resposta e por uma razão que não é
+/// de preferência: está sempre lá. Os leitores do sistema dependem do que
+/// a pessoa instalou, e numa máquina mínima não há nenhum — que é
+/// exactamente o caso em que este degrau foi acrescentado.
 pub fn leitores_disponiveis() -> Vec<&'static str> {
-    LEITORES
-        .iter()
-        .copied()
-        .filter(|nome| existe_no_caminho(nome))
-        .collect()
+    let mut lista: Vec<&'static str> = Vec::new();
+    if super::ffmpeg_embutido::disponivel() {
+        lista.push(LEITOR_EMBUTIDO);
+    }
+    lista.extend(
+        LEITORES
+            .iter()
+            .copied()
+            .filter(|nome| existe_no_caminho(nome)),
+    );
+    lista
 }
 
 /// O primeiro leitor disponível, se algum.

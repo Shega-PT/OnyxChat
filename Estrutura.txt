@@ -228,7 +228,7 @@ user/
 
 # 6. Interface
 # React + Vite. `src/` é o que se escreve; o resto é ferramental.
-UI/                           # 91 ficheiros JavaScript versionados
+UI/                           # 95 ficheiros JavaScript versionados
 ├─ README.md                # Padrões, decisões e o que a interface promete
 ├─ package.json
 ├─ src/

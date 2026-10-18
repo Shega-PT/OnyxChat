@@ -54,6 +54,7 @@ pub mod ffmpeg_embutido;
 pub mod ffmpeg;
 
 /// Os erros do módulo, num só sítio, sem conteúdo.
+pub mod eco;
 pub mod erros;
 
 /// A loja do `sidecar`, lida em modo só de leitura, para montar media.

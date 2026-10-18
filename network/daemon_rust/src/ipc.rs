@@ -1711,22 +1711,28 @@ fn processar_media_iniciar(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
 /// build sem artefacto, e o texto não é afectado (modo degradado,
 /// `docs/media.md` §7.6).
 ///
-/// `leitor` é o índice em [`crate::media::reproduzir::LEITORES`] do
-/// primeiro leitor disponível, ou `0xFF` se não houver nenhum.
+/// `leitor` é o **byte identificador** do primeiro leitor disponível, ou
+/// `0xFF` se não houver nenhum.
 ///
-/// Os três bytes são **separados** porque as três coisas falham
-/// independentemente: ter loja não implica ter `ffmpeg` (que só interessa
-/// ao streaming), e nenhum dos dois implica ter `mpv` instalado.
+/// ## Porquê um byte e não um índice
+///
+/// Era um índice em [`crate::media::reproduzir::LEITORES`], e isso
+/// tinha uma propriedade má: acrescentar um leitor ao fim da lista
+/// desloca os índices de quem já estava, e o `MEDIA_ESTADO` responderia
+/// com um número diferente para o mesmo leitor. Pior: o `embutido` não
+/// está na lista de ficheiros do `PATH`, e `position` dava `None` — o
+/// `unwrap_or(0xFF)` transformava "existe e funciona" em "não há
+/// leitor nenhum".
+///
+/// Um byte por leitor é estável por construção: acrescentar um leitor
+/// **não toca** nos bytes dos outros, e o valor que o `sidecar` viu há
+/// um ano continua a significar a mesma coisa.
 fn processar_media_estado(estado: &Estado) -> Vec<u8> {
     let loja = bloquear(&estado.loja_media).is_some();
     let ffmpeg = u8::from(crate::media::ffmpeg_embutido::disponivel());
-    let leitor = match crate::media::reproduzir::leitor_disponivel() {
-        Some(nome) => crate::media::reproduzir::LEITORES
-            .iter()
-            .position(|n| *n == nome)
-            .unwrap_or(0xFF) as u8,
-        None => 0xFF,
-    };
+    let leitor = crate::media::reproduzir::leitor_disponivel()
+        .and_then(crate::media::reproduzir::byte_de_leitor)
+        .unwrap_or(crate::media::reproduzir::LEITOR_NENHUM);
     resposta_ok(&[u8::from(loja), ffmpeg, leitor])
 }
 
@@ -1758,9 +1764,14 @@ fn processar_media_reproduzir(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
         return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_REPRODUZIR: id não é hex");
     };
 
-    let nome_leitor = match crate::media::reproduzir::LEITORES.get(leitor_byte as usize) {
-        Some(nome) => *nome,
-        None => {
+        // O byte vem do mapa fixo de
+    // [`crate::media::reproduzir::nome_de_byte_leitor`] e **não** de um
+    // índice sobre a lista de leitores do `PATH`: o índice mudava
+    // quando um leitor era acrescentado, e o `embutido` — que não está
+    // no `PATH` — não tinha índice nenhum.
+    let nome_leitor = match crate::media::reproduzir::nome_de_byte_leitor(leitor_byte) {
+        Ok(nome) => nome,
+        Err(_) => {
             return resposta_erro(ERR_MEDIA, "MEDIA_REPRODUZIR: leitor desconhecido");
         }
     };

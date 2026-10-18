@@ -1046,6 +1046,137 @@ fn janela_de_rate_reinicia() {
     assert_eq!(janela.contador, 1, "contagem reiniciada");
 }
 
+/// O teto de media tem de chegar para uma chamada, e a conta está aqui.
+///
+/// ## Porque este teste existe
+///
+/// O teto era 64 por janela de 10 s, e uma chamada a 30 fps com Opus de
+/// 20 ms produz 80 mensagens por segundo — 800 por janela. Com 64 a
+/// chamada não durava um segundo, e nenhuma contagem de testes o apanhava:
+/// o limite só dispara em `ENVIAR`, e os testes de IPC não fazem 800
+/// envios seguidos.
+///
+/// ## A conta, e de onde vêm os números
+///
+/// ```text
+/// vídeo    30 fps, 1 moldura por quadro  → 30    msg/s → 300 por janela
+/// áudio    8 pacotes de 20 ms por msg    →  6,25 msg/s →  62 por janela
+///                                             ───────────────────────
+///                                            ~36    msg/s  362
+/// ```
+///
+/// E o limite tem de estar acima de 363 com folga. Este teste fixa esse
+/// mínimo, e fixa a folga, para que um futuro ajuste do teto não a
+/// reduza sem que ninguém perceba que a chamada passou a tropeçar.
+#[test]
+fn o_teto_de_media_chega_para_uma_chamada() {
+    const FPS: u32 = 30;
+    /// `PAQUETES_POR_MOLDURA_AUDIO` do `media.py`, e 20 ms por pacote.
+    const PACOTES_POR_MOLDURA: u32 = 8;
+    const MS_POR_PACOTE: u32 = 20;
+
+    // As mensagens de áudio por janela: são os 10 s da janela
+    // divididos pelo tempo que uma mensagem de áudio leva.
+    const MS_POR_MOLDURA_AUDIO: u32 = PACOTES_POR_MOLDURA * MS_POR_PACOTE;
+    let msg_por_janela_10s = JANELA_RATE.as_secs() * 1000 / MS_POR_MOLDURA_AUDIO as u64;
+
+    let video_por_janela = JANELA_RATE.as_secs() * u64::from(FPS);
+    let audio_por_janela = msg_por_janela_10s;
+    let chamada = video_por_janela + audio_por_janela;
+
+    // 10 s ÷ 160 ms são 62 mensagens de áudio — e não 6: os 62 são o
+    // que interessa, e são o número que o teto tem de suportar.
+    assert_eq!(msg_por_janela_10s, 62, "62 mensagens de áudio por janela de 10 s");
+    assert_eq!(video_por_janela, 300, "300 mensagens de vídeo por janela");
+    assert_eq!(chamada, 362, "a chamada usa 362 mensagens por janela de 10 s");
+
+    // O teto tem de passar por cima da chamada…
+    assert!(
+        LIMITE_FRAMES_MEDIA as u64 > chamada,
+        "o teto de media é {LIMITE_FRAMES_MEDIA} e a chamada usa {chamada}: \
+         a chamada rebentaria com o limite depois de {} s",
+        JANELA_RATE.as_secs() * 10 / chamada
+    );
+
+    // …e com folga suficiente para um `ffmpeg` sob carga entregar aos
+    // trancos. Uma janela fixa de 10 s sem margem rejeita o pico mesmo
+    // quando a média cabe, e a margem mínima é 25%.
+    let folga = LIMITE_FRAMES_MEDIA as u64 * 100 / chamada;
+    assert!(
+        folga >= 125,
+        "a folga é de {folga}% e o mínimo é 125%: um pico rejeita a chamada"
+    );
+}
+
+/// O teto de media é independente, e o de texto não gasta a excepção.
+#[test]
+fn as_duas_janelas_nao_gastam_uma_a_outra() {
+    // Encher a janela de texto até rebentar não pode afectar a de
+    // media: quem flooda texto não pode perder a chamada por isso.
+    let mut janela = JanelaRate::nova();
+    for _ in 0..LIMITE_FRAMES {
+        janela
+            .registar(crate::p2p::Origem::Texto)
+            .expect("texto dentro do limite");
+    }
+    // O texto agora está no limite…
+    assert!(janela.registar(crate::p2p::Origem::Texto).is_err());
+
+    // …e a media ainda passa, porque tem a sua contagem.
+    janela
+        .registar(crate::p2p::Origem::Media)
+        .expect("a media tem janela própria");
+    assert_eq!(janela.contador_media, 1);
+    assert!(
+        janela.contador >= LIMITE_FRAMES,
+        "a contagem de texto passou de {LIMITE_FRAMES}: {:?}",
+        janela.contador
+    );
+
+    // E o inverso: uma chamada que enche a media não tira a conversa.
+    let mut janela = JanelaRate::nova();
+    for _ in 0..LIMITE_FRAMES_MEDIA {
+        janela
+            .registar(crate::p2p::Origem::Media)
+            .expect("media dentro do limite");
+    }
+    janela
+        .registar(crate::p2p::Origem::Texto)
+        .expect("o texto não gasta a janela de media");
+}
+
+/// Uma chamada inteira cabe na janela, mensagem a mensagem.
+///
+/// Não é o mesmo que o teste do valor: esse diz que o número é grande
+/// que chegue. Este diz que a [`JanelaRate`] **conta** o que se calcula,
+/// e que nenhuma das 363 passa por `RateLimit`. Um erro de unidades — um
+/// `>` onde é um `>=`, um contador que não reinicia — só apareceria
+/// aqui.
+#[test]
+fn uma_chamada_inteira_passa_da_regra_do_teto() {
+    const MS_POR_MOLDURA_AUDIO: u32 = 160;
+    let por_janela = (JANELA_RATE.as_secs() * 1000) / MS_POR_MOLDURA_AUDIO as u64;
+    let video = (JANELA_RATE.as_secs() * 30) as u64;
+
+    let mut janela = JanelaRate::nova();
+    for _ in 0..video {
+        janela
+            .registar(crate::p2p::Origem::Media)
+            .unwrap_or_else(|_| panic!("o vídeo rebentou o teto no meio da chamada"));
+    }
+    for _ in 0..por_janela {
+        janela
+            .registar(crate::p2p::Origem::Media)
+            .unwrap_or_else(|_| panic!("o áudio rebentou o teto no meio da chamada"));
+    }
+
+    // E a seguinte ainda passa: é a folga que se está a medir.
+    assert!(
+        janela.registar(crate::p2p::Origem::Media).is_ok(),
+        "a mensagem a seguir ao fim da chamada já não passa: não há folga"
+    );
+}
+
 /// Um `CAIXA` que chega antes do `OK` da subscrição é enfileirado
 /// (o `esperar_ok` não o descarta) e chega ao chamador.
 #[test]

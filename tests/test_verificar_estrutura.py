@@ -274,7 +274,7 @@ def test_as_contagens_versionadas_conferem() -> None:
     """
     assert ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes") == 50
     js = ve._conta(ve.RAIZ / "UI", "ficheiros JavaScript versionados")
-    assert js == 91, js
+    assert js == 95, js
 
 
 def test_a_contagem_de_sementes_ignora_o_disco() -> None:

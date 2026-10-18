@@ -56,14 +56,19 @@ import hmac
 __all__ = [
     "DOMINIO_AMIZADE",
     "INFO_K1",
+    "DOMINIO_MEDIA",
     "TAM_CHAVE",
     "TAM_NONCE",
     "TAM_PUBLICA",
+    "TIPO_AUDIO",
+    "TIPO_VIDEO",
+    "TIPO_CALL",
+    "TIPO_FICHEIRO",
+    "TIPOS_CONHECIDOS",
     "semente",
     "info",
     "derivar_k1",
     "derivar_k1_por_tipo",
-    "chaves_por_tipo",
 ]
 
 #: Rótulo de derivação do segredo de amizade. Igual ao
@@ -84,14 +89,33 @@ INFO_K1 = b"ONYX/K1/v1"
 DOMINIO_MEDIA = b"ONYX/MEDIA/"
 
 #: Tipos de conteúdo que têm chave derivada. O texto **não** aparece:
-#: continua a usar a K1 de longa duração, e por isso o texto produced
+#: continua a usar a K1 de longa duração, e por isso o texto produzido
 #: é byte-a-byte igual ao que produzia antes de existir media.
 TIPO_AUDIO = 0x01
 TIPO_VIDEO = 0x02
 
 #: Os tipos que a derivação aceita. Um tipo fora daqui não deriva —
 #: falha, em vez de produzir uma chave que ninguém sabe desambiguar.
-TIPOS_CONHECIDOS = (TIPO_AUDIO, TIPO_VIDEO)
+#:
+#: ## E os tipos de controlo, que também derivam
+#:
+#: `TIPO_CALL` e `TIPO_FICHEIRO` entram aqui pelo mesmo motivo que o
+#: áudio e o vídeo: precisam de uma chave que **só** o par conhece, e
+#: que a rede não pode distinguir de nenhuma outra.
+#:
+#: Não têm carácter na moldura — `call` e `ficheiro` não são molduras
+#: `ONX1`, são envelopes cujo corpo é ASCII versionado (ver
+#: `controle.py`). O que entra é o byte de derivação, que é o `info` do
+#: HKDF, e esse é independente do formato do payload.
+#:
+#: Os valores 0x03 e 0x04 são os primeiros livres depois do áudio e do
+#: vídeo, e ficam **congelados**: mudar um valor de derivação é
+#: indistinguível de um envelope antigo a abrir com a chave nova, e o
+#: resultado é texto ilegível em vez de um erro.
+TIPO_CALL = 0x03
+TIPO_FICHEIRO = 0x04
+
+TIPOS_CONHECIDOS = (TIPO_AUDIO, TIPO_VIDEO, TIPO_CALL, TIPO_FICHEIRO)
 
 TAM_CHAVE = 32
 TAM_NONCE = 12
@@ -282,29 +306,3 @@ def derivar_k1_por_tipo(
     contexto = INFO_K1 + publica + DOMINIO_MEDIA + bytes([tipo])
     sal = DOMINIO_MEDIA + bytes([tipo])
     return _hkdf_sha256(segredo, sal, contexto, TAM_CHAVE)
-
-
-def chaves_por_tipo(
-    k1: bytes,
-    k_emissor: bytes,
-    k_recetor: bytes,
-    publica_emissor: bytes,
-) -> dict[int, bytes]:
-    """As chaves K1 de media para este envelope, por tipo.
-
-    Devolve um dicionário em vez de uma lista porque o tipo **é** a
-    chave de procura: quem chama isto quer tentar um tipo e saber se
-    era aquele, e uma estrutura indexada pelo tipo diz isso sem
-    posições a lembrar.
-
-    O texto **não** entra. Quem quiser o texto usa a ``k1`` de longa
-    duração que passou — a mesma que usaria sem este módulo existir.
-
-    :returns: ``{0x01: k1_audio, 0x02: k1_video}``.
-    """
-    return {
-        tipo: derivar_k1_por_tipo(
-            k_emissor, k_recetor, publica_emissor, nonce1, tipo
-        )
-        for tipo in TIPOS_CONHECIDOS
-    }

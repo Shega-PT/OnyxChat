@@ -42,10 +42,13 @@ import base64 as _b64
 import hashlib
 import os
 import subprocess
+from collections import deque
 from dataclasses import dataclass
 
 from .amizade import (
     TIPO_AUDIO,
+    TIPO_CALL,
+    TIPO_FICHEIRO,
     TIPO_VIDEO,
     ErroDerivacao,
     derivar_k1_por_tipo,
@@ -89,6 +92,67 @@ TAM_PRE_AMBULO = INICIO_CORPO + 1
 #: ``(MAX_PLAINTEXT − TAM_PRE_AMBULO) / 4 × 3``.
 TAM_MEDIA_MAX = (MAX_PLAINTEXT - TAM_PRE_AMBULO) // 4 * 3
 
+# ---------------------------------------------------------------------
+# A agregação do áudio (Fase 2)
+# ---------------------------------------------------------------------
+
+#: Quantos pacotes de Opus vão no máximo na mesma mensagem.
+#:
+#: ## A conta que obriga a isto
+#:
+#: A chamada precisa de mensagens, e a conta é por **contagem** e não por
+#: bitrate:
+#:
+#: ```text
+#: VP8, 1 moldura por quadro a 30 fps   →  30 msg/s  →  300 por janela
+#: Opus, 1 pacote de 20 ms               →  50 msg/s  →  500 por janela
+#:                                                    ────────────────
+#:                                            80 msg/s    800 por janela
+#: ```
+#:
+#: O limite de media é 512 por janela de 10 s (`p2p.rs`), e 800 estoura
+#: nele em seis segundos. A agregação é o que torna a chamada possível
+#: sem subir o limite para um número que já não distingue «chamada» de
+#: «inundação».
+#:
+#: ## Porquê 8
+#:
+#: Com 8 pacotes de 20 ms, ou 160 ms de áudio por mensagem:
+#:
+#: ```text
+#: áudio  160 ms →  6,3 msg/s  →  ~63 por janela
+#: vídeo  30 fps  →  30   msg/s →  300 por janela
+#:                                 ──────────────
+#:                            ~36 msg/s  ~363 por janela
+#: ```
+#:
+#: 363 contra 512: **41% de folga**. E a folga é necessária, porque um
+#: `ffmpeg` sob carga entrega quadros aos trancos e uma janela fixa sem
+#: margem rejeita o pico mesmo quando a média cabe.
+#:
+#: ## Porquê não mais
+#:
+#: Porque o atraso. A mensagem só sai quando a fila atinge o tempo, e o
+#: áudio dessa mensagem chega ao receptor todo ao mesmo tempo: o
+#: primeiro pacote espera pelos outros sete. Com 8 são 160 ms, que é o
+#: mesmo que o jitter buffer do receptor (§5.4) absorve. Com 20 seriam
+#: 400 ms, e a chamada começava com um atraso que se ouve.
+PAQUETES_POR_MOLDURA = 8
+
+#: Os milissegundos que uma mensagem de áudio tem de ter antes de sair.
+#:
+#: É :data:`PAQUETES_POR_MOLDURA` a 20 ms, e é uma constante e não uma
+#: conta porque o pacote do Opus **não tem duração fixa**: o `ffmpeg`
+#: produz pacotes de 2,5 ms a 60 ms conforme o sinal. Agregar por contagem
+#: daria mensagens de durações diferentes com o mesmo nome, e o
+#: `clock_ms` deixaria de descrever o que a mensagem leva.
+#:
+#: A agregação decide por **tempo**, e este número é o alvo. O limite de
+#: pacotes continua a existir em :data:`PAQUETES_POR_MOLDURA` e é o que
+#: impede que um pacote de 60 ms faça a fila crescer sem fim: com o alvo
+#: em 160 ms, três pacotes de 60 ms saem em 180 ms.
+MS_POR_MOLDURA_AUDIO = 160
+
 #: A magia, em ASCII.
 MAGIA = b"ONX1"
 
@@ -102,15 +166,47 @@ SEPARADOR = b"\n"
 # Tipos e modos
 # ---------------------------------------------------------------------
 
-#: Os tipos de conteúdo, como tuplo ``(carácter, byte derivado)``.
+#: Os tipos de conteúdo que têm **moldura**, como tuplo
+#: ``(carácter, byte derivado)``.
 #:
 #: O par vive junto porque os dois valores **não podem divergir** — o
 #: carácter vai no ficheiro e o byte vai num hash — e um formato que
 #: exige dois sítios para o mesmo conceito diverge no primeiro dia em
 #: que alguém acrescenta uma linha.
+#:
+#: ## Porque só dois, e porque `call` e `ficheiro` não entram
+#:
+#: Porque o byte do *carácter* no byte 5 da moldura só tem quatro bits
+#: livres (ver `abrir`), e `A`/`V` são os seus únicos ocupantes. Um
+#: `call` **não é** uma moldura: é um envelope cujo corpo é ASCII
+#: versionado, que o `ENCODE` trata como texto opaco.
+#:
+#: O que partilha com o áudio e o vídeo é a **chave derivada**, não o
+#: formato — e por isso vive em :data:`TIPOS_DE_CHAVE`, que é onde a
+#: derivação a encontra.
 TIPOS = {
     "audio": (b"A", TIPO_AUDIO),
     "video": (b"V", TIPO_VIDEO),
+}
+
+#: Os tipos que têm chave derivada, por nome.
+#:
+#: É a soma de :data:`TIPOS` (os que têm moldura) com os de controlo,
+#: que têm chave mas não moldura. A separação é deliberada: uma tabela
+#: só, com tudo misturado, daria ao `abrir()` um terceiro tipo para
+#: aceitar — e o byte 5 da moldura não tem espaço para ele.
+#:
+#: ## O texto **não** entra
+#:
+#: Continua a usar a K1 de longa duração, e é por isso que o texto
+#: produzido é byte-a-byte igual ao que produzia antes de existir
+#: media. A garantia é verificada por `test_o_texto_da_mesma_bytes`, e
+#: é a invariante de `docs/media.md` §1.2 — a rede não pode distinguir
+#: texto de media, e isso começa na chave.
+TIPOS_DE_CHAVE = {
+    **{nome: byte for nome, (_, byte) in TIPOS.items()},
+    "call": TIPO_CALL,
+    "ficheiro": TIPO_FICHEIRO,
 }
 
 #: O inverso de :data:`TIPOS`: caractere → nome.
@@ -798,13 +894,26 @@ def chaves_por_tipo(chaves_amizade, publica_emissor: bytes) -> dict[str, "Chaves
     **inalterados** — porque a K1 é a primeira camada e é AEAD, uma
     etiqueta errada morre ali.
 
+    ## Porquê K5 e K9 não são derivadas
+
+    Porque a K1 é a **primeira** camada. Quem tem a K5 e a K9 e a K1
+    errada falha no Poly1305 da primeira decrypt, e esse custo é uma
+    verificação de etiqueta — não uma descifra completa. Derivar mais
+    camadas custaria uma KDF por tipo sem acrescentar nada que a
+    etiqueta não faça já.
+
+    ## E o texto não é uma linha deste dicionário por acaso
+
     O texto entra com o ``k1`` de longa duração que já tinha, e é por
     isso que o texto continua byte-a-byte igual ao que produzia antes
-    de existir media (``docs/media.md`` §1.2).
+    de existir media (``docs/media.md`` §1.2). Qualquer tipo novo
+    entra pelo mesmo caminho — uma linha nova, derivada, com o mesmo
+    ``k5``/``k9``.
 
     :param chaves_amizade: as seis chaves de :class:`ChavesAmizade`.
     :param publica_emissor: a identidade de quem envia, de 32 bytes.
-    :returns: ``{"texto": Chaves, "audio": Chaves, "video": Chaves}``.
+    :returns: um dicionário com ``texto`` e um por tipo de
+        :data:`TIPOS_DE_CHAVE`.
 
     .. note::
        **Não** há ``nonce1`` nos argumentos, e a sua ausência é o que
@@ -820,9 +929,8 @@ def chaves_por_tipo(chaves_amizade, publica_emissor: bytes) -> dict[str, "Chaves
         publica_emissor,
     )
     return {
-        "texto": Chaves(chaves_amizade.k1, chaves_amizade.k5_proprio, chaves_amizade.k9_proprio),
-        "audio": Chaves(derivadas["audio"], chaves_amizade.k5_proprio, chaves_amizade.k9_proprio),
-        "video": Chaves(derivadas["video"], chaves_amizade.k5_proprio, chaves_amizade.k9_proprio),
+        nome: Chaves(derivadas[nome], chaves_amizade.k5_proprio, chaves_amizade.k9_proprio)
+        for nome in derivadas
     }
 
 
@@ -989,30 +1097,50 @@ def chaves_media(
     k_recetor: bytes,
     publica_emissor: bytes,
 ) -> dict[str, bytes]:
-    """As chaves K1 de media, por nome de tipo.
+    """As chaves K1 de media e de controlo, por nome de tipo.
 
     O texto **não** entra no dicionário: usa a ``k_texto`` de longa
     duração que o sistema já usava, e é por isso que o texto continua
     byte-a-byte igual ao que produzia antes de existir media.
 
+    ## Os tipos que entram
+
+    Todos os de :data:`TIPOS_DE_CHAVE` — os dois de media
+    (``audio``, ``video``) e os dois de controlo (``call``,
+    ``ficheiro``). Os de controlo não têm moldura, mas têm chave: é a
+    chave que garante que só o par abre o envelope de um convite de
+    chamada ou de um ficheiro, e que a rede não o distingue de texto.
+
     Sem ``nonce1``, por causa da razão de
     :func:`messenger.amizade.derivar_k1_por_tipo`.
     """
-    return {
+    derivadas = {
         nome: derivar_k1_por_tipo(k_emissor, k_recetor, publica_emissor, byte_tipo)
-        for nome, (_, byte_tipo) in TIPOS.items()
+        for nome, byte_tipo in TIPOS_DE_CHAVE.items()
     }
+    derivadas["texto"] = k_texto
+    return derivadas
 
 
 def order_de_sondagem() -> tuple[str, ...]:
     """A ordem em que as chaves são testadas, texto incluído.
 
     O texto primeiro porque é o caso comum: uma conversa normal custa
-    **uma** verificação. A ordem é ``pub`` no Rust e exportada aqui pelo
-    mesmo motivo — duas listas divergentes dariam um sistema que abre
-    texto num lado e áudio no outro.
+    **uma** verificação.
+
+    E os tipos de media a seguir, e o `call` e o `ficheiro` no fim,
+    porque são raros e porque a ordem é o que torna o custo da
+    sondagem previsível: uma conversa custa uma verificação, uma
+    chamada custa quatro.
+
+    ## Porque a ordem é exportada do Rust
+
+    Porque duas listas divergentes dariam um sistema que abre texto num
+    lado e áudio no outro — e o sintoma é um erro de descifragem que não
+    menciona tipos. O mesmo nome de ordem nos dois lados é o que impede
+    isso, e o Rust é a fonte.
     """
-    return ("texto", *TIPOS)
+    return ("texto", *TIPOS_DE_CHAVE)
 
 
 def sondar(chaves: dict[str, bytes], tentar) -> tuple[str, bytes]:
@@ -1586,6 +1714,33 @@ class EmissorStreaming:
         #: Os milissegundos que um quadro de vídeo representa.
         self._ms_por_quadro = 1000 // self.FPS
 
+        #: Os milissegundos de **áudio** já enviados.
+        #:
+        #: É o relógio do canal de áudio (§5.3), e é separado do
+        #: `clock_ms` do vídeo porque os dois avançam por taxas
+        #: diferentes — os dois duram o mesmo tempo (§3.4.2) mas nenhum
+        #: deles é a medida do outro.
+        self._ms_audio = 0
+
+        #: Os pacotes de Opus à espera de irem na mesma mensagem.
+        #:
+        #: É a agregação da §8.0, e sem ela a chamada não passa do
+        #: limite de taxa: 50 pacotes de 20 ms por segundo são 500
+        #: mensagens numa janela de 10 s, e o limite de media é 512 —
+        #: com o vídeo a pedir 300 dessas, não havia margem nenhuma.
+        #:
+        #: A `deque` e não uma lista porque a operação do fim é
+        #: ``clear()`` e a lista não a faz em tempo constante; e porque
+        #: o conteúdo nunca é lido pacote a pacote depois de montado —
+        #: o receptor concatena e o `ffmpeg` desmultiplexa.
+        self._audio_a_espera: deque[bytes] = deque()
+
+        #: Os milissegundos que uma mensagem de áudio tem de ter antes
+        #: de sair.
+        #:
+        #: Ver :data:`MS_POR_MOLDURA_AUDIO`.
+        self._ms_por_moldura_audio = MS_POR_MOLDURA_AUDIO
+
     def _moldura(self, tipo_conteudo: str, corpo: bytes, seq: int, clock_ms: int) -> str:
         """O texto de um quadro, pronto a ser cifrado.
 
@@ -1698,19 +1853,83 @@ class EmissorStreaming:
         """
         pacote = self._cliente.media_audio()
         if pacote is None:
+            # A captura acabou com pacotes por mandar. Despeja-os antes
+            # de dizer que acabou, ou os últimos 160 ms de áudio nunca
+            # chegariam ao par — e uma chamada que termina corta a
+            # pessoa a meio de uma frase.
+            #
+            # O fim é o fim: devolve `None` mesmo tendo mandado, porque
+            # `None` é o que faz o `correr` parar, e parar é o que
+            # precisa de acontecer.
+            self._despejar_audio()
             return None
 
-        # O tempo do pacote sai dos próprios bytes: §5.3 diz que o
-        # áudio é o relógio, e o bitrate declarado diz quantos bytes são
-        # quantos milissegundos. Sem isto seria um segundo relógio.
-        ms = self._ms_do_audio(len(pacote))
-        if not self.limitador.registar_audio(ms):
+        # O pacote entra na fila e **só depois** se decide se a mensagem
+        # sai. A fila é o que faz a agregação; sem ela cada pacote de
+        # 20 ms seria uma mensagem, e a chamada não passava do limite
+        # de taxa (ver :data:`PAQUETES_POR_MOLDURA`).
+        self._audio_a_espera.append(pacote)
+
+        # Agrega por **tempo**, e não por número de pacotes: um pacote
+        # de 60 ms conta como três de 20 ms para este fim, e o que
+        # interessa é que a mensagem não cresça sem limite — que é o
+        # que faria o `clock_ms` de saída deixar de dizer quanto áudio
+        # ela leva.
+        ms_acumulada = sum(self._ms_do_audio(len(p)) for p in self._audio_a_espera)
+        if (
+            ms_acumulada < self._ms_por_moldura_audio
+            and len(self._audio_a_espera) < PAQUETES_POR_MOLDURA
+        ):
+            # Ainda não há tempo suficiente. Devolve ``False`` com o
+            # sentido de «espere», que é o que o limitador já devolveria
+            # — e que o chamador trata como espera, não como fim.
             return False
 
-        texto = self._moldura("audio", pacote, self.audios, self.audios * ms)
+        if not self.limitador.registar_audio(ms_acumulada):
+            return False
+
+        # O `clock_ms` é o **tempo acumulado**, e não `self.audios *
+        # ms`. A diferença só aparece quando os pacotes não são todos do
+        # mesmo tamanho — e o `ffmpeg` não garante que sejam: uma
+        # rajada produz um pacote maior, e o Opus tem pacotes de duração
+        # variável. Com o índice, o relógio saltava para o fim da chamada
+        # sem que nada désse conta, que é o «desvio» que §5.3 existe
+        # para detectar.
+        #
+        # E o corpo da mensagem é a concatenação dos pacotes. O Opus é um
+        # formato de fluxo: um receptor concatenado lê uma sequência de
+        # pacotes válidos, que é exactamente o que `ffmpeg -f opus` faz
+        # com um ficheiro. Nenhum cabeçalho, nenhum índice, nenhuma
+        # contagem — e por isso zero bytes de overhead no caminho.
+        corpo = b"".join(self._audio_a_espera)
+        self._audio_a_espera.clear()
+
+        texto = self._moldura("audio", corpo, self.audios, self._ms_audio)
+        self._ms_audio += ms_acumulada
         self._cifrar_e_enviar(texto, "audio")
         self.audios += 1
         return True
+
+    def _despejar_audio(self) -> None:
+        """Manda o que ficou na fila, sem esperar pelo tempo que falta.
+
+        Só é chamado quando a captura acabou. Numa chamada normal a fila
+        esvazia em :data:`MS_POR_MOLDURA_AUDIO` e isto não tem o que
+        fazer; o caso em que importa é o `ffmpeg` a morrer com pacotes
+        por enviar, e aí a escolha entre «mandar o que resta» e «deixar
+        os últimos 160 ms no memória» não tem resposta defensável.
+        """
+        if not self._audio_a_espera:
+            return
+
+        ms_acumulada = sum(self._ms_do_audio(len(p)) for p in self._audio_a_espera)
+        corpo = b"".join(self._audio_a_espera)
+        self._audio_a_espera.clear()
+
+        texto = self._moldura("audio", corpo, self.audios, self._ms_audio)
+        self._ms_audio += ms_acumulada
+        self._cifrar_e_enviar(texto, "audio")
+        self.audios += 1
 
     def _ms_do_audio(self, bytes_: int) -> int:
         """Quantos milissegundos são ``bytes_`` de Opus a `-b:a`.
@@ -1725,7 +1944,11 @@ class EmissorStreaming:
         «desvio de relógio» que §5.3 existe para evitar.
         """
         bytes_por_ms = max(1, (self.AUDIO_KBPS * 1000) // 8000)
-        return max(1, round(bytes_ / bytes_por_ms))
+        # `ceil` e não `round`: um pacote que dá 19,6 ms são 20 ms de
+        # áudio, e arredondar para baixo faria o relógio perder tempo ao
+        # longo de uma chamada. Perder tempo é pior do que ganhar:
+        # `round` daria 20 a partir de 19,6, mas `floor` daria 19.
+        return max(1, -(-bytes_ // bytes_por_ms))
 
     def correr(self, maximo_quadros: int = 0) -> int:
         """Corre até a chamada acabar, ou até um número de quadros.

@@ -1693,7 +1693,8 @@ como o texto, e o que o torna vídeo é estar comprimido.
 | `media_ler()` | `ipc_client.py` | feito |
 | `EmissorStreaming` | `media.py` | feito, 3 testes |
 | `ReceptorStreaming` | `media.py` | feito, 4 testes |
-| `ChamadaRede` (o laço) | `media.py` | feito, 4 testes |
+| `ChamadaRede` (quem ouve) | `media.py` | feito, 4 testes |
+| `EmissorChamadaRede` (quem fala) | `media.py` | feito, 3 testes |
 | `MEDIA_AUDIO` + `media_audio()` | `ipc.rs`, `ipc_client.py` | feito |
 | `LimitadorAudio` (a §8.0) | `media.py` | feito, 6 testes |
 | `um_audio()` / `um_audio_distinto()` | `media.py` | feito |
@@ -1781,19 +1782,69 @@ uma falha, e engoli-la seria tentar as três chaves com o daemon
 avariado.
 
 
-* **O `clock_ms` do áudio na rede.** O pacote de Opus **é** o relógio
-  (§5.3) e a rota não lhe carimba nada — mas o receptor precisa de
-  alguma coisa com que ordenar o áudio no tempo, e hoje só o vídeo
-  tem. Sem isso, o áudio sabe quando chegou e não sabe a que instante
-  do vídeo pertence.
-* **O `AudioContext` dentro de um gesto.** Resolvido no `Chamada.jsx`:
-  o botão «Ligar chamada» é o gesto, e o áudio é acordado **antes** da
-  captura — se o browser recusar, nenhum `ffmpeg` é lançado, porque um
-  `ffmpeg` a ler o ecrã sem ninguém a ouvir é pior do que nenhum.
-* **Ligar a chamada a uma amizade.** O `ChamadaRede` é o laço de
-  **quem ouve**: recebe um `Frame`, separa, e devolve o que é
-  vídeo. Falta o simétrico de quem **emite** — o objecto que
-  decide, quando um `ENVIAR` é uma chamada e quando é conversa.
+### 10.3.3 A chamada, de ponta a ponta
+
+Os dois lados estão escritos, testados e **ligados um ao outro**:
+
+| | quem ouve | quem fala |
+| --- | --- | --- |
+| objecto | `ChamadaRede` | `EmissorChamadaRede` |
+| laços | um (`RECEBER`) | **dois** (`MEDIA_LER` e `MEDIA_AUDIO`) |
+| o que faz | separa e devolve o vídeo | cifra e envia os dois |
+
+E dois laços em quem fala porque o `MEDIA_LER` bloqueia a 30 fps e o
+`MEDIA_AUDIO` a 50 pacotes por segundo: um laço que esperasse pelos dois
+bloquearia no vídeo e **nunca leria áudio** — e o sintoma é uma
+chamada muda com o áudio intacto.
+
+E é o vídeo que trava primeiro, porque é o que tem de ser pontual; o
+áudio sobra sempre na fila do `ffmpeg` e o limitador da §8.0 trata-a.
+
+E há um teste que fecha a chamada de uma vez:
+
+```text
+EmissorStreaming ──► ligação ──► ChamadaRede ──► ReceptorStreaming
+      │                                              │
+      ├─ VP8, 1 quadro, seq=0, 400 bytes              └─ o mesmo
+      └─ Opus, 2 pacotes                                 os mesmos
+```
+
+E o que esse teste prova é o **caminho**, não a rede: que o que sai do
+emissor é o que o receptor separa. Não há Tor, não há `ffmpeg` e não há
+ecrã — e um teste que dependesse de qualquer um deles falharia em
+qualquer máquina sem ecrã.
+
+### 10.3.4 O que ainda falta
+
+#### 10.3.4.1 O `clock_ms` do áudio
+
+O pacote de Opus **é** o relógio (§5.3): 80 bytes a 32 kbit/s são 20 ms,
+e o receptor sabe o tempo sem lhe dizerem. E mesmo assim o `clock_ms`
+**viaja**, e a §5.4 dá a razão — é a verificação cruzada que apanha
+perda, adulteração e um `bytes_por_ms` declarado a enganar.
+
+A correção que isto custou é a que está escrita abaixo, e vale mais
+que o número:
+
+```python
+# ERRADO: o índice, não o tempo
+clock_ms = self.audios * ms
+
+# CERTO: o tempo acumulado
+clock_ms = self._ms_audio
+self._ms_audio += ms
+```
+
+A diferença só aparece quando **os pacotes não têm todos o mesmo
+tamanho**, e eles não têm: uma rajada produz um pacote maior, e o Opus
+tem pacotes de duração variável. Com o índice, o relógio saltava para
+o fim da chamada sem que nada désse conta — que é exactamente o
+«desvio de relógio» que a §5.4 existe para detectar, e que o próprio
+módulo estava a producir.
+
+E o `ceil` na conta dos milissegundos, porque um pacote que dá 19,6 ms
+**são 20 ms de áudio**: arredondar para baixo faz o relógio perder tempo
+ao longo de uma chamada, e perder tempo é pior do que ganhar.
 
 O que **não** está decidido e é proibido descrever como decidido:
 

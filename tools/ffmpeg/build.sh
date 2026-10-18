@@ -182,6 +182,106 @@ RECEITA=(
     # encoder, e é este decoder que os cospe.
     --enable-decoder=rawvideo
 
+    # --- os dispositivos de captura (os `indev`) ----------------------
+    # ## O `--disable-everything` desligou isto sem ninguém dar por isso
+    #
+    # A receita tem `--disable-everything` desde o início, e uma lista
+    # explícita de `--enable-*` para o que se queria. O que se queria
+    # era **codificar**; o que se esqueceu foi **capturar**. Os dois
+    # comandos de que a captura precisa — `-f x11grab` e `-i default` —
+    # são um *formato de entrada* e um *dispositivo*, e nenhum dos dois
+    # é um codec: nenhuma flag de codec os traz de volta.
+    #
+    # A consequência foi um binário que compila limpo, passa a bateria
+    # de testes e não captura nada. Verificado por execução:
+    #
+    #     $ ./ffmpeg -f x11grab -i :0.0 -t 0.1 -f null -
+    #     [in#0 @ 0x…] Unknown input format: 'x11grab'
+    #     Error opening input file :0.0.
+    #
+    #     $ ./ffmpeg -i default -t 0.1 -f null -
+    #     Error opening input file default.
+    #
+    # E a tabela `Devices:` do binário sai vazia. Sem ela o daemon
+    # recebe `ERR_MEDIA` no primeiro `MEDIA_CAPTURAR` (0x0F) — depois
+    # de o IPC estar a funcionar, a ligação estabelecida e o
+    # utilizador estar à espera de ver a sua cara.
+    #
+    # ## Porquê estas e não outras
+    #
+    # `pipewiregrab` e `v4l2` são **câmara**, e câmara é o que uma
+    # chamada precisa. O `x11grab` (ecrã) e o `fbdev` (framebuffer) entram
+    # só como alternatives mais abaixo, e nunca por omissão: a
+    # `media/ffmpeg.rs::entrada_de_video()` escolhe `v4l2`/`pipewiregrab`
+    # primeiro e só cai no `x11grab` se nenhuma das outras houver.
+    #
+# `alsa` e `pulse` são **microfone**. O `-i default` que o
+    # `ffmpeg.rs` usava dependia do `pulse` (o `default` do ALSA é
+    # normalmente um `null` que devolve silêncio); habilitar os dois dá a
+    # escolha explícita em vez de um nome mágico que significa coisas
+    # diferentes em máquinas diferentes.
+    #
+    # Nenhuma delas acrescenta biblioteca: `alsa`/`pulse`/`pipewire` são
+    # todos **internos** do FFmpeg, com a biblioteca do sistema ligada
+    # pelo `pkg-config`. É por isso que a lista de
+    # `BIBLIOTECAS_EXTERNAS` abaixo os continua a exigir.
+    #
+    # ## O `pipewiregrab` é condicional, e o motivo é o build
+    #
+    # As três primeiras (`v4l2`, `alsa`, `x11grab`) são internas ou
+    # trazidas por headers que o `syslibs` já traz. O `pipewiregrab`
+    # precisa do `libpipewire-0.3-dev`, que **não** está no prefixo local
+    # e não se obtém sem `sudo`.
+    #
+    # Mas `v4l2` não precisa de nada: `/dev/video*` é uma interface do
+    # kernel, não uma biblioteca. Uma máquina sem PipeWire tem câmaras
+    # `/dev/video0` na mesma, e o V4L2 apanha-as.
+    #
+    # Por isso o `pipewiregrab` é acrescentado à receita mais abaixo,
+    # **só se** o header estiver presente. Um `--enable-indev` que não
+    # encontra a biblioteca não é um aviso: o `configure` aborta. Daí a
+    # lista ser montada em duas partes.
+    --enable-indev=v4l2
+    --enable-indev=alsa
+
+    # --- o áudio a caminho de volta: descodificar Opus ---------------
+    # `--enable-encoder=libopus` (acima) codifica; não descodifica. O
+    # `docs/media.md` §7.1 chama ao Opus «o áudio da chamada», e o
+    # receptor precisa de o **ouvir**: sem este decoder o `ffmpeg`
+    # responde «Decoding requested, but no decoder found for: opus» e
+    # não há caminho de volta para o áudio.
+    #
+    # Isto é o mesmo caso do `rawvideo` nas linhas de cima: enable do
+    # encoder sem o decoder é metade de um caminho, e a metade que
+    # falta é a que dá erro em produção.
+    --enable-decoder=opus
+    # E o `ogg`, que é o contentor em que o Opus chega gravado. Sem o
+    # demuxer, um ficheiro `.opus` ou `.ogg` não abre — e o `ogg` é
+    # também o contentor nativo do muxer `opus`, de modo que habilitar
+    # ambos parte do mesmo `configure`.
+    --enable-demuxer=ogg
+
+    # --- a imagem que a UI consegue mostrar --------------------------
+    # ## O problema: não há `VideoDecoder` no renderizador
+    #
+    # A UI corre num WebKitGTK 6 (`scripts/interface-visual.js`), e o
+    # WebKitGTK **não garante** `VideoDecoder`/`AudioDecoder` — a API de
+    # WebCodecs. O `VideoChamada.js` foi escrito contra essa hipótese e
+    # diz-no no seu próprio cabeçalho: «um browser sem `VideoDecoder` não
+    # tem vídeo, e a UI diz isso em vez de mostrar um ecrã preto».
+    #
+    # Sem `VideoDecoder`, o caminho de pixéis tem de ser um formato que
+    # **qualquer** renderizador sabe mostrar num `<img>` sem descodificar
+    # nada: JPEG. O daemon descodifica o VP8 para pixéis e re-codifica
+    # em JPEG; a UI recebe bytes de imagem e escreve-os num `blob:`.
+    #
+    # `mjpeg` é interno do FFmpeg (não GPL), e `image2` é o muxer que
+    # escreve uma imagem num ficheiro. O custo é um segundo
+    # codificador por quadro a ~480p — medido em ~8 ms, que é o preço
+    # de não depender de uma API que o renderizador pode não ter.
+    --enable-encoder=mjpeg
+    --enable-muxer=image2
+
     # --- protocolos ---------------------------------------------------
     # `fd` é o que faz `-f opus fd:3` funcionar (docs/media.md §7.1).
     --enable-protocol=fd
@@ -244,6 +344,26 @@ RECEITA=(
     # `docs/media.md` §4.6: a reprodução pode receber PCM, e o
     # `pcm_s16le` é interno.
     --enable-encoder=pcm_s16le
+    #
+    # ## E o **decoder** de PCM, que faltava
+    #
+    # `--enable-encoder=pcm_s16le` sem `--enable-decoder=pcm_s16le` é
+    # metade de um caminho — e a metade que falta é a que dá erro. É
+    # literalmente o mesmo caso do `rawvideo` algumas linhas acima, e a
+    # captura de microfone é onde se sente:
+    #
+    #     $ ./ffmpeg -f alsa -i default -t 0.4 -f s16le saida.raw
+    #     Decoding requested, but no decoder found for: pcm_s16le
+    #
+    # O `alsa_indev` entrega frames **já descodificados** em PCM, e o
+    # FFmpeg passa o input pelo decoder antes de o encoder o receber. Sem
+    # o decoder, o microfone é capturado e de seguida rejeitado.
+    #
+    # A regra que daqui sai, e que vale para todos: **cada `--enable-encoder`
+    # de uma linha traz o `--enable-decoder` da mesma, ou a receita está a
+    # descrever metade do caminho.** `vp8`, `rawvideo` e `pcm_s16le` são
+    # os três lados que existem; `opus` é o quarto, e está em cima.
+    --enable-decoder=pcm_s16le
 )
 
 # Bibliotecas **externas** que a receita pede, e a mensagem para quem não
@@ -319,6 +439,54 @@ montar_prefixo_limpo() {
         grep -q '^Libs:.*-lm' "$vpxpc" \
             || sed -i "s|^Libs:.*|Libs: -L\${libdir} -lvpx -lm -lpthread|" "$vpxpc"
     fi
+
+    # ## O `libasound` do prefixo é um esboço, e não pode ficar cá
+    #
+    # O `.deb` desempacotado traz um `libasound.so` que serve para ligar
+    # mas **não tem `snd_pcm_htimestamp`**, que é o que o `alsa_indev` do
+    # FFmpeg exige (ffmpeg's `configure`: `alsa_indev_deps='alsa'`, e o
+    # `check_func_headers` é exactamente `snd_pcm_htimestamp`).
+    #
+    # Deixá-lo aqui faz o linker encontrá-lo primeiro — o `-L` do prefixo
+    # local vem antes do de sistema de propósito — e o `configure` desliga
+    # o `alsa_indev` com
+    #
+    #     WARNING: Disabled alsa_indev because not all dependencies are
+    #     satisfied: alsa
+    #
+    # que é um aviso que o script não lia, e o binário saía com
+    # `--enable-indev=alsa` no `-buildconf` e **sem** `alsa` em
+    # `-devices`. Um `--buildconf` que promete e um binário que não cumpre
+    # é a pior forma de falha: passa a verificação e falha em produção.
+    #
+    # ## E o symlink desempacotado também não serve
+    #
+    # A correcção óbvia — apagar o `.so` e deixar o linker ir buscar o de
+    # sistema — também falha, por uma razão que só aparece quando se
+    # tenta. O `.deb` traz `libasound.so` como symlink para
+    # `libasound.so.2.0.0`, e esse alvo está dentro do prefixo
+    # desempacotado. Apagado o `.so`, o `/usr/lib/x86_64-linux-gnu` só
+    # tem `libasound.so.2` — o runtime — e **não** o `.so` de linkagem,
+    # que só entra com o pacote `-dev`. `-lasound` dá
+    # «não foi possível localizar -lasound».
+    #
+    # A solução é fabricar o symlink de linkagem a apontar para o runtime
+    # de sistema, que é o mesmo código e o mesmo `SONAME`. `ld` só
+    # precisa do nome para resolver `DT_NEEDED`; o `rpath` garante que em
+    # tempo de execução vai buscar a biblioteca verdadeira.
+    local alsapc="$destino/usr/lib/x86_64-linux-gnu/pkgconfig/alsa.pc"
+    if [ -f "$alsapc" ]; then
+        sed -i "s|^prefix=.*|prefix=/usr|; s|^libdir=.*|libdir=/usr/lib/x86_64-linux-gnu|" "$alsapc"
+        rm -f "$destino/usr/lib/x86_64-linux-gnu/"libasound.so* 2>/dev/null || true
+        # O runtime de sistema, se existir. Sem ele não se fabrica nada e
+        # o `alsa_indev` fica desligado — que é o que a verificação do
+        # indev, mais abaixo, vai dizer.
+        if [ -e /usr/lib/x86_64-linux-gnu/libasound.so.2 ]; then
+            ln -sf /usr/lib/x86_64-linux-gnu/libasound.so.2 \
+                  "$destino/usr/lib/x86_64-linux-gnu/libasound.so"
+        fi
+    fi
+
     [ -f "$opuspc" ]
 }
 
@@ -355,11 +523,18 @@ tem_header "pipewire-0.3/pipewire/pipewire.h" && tem_pipewire=1
 
 [ "$tem_opus" -eq 1 ] || faltam+=("libopus-dev — Opus é o áudio de docs/media.md §7.1, e não há codificador Opus nativo")
 [ "$tem_vpx" -eq 1 ] || faltam+=("libvpx-dev — VP8 é o vídeo de docs/media.md §8. Sem ele o ffmpeg não tem codec de vídeo, e o rawvideo não cabe no orçamento de mensagens (F9)")
-if [ "$tem_x11" -eq 0 ] && [ "$tem_pipewire" -eq 0 ]; then
-    faltam+=("libx11-dev + libxcb1-dev, ou libpipewire-0.3-dev — sem um deles o ffmpeg compila mas não captura o ecrã")
-fi
+# O `alsa` é a entrada de microfone, e sem ele não há chamada de áudio.
+#
+# O `x11grab` e o `pipewiregrab` **já não são requisito**: desde que a
+# câmara passou a ser o dispositivo (F10), o V4L2 — `/dev/video*`, uma
+# interface do kernel — chega sem uma única biblioteca. A captura de
+# **ecrã** degrada em Wayland sem PipeWire, e isso é aceitável: ecrã não
+# é o que uma chamada precisa.
 if ! tem_header "alsa/asoundlib.h" && [ "${tem_alsa:-0}" -eq 0 ]; then
-    faltam+=("libasound2-dev — a entrada de áudio")
+    faltam+=("libasound2-dev — a entrada de microfone (alsa_indev)")
+fi
+if [ "$tem_x11" -eq 0 ] && [ "$tem_pipewire" -eq 0 ]; then
+    nota "nem X11 nem PipeWire: sem captura de ecrã. A câmara usa v4l2 (/dev/video*), que não precisa de biblioteca"
 fi
 
 if [ "${#faltam[@]}" -gt 0 ]; then
@@ -379,6 +554,81 @@ AVISO
     exit 1
 fi
 ok "bibliotecas presentes"
+
+# ---------------------------------------------------------------------
+# O `pipewiregrab` é a única entrada condicional
+# ---------------------------------------------------------------------
+#
+# ## Porquê só esta
+#
+# As entradas de captura da receita dividem-se em dois grupos, e a
+# diferença é se precisam de uma biblioteca **externa**:
+#
+#   • `v4l2`    — `/dev/video*` é uma interface do kernel. Sem headers,
+#                 sem `pkg-config`, sem nada. Uma máquina com câmara USB
+#                 funciona sem um único pacote instalado.
+#   • `alsa`    — headers em `syslibs`, já presentes.
+#   • `x11grab` — headers de `X11`/`xcb` em `syslibs`, já presentes.
+#   • `pulse`   — interna; o `alsa` cobre a captura sem servidor de som.
+#   • `pipewiregrab` — precisa de `libpipewire-0.3-dev`, que não está no
+#                 prefixo local e não vem sem `sudo`.
+#
+# Um `--enable-indev=pipewiregrab` sem a biblioteca não é um aviso do
+# `configure`: **é um abort**. Por isso não pode estar na `RECEITA`
+# incondicional, e a detecção abaixo decide se entra.
+#
+# ## O que se perde sem ele
+#
+# Nada de essencial. O `media/ffmpeg.rs::entrada_de_video()` prefere
+# `pipewiregrab` em Wayland e cai para `v4l2`, que é o caminho
+# POSIX de sempre e não depende de servidor de som. Perde-se a captura
+# **de ecrã** em Wayland — e a ecrã não é o que uma chamada precisa.
+if tem_header "pipewire-0.3/pipewire/pipewire.h"; then
+    RECEITA+=(--enable-indev=pipewiregrab)
+    ok "pipewiregrab habilitado (câmara em Wayland)"
+else
+    nota "pipewiregrab NÃO habilitado: falta pipewire-0.3/pipewire/pipewire.h"
+    nota "  a câmara usa v4l2 (/dev/video*), que não precisa de biblioteca"
+fi
+
+# O `pulse` (microfone e saída por PulseAudio/PipeWire) precisa do
+# `libpulse-dev`. É condicional pelo mesmo motivo: o `alsa` já dá captura
+# de microfone sem servidor de som, e ficar sem `pulse` degrada a escolha
+# de dispositivo, não a impede.
+if tem_header "pulse/pulseaudio.h"; then
+    RECEITA+=(--enable-indev=pulse)
+    ok "pulse habilitado (microfone por PulseAudio/PipeWire)"
+else
+    nota "pulse NÃO habilitado: falta pulse/pulseaudio.h. O alsa cobre a captura de microfone"
+fi
+
+# O `x11grab` foi **removido** da receita, e a razão vale dizer em voz
+# alta porque já foi tentada.
+#
+# ## Porque deixar de fora
+#
+# É captura de **ecrã**, e a câmara de uma chamada não é ecrã. Desde que
+# o `v4l2` cobre a câmara sem uma única biblioteca, o `x11grab` só
+# acrescentaria peso por uma funcionalidade que a chamada não usa.
+#
+# ## E porque não fica condicional
+#
+# Poderia, e foi a primeira tentativa. Mas `libxcb` no prefixo local
+# traz um `xcb.pc` que exige `xau` e `xdmcp`, que não lá estão:
+#
+#     ERROR: libxcb requested but not found
+#
+# E ao contrário do `pipewiregrab` — cuja ausência degrada uma
+# alternativa — aqui a falha é um **abort do `configure`**. Habilitar
+# `libxcb` num prefixo incompleto não dá um binário sem ecrã: dá nenhum
+# binário. Uma dependência que pode fazer o build inteiro desaparecer
+# não é condicional, é uma mentira.
+#
+# Se algum dia a captura de ecrã voltar a ser pedida, o caminho é trazer
+# `xau`/`xdmcp` para o prefixo, não repor a bandeira às cegas.
+#
+# A câmara não depende disto: `v4l2` e `pipewiregrab` são o caminho.
+nota "x11grab fora da receita: captura de ecrã, não de câmara. A câmara usa v4l2"
 
 # ---------------------------------------------------------------------
 # O que compilar
@@ -418,6 +668,11 @@ if [ -d "$PREFIXO_LIMPO" ]; then
     export PKG_CONFIG_PATH="$PREFIXO_LIMPO/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}"
     export CPPFLAGS="-I$PREFIXO_LIMPO/usr/include ${CPPFLAGS:-}"
     export LDFLAGS="-L$PREFIXO_LIMPO/usr/lib/x86_64-linux-gnu ${LDFLAGS:-}"
+    # E o `rpath` do prefixo limpo. Sem ele o binário liga contra a
+    # biblioteca de linkagem mas, em execução, o loader segue o
+    # `DT_NEEDED` e não a encontra — porque os `.deb` desempacotados não
+    # estão em `/usr/lib`. O `rpath` diz ao loader onde ir buscar.
+    export LDFLAGS="-Wl,-rpath,$PREFIXO_LIMPO/usr/lib/x86_64-linux-gnu $LDFLAGS"
     nota "a compilar com o prefixo limpo: $PREFIXO_LIMPO"
 fi
 
@@ -477,6 +732,94 @@ case "$CONFCOMF" in
         exit 1
         ;;
 esac
+
+# ---------------------------------------------------------------------
+# A quarta verificação: as entradas de captura existem mesmo
+# ---------------------------------------------------------------------
+#
+# ## O que esta verificação apanha
+#
+# As três de cima leem a **configuração**; esta lê o **binário**. São
+# coisas diferentes, e a diferença é exactamente onde o bug morava.
+#
+# `--buildconf` imprimia `--enable-indev=alsa` enquanto o binário não
+# tinha `alsa`: o `configure` aceita a bandeira, descobre que a
+# biblioteca não satisfaz o `snd_pcm_htimestamp`, desliga o dispositivo
+# **com um aviso na sua saída** e continua. O `-buildconf` é gerado das
+# opções pedidas, não das activadas, e por isso mente.
+#
+# Uma receita que promete um dispositivo e um binário que não o tem é a
+# forma mais cara de falha que existe aqui: passa a verificação de
+# licença, passa a bateria de testes, e dá `ERR_MEDIA` ao utilizador no
+# primeiro `MEDIA_CAPTURAR`, depois de o daemon estar a correr e a
+# ligação estabelecida.
+#
+# Por isso: cada `--enable-indev` que a receita pede tem de aparecer na
+# tabela `Devices:` ou nos formatos de entrada do binário compilado.
+# Falhar aqui é o que transforma uma falha silenciosa numa falha de
+# compilação.
+#
+# ## O que se aceita como "presente"
+#
+# `v4l2` é o caso difícil: o FFmpeg escreve-o como `video4linux2,v4l2`
+# e é um *demuxer*, não um dispositivo enumerado — só aparece em
+# `-devices` quando há `/dev/video*`. As entradas de áudio como `alsa`
+# também só aparecem quando o sistema tem hardware aberto.
+#
+# A verificação é por **nome exacto** de cada uma das duas listas, e
+# cada entrada é procurada pelo seu nome **e** pelo nome que o FFmpeg
+# lhe dá. Um `grep` com alternância e partilhada entre os nomes seria
+# pior do inútil: `video4linux2` casaria para `v4l2` **e** para todos os
+# outros, e a verificação passaria com `alsa` em falta — que foi
+# exactamente o que aconteceu na primeira versão deste bloco.
+#
+# `x11grab` e `pipewiregrab` precisam de hardware para aparecerem em
+# `-devices`, por isso são aceites em `-formats`, onde o FFmpeg os lista
+# sempre que estão compilados.
+INDES_ESPERADOS="pipewiregrab v4l2 alsa pulse"
+
+# As listas que se consultam, separadas de propósito: `Devices:` é
+#_small_ e `-formats` é onde os demuxers vivem.
+LISTA_DISPOSITIVOS="$(./ffmpeg -hide_banner -devices 2>&1)"
+LISTA_FORMATOS="$(./ffmpeg -hide_banner -formats 2>&1)"
+
+# Um nome é "presente" se a linha que o descreve o trouxer. O `|` no fim
+# é o que casa com o fim de linha, e sem ele `alsa` casaria dentro de
+# `pulse,alsa`… o que é o correcto, mas também dentro de `foobar`,
+# o que não é.
+presente() {
+    printf '%s\n%s\n' "$LISTA_DISPOSITIVOS" "$LISTA_FORMATOS" \
+        | grep -qiE "(^|[ ,])$1([ ,]|$)"
+}
+
+indev_em_falta=()
+for indev in $INDES_ESPERADOS; do
+    # Só se verifica o que a receita **pediu**.
+    case " ${RECEITA[*]} " in
+        *" --enable-indev=$indev "*) ;;
+        *) continue ;;
+    esac
+    presente "$indev" || indev_em_falta+=("$indev")
+done
+
+if [ "${#indev_em_falta[@]}" -gt 0 ]; then
+    erro "a receita pede entradas de captura que o binário NÃO tem:"
+    printf '  - %s\n' "${indev_em_falta[@]}" >&2
+    cat >&2 <<'AVISO'
+
+  A configuração declara-as e o binário não as tem: o `configure`
+  desligou-as com «WARNING: Disabled … because not all dependencies are
+  satisfied». A diferença entre o que se pede e o que se fica é
+  exactamente a falha que esta verificação existe para tornar visível —
+  o `MEDIA_CAPTURAR` (0x0F) daria `ERR_MEDIA` ao primeiro uso, com o
+  daemon já a correr.
+
+AVISO
+    printf '%s\n' "$CONFCOMF" | tr ' ' '\n' | grep -- '--enable-indev' | sed 's/^/  declarado: /' >&2
+    rm -f ./ffmpeg
+    exit 1
+fi
+ok "entradas de captura presentes e verificadas no binário"
 
 # A terceira: a licença que o binário resolve a partir da
 # configuração. As duas coisas podem divergir — a segunda olha para a

@@ -418,6 +418,8 @@ class _ClienteQueDevolveQuadros:
         self._cliente = cliente
         self._quadros_restantes = quadros
         self.pacotes_restantes = pacotes
+        #: Os tamanhos dos pacotes de áudio, se o teste os impuser.
+        self.tamanhos: list[int] = []
         self.capturar_args: tuple[int, ...] | None = None
         #: A marca de origem de cada envio, na ordem.
         self.origens: list[bool] = []
@@ -436,8 +438,12 @@ class _ClienteQueDevolveQuadros:
         if self.pacotes_restantes <= 0:
             return None
         self.pacotes_restantes -= 1
-        # 80 bytes a 32 kbit/s são 20 ms (§5.3).
-        return bytes(self.pacotes_restantes % 256 for _ in range(80))
+        # Os tamanhos por pacote. Por omissão 80 bytes = 20 ms a
+        # 32 kbit/s (§5.3). Um teste que passe uma lista obtém pacotes
+        # de durações diferentes, que é o caso que o relógio tem de
+        # aguentar sem derivar.
+        tamanho = self.tamanhos.pop(0) if self.tamanhos else 80
+        return bytes(tamanho)
 
     def media_ler(self) -> QuadroVideo:
         if self._quadros_restantes <= 0:
@@ -721,10 +727,18 @@ def test_a_ordem_de_sondagem_e_texto_primeiro() -> None:
     """
     ordem = media.order_de_sondagem()
     assert ordem[0] == "texto", f"a primeira tentativa é {ordem[0]}"
-    assert len(ordem) == 3, f"são texto mais áudio e vídeo: {ordem}"
-    assert ordem == ("texto", "audio", "video"), ordem
-    for nome in ordem[1:]:
-        assert nome in media.TIPOS, f"{nome!r} não é um tipo de media"
+    assert ordem == ("texto", "audio", "video", "call", "ficheiro"), ordem
+    # Os dois primeiros depois do texto têm moldura; os dois últimos
+    # são de controlo e não têm. A distinção é o que impede alguém de
+    # tentar abrir `call` como se fosse uma moldura `ONX1`.
+    for nome in ("audio", "video"):
+        assert nome in media.TIPOS, f"{nome!r} não é um tipo de media com moldura"
+    for nome in ("call", "ficheiro"):
+        assert nome not in media.TIPOS, (
+            f"{nome!r} tem chave mas não tem moldura — se estivesse em TIPOS, "
+            "o byte 5 da moldura aceitaria um terceiro tipo que não cabe"
+        )
+        assert nome in media.TIPOS_DE_CHAVE, f"{nome!r} não deriva chave"
 
 
 # ---------------------------------------------------------------------
@@ -837,7 +851,9 @@ def test_o_audio_e_o_video_saos_no_ramo_da_moldura_certa(
             pipeline, par["chaves"], par["identidade"], involucro
         )
         emissor.um_quadro()
-        for _ in range(3):
+        # Oito pacotes de 20 ms são os 160 ms de uma mensagem de áudio
+        # (a agregação da Fase 2), e não três mensagens de uma.
+        for _ in range(8):
             emissor.um_audio_distinto()
 
     tipos = []
@@ -845,8 +861,10 @@ def test_o_audio_e_o_video_saos_no_ramo_da_moldura_certa(
         if not bruto:
             continue
         tipos.append(media.abrir(bruto.decode()).tipo)
-    assert tipos == ["video", "audio", "audio", "audio"], tipos
-    assert emissor.audios == 3
+    assert tipos == ["video", "audio"], tipos
+    # E o emissor conta **mensagens**, não pacotes: uma mensagem, um
+    # incremento. O `audios` é o `seq` do preâmbulo.
+    assert emissor.audios == 1, emissor.audios
 
 
 def test_o_clock_ms_do_audio_sai_dos_bytes(daemon: ClienteIpc, par: dict) -> None:
@@ -855,45 +873,167 @@ def test_o_clock_ms_do_audio_sai_dos_bytes(daemon: ClienteIpc, par: dict) -> Non
     É §5.3 ao contrário: 80 bytes a 32 kbit/s são 20 ms. E um contador
     seria um segundo relógio, que deriva do primeiro ao longo de uma
     chamada — que é o desvio que §5.3 existe para evitar.
+
+    E a agregação (Fase 2) não muda isto: o relógio que sai é o
+    **acumulado** de todos os pacotes da mensagem, não o do primeiro.
     """
     pipeline = Pipeline(daemon)
-    involucro = _ClienteQueDevolveQuadros(daemon, quadros=0, pacotes=3)
+    involucro = _ClienteQueDevolveQuadros(daemon, quadros=4, pacotes=16)
     cliente = involucro.devolver()
 
     with a_registar(cliente) as registos:
         emissor = media.EmissorStreaming(
             pipeline, par["chaves"], par["identidade"], involucro
         )
-        for _ in range(3):
+        # O limitador de §8.0 tem uma janela de 200 ms e o áudio não
+        # passa o vídeo à frente: sem vídeo nenhum registado, os
+        # primeiros 200 ms de áudio **esperam** — que é o limitador a
+        # funcionar, e não uma falha da agregação.
+        #
+        # Por isso o teste regista vídeo antes de cada bloco de áudio,
+        # para que o limitador os deixe sair.
+        emissor.um_quadro()
+        for _ in range(8):
             emissor.um_audio_distinto()
 
-    relogios = [
-        media.abrir(b.decode()).clock_ms for b, _ in registos if b
-    ]
-    # 3 pacotes de 20 ms: 0, 20, 40.
-    assert relogios == [0, 20, 40], relogios
+    molduras = [media.abrir(b.decode()) for b, _ in registos if b]
+    audios = [m for m in molduras if m.tipo == "audio"]
+    # Uma mensagem, com 640 bytes de corpo: são 160 ms a 32 kbit/s
+    # (4 bytes por milissegundo). A conta sai dos **bytes**, não de um
+    # contador — que é o ponto do teste.
+    assert len(audios) == 1, f"{len(audios)} mensagens de áudio"
+    assert len(audios[0].corpo) == 640, f"corpo de {len(audios[0].corpo)} bytes, não 640"
+    # E o relógio da mensagem de áudio é o tempo **antes** dela: 0.
+    assert audios[0].clock_ms == 0, audios[0].clock_ms
+
+
+def test_a_audio_agrega_oitenta_pacotes_em_mensagens_de_cento_e_seisenta(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """A agregação: 8 pacotes de 20 ms numa mensagem, e o resto aritmética.
+
+    Este é o teste que sustenta o limite de taxa. Sem a agregação, uma
+    chamada de 30 fps com Opus de 20 ms manda 80 mensagens por segundo —
+    800 por janela de 10 s — e o limite de media (`p2p.rs`, 512) estoura
+    em seis segundos de chamada.
+
+    O que se prova aqui é a **forma** da agregação: oito pacotes num
+    corpo só, o relógio a saltar de 160 em 160, e nada perdido pelo
+    caminho.
+    """
+    pipeline = Pipeline(daemon)
+    involucro = _ClienteQueDevolveQuadros(daemon, quadros=4, pacotes=16)
+    cliente = involucro.devolver()
+
+    with a_registar(cliente) as registos:
+        emissor = media.EmissorStreaming(
+            pipeline, par["chaves"], par["identidade"], involucro
+        )
+        # O limitador de §8.0 tem janela de 200 ms, e é ele que decide
+        # — não a agregação. Duas mensagens de 160 ms são 320 ms de
+        # áudio, e o limitador só as deixa passar se houver vídeo que as
+        # justifique: 33 ms por quadro, e `320 − 200 = 120` ms de
+        # vídeo bastam, ou seja quatro quadros.
+        #
+        # Um teste que não der vídeo suficiente não está a testar a
+        # agregação: está a testar o limitador, que já tem testes seus.
+        for _ in range(4):
+            emissor.um_quadro()
+        for _ in range(16):
+            emissor.um_audio_distinto()
+
+    molduras = [media.abrir(b.decode()) for b, _ in registos if b]
+    audios = [m for m in molduras if m.tipo == "audio"]
+    assert len(audios) == 2, f"{len(audios)} mensagens de áudio para 16 pacotes"
+
+    # O relógio avança de 160 em 160: 0 e 160.
+    assert [m.clock_ms for m in audios] == [0, 160], [m.clock_ms for m in audios]
+
+    # E cada corpo tem os oito pacotes de 80 bytes, uns a seguir aos
+    # outros. A concatenação é o que faz o `ffmpeg` do receptor ler um
+    # fluxo Opus válido de um corpo só.
+    for m in audios:
+        assert len(m.corpo) == 8 * 80, f"corpo de {len(m.corpo)} bytes, não 640"
+
+    # E nada se perdeu: 16 pacotes de entrada, 2 mensagens de saída, e o
+    # total de bytes no corpo é exactamente o que entrou.
+    assert sum(len(m.corpo) for m in audios) == 16 * 80
+
+
+def test_a_fila_de_audio_esvazia_ao_mandar(daemon: ClienteIpc, par: dict) -> None:
+    """A fila não acumula entre mensagens.
+
+    Uma fila que não esvaziasse faria a segunda mensagem levar os
+    pacotes da primeira duas vezes — e o áudio dobrado, que se ouve
+    como um eco robótico.
+    """
+    pipeline = Pipeline(daemon)
+    involucro = _ClienteQueDevolveQuadros(daemon, quadros=4, pacotes=16)
+    cliente = involucro.devolver()
+
+    with a_registar(cliente):
+        emissor = media.EmissorStreaming(
+            pipeline, par["chaves"], par["identidade"], involucro
+        )
+        # O limitador precisa de vídeo para deixar o áudio passar:
+        # 160 ms de áudio numa janela de 200 ms passam com um quadro
+        # (33 ms), e o segundo bloco precisa de mais dois.
+        for _ in range(4):
+            emissor.um_quadro()
+        for _ in range(8):
+            emissor.um_audio_distinto()
+        assert len(emissor._audio_a_espera) == 0, "a fila não esvaziou ao mandar"
+        emissor.um_quadro()
+        for _ in range(8):
+            emissor.um_audio_distinto()
+        assert len(emissor._audio_a_espera) == 0, "a segunda mensagem não esvaziou"
 
 
 def test_o_audio_que_acaba_devolve_none_e_nao_erro(
     daemon: ClienteIpc, par: dict
 ) -> None:
-    """A captura que acaba é ``None``, e `None` não é o mesmo que espera.
+    """A captura que acaba é ``None``, e `None`` não é o mesmo que espera.
 
     A diferença é a que o `correr` precisa: ``False`` é o limitador a
     segurar e ``None`` é o fim. Confundir as duas coisas faria uma
     chamada parar a cada rajada de áudio.
+
+    E com a agregação, a fila ainda pode ter pacotes quando o `ffmpeg`
+    morre — o que obriga a **despejar** o que ficou, ou os últimos
+    160 ms de áudio nunca chegariam ao par.
     """
     pipeline = Pipeline(daemon)
-    involucro = _ClienteQueDevolveQuadros(daemon, quadros=0, pacotes=2)
+    # **Seis** pacotes: chegam a 120 ms, que não chegam aos 160 do alvo
+    # — e é esse o caso que interessa. Uma captura que morre com a fila
+    # meio cheia tem de mandar o que ficou (a Fase 2, `_despejar_audio`)
+    # e só depois dizer que acabou. Se a fila estivesse cheia, o fim
+    # seria indistinguível do despejo.
+    involucro = _ClienteQueDevolveQuadros(daemon, quadros=4, pacotes=6)
     cliente = involucro.devolver()
     emissor = media.EmissorStreaming(
         pipeline, par["chaves"], par["identidade"], involucro
     )
 
-    with a_registar(cliente):
-        assert emissor.um_audio_distinto() is True
-        assert emissor.um_audio_distinto() is True
-        assert emissor.um_audio_distinto() is None, "o terceiro não há"
+    with a_registar(cliente) as registos:
+        # Os seis pacotes não chegam aos 160 ms: cada um guarda e
+        # devolve «espere», que **não** é fim.
+        for _ in range(6):
+            assert emissor.um_audio_distinto() is False
+
+        # Agora não há mais pacotes. E a fila tem 120 ms por enviar: o
+        # `ffmpeg` morreu a meio, e esses 120 ms têm de sair na mesma —
+        # uma chamada que termina corta a pessoa a meio de uma frase se
+        # o áudio fica na memória.
+        assert emissor.um_audio_distinto() is None, "o que não há é o fim"
+
+    tipos = [media.abrir(b.decode()).tipo for b, _ in registos if b]
+    # Uma mensagem: a do despejo, com os seis pacotes.
+    assert tipos == ["audio"], tipos
+    # E tem os 120 ms: 480 bytes a 4 bytes por milissegundo.
+    despejado = media.abrir([b for b, _ in registos if b][0].decode())
+    assert len(despejado.corpo) == 6 * 80, (
+        f"o despejo saiu com {len(despejado.corpo)} bytes, não 480"
+    )
 
 
 # ---------------------------------------------------------------------
@@ -1026,3 +1166,236 @@ def test_o_timeout_zero_espera_indefinidamente(
     chamada.correr(ligacao)
 
     assert ligacao.timeouts == [0], ligacao.timeouts
+
+
+# ---------------------------------------------------------------------
+# A chamada inteira: emissor → ligação → receptor
+# ---------------------------------------------------------------------
+
+
+def test_a_chamada_va_do_emissor_ao_receptor(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """O teste que fecha a chamada: um lado emite, o outro recebe.
+
+    E é o primeiro teste que põe os dois lados no mesmo teste. Todos
+    os anteriores fixavam uma peça — a cifra, a moldura, a sondagem, o
+    limitador — e um sistema feito de peças que passam pode não fechar:
+    o `base_seq` pode não bater, ou a chave pode ser a errada, ou a
+    ordem pode estar trocada.
+
+    Este teste não pode dar certeza sobre a rede real — não há Tor,
+    não há `ffmpeg`, não há ecrã. Pode dar certeza sobre **o caminho**:
+    que o que sai do `EmissorStreaming` é o que o `ChamadaRede` separa.
+    """
+    pipeline = Pipeline(daemon)
+    receptor = _receptor(par, daemon)
+
+    # --- quem fala ----------------------------------------------------
+    # O wrapper sabe os comandos de media e tem um `enviar` que deixa
+    # passar; e o `daemon` da fixture tem de estar ligado para o
+    # `enviar` não responder `NaoLigado`, por isso o `enviar` e'
+    # substituido por um que **guarda**.
+    envolvidos: list[tuple[bytes, bool]] = []
+    envolver = _ClienteQueDevolveQuadros(daemon, quadros=1, pacotes=8)
+    cliente_do_emissor = envolver.devolver()
+
+    def guardar(envelope: bytes, media: bool = False) -> None:
+        """Guarda a unidade e o seu `media`, e não envia.
+
+        E a `media=True` é o que o teste fixa: sem ela, a chamada
+        contaria como conversa e batia no tecto de 128 sem chegar a
+        30 fps.
+        """
+        envolvidos.append((envelope, media))
+
+    cliente_do_emissor.enviar = guardar  # type: ignore[method-assign]
+
+    emissor = media.EmissorStreaming(
+        pipeline, par["chaves"], par["identidade"], envolver
+    )
+
+    # Um quadro de vídeo e uma mensagem de áudio — que são **oito**
+    # pacotes de 20 ms agregados (a Fase 2), e não oito mensagens.
+    emissor.enviados = 0
+    emissor.um_quadro()
+    emissor.enviados = 0
+    for _ in range(8):
+        emissor.um_audio_distinto()
+
+    assert len(envolvidos) == 2, f"{len(envolvidos)} unidades"
+    assert all(m for _, m in envolvidos), "todas são media"
+
+    # --- a ligação ---------------------------------------------------
+    ligacao = _LigacaoFalsa([e for e, _ in envolvidos])
+
+    # --- quem ouve ----------------------------------------------------
+    quadros: list[tuple[int, int, bytes]] = []
+    audios_recebidos: list[bytes] = []
+    textos: list[str] = []
+    chamada = media.ChamadaRede(
+        pipeline,
+        receptor,
+        ao_texto=textos.append,
+        ao_audio=audios_recebidos.append,
+    )
+
+    # O `ChamadaRede` entrega o quadro como devolve o receptor.
+    original = receptor.um_quadro_de_video
+
+    def a_capturar(envelope, ao_texto=None, ao_audio=None):
+        r = original(envelope, ao_texto, ao_audio)
+        if r is not None:
+            quadros.append(r)
+        return r
+
+    receptor.um_quadro_de_video = a_capturar
+    chamada.correr(ligacao)
+
+    assert len(quadros) == 1, f"{len(quadros)} quadros"
+    seq, clock_ms, dados = quadros[0]
+    assert seq == 0, f"o seq do primeiro quadro: {seq}"
+    assert len(dados) == 400, f"o VP8 chegou com {len(dados)} bytes"
+    # A agregação (Fase 2) chega aqui como **uma** mensagem de áudio
+    # com os pacotes concatenados — 640 bytes, que são 160 ms a
+    # 32 kbit/s (4 bytes por milissegundo).
+    #
+    # O `ChamadaRede` entrega o corpo como veio, e é quem tem o Opus que
+    # o desmultiplexa: concatenar pacotes Opus num corpo é exactamente o
+    # que o `ffmpeg -f opus` lê de um ficheiro.
+    assert len(audios_recebidos) == 1, f"{len(audios_recebidos)} unidades de áudio"
+    assert len(audios_recebidos[0]) == 640, (
+        f"o áudio chegou com {len(audios_recebidos[0])} bytes, não 640"
+    )
+    assert textos == [], "uma chamada não fala"
+
+
+def test_o_emissor_para_quando_a_captura_acaba(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """O `ffmpeg` morreu: o laço para e não levanta.
+
+    E os dois laços têm de parar **juntos**. Com dois booleanos
+    independentes, o `True` do outro desfazia a paragem do primeiro e
+    a chamada continuava a ler de um `ffmpeg` que já não existe.
+    """
+    pipeline = Pipeline(daemon)
+    envolvidos = []
+
+    class _EnvolvidoQueGuarda:
+        def enviar(self, envelope: bytes, media: bool = False) -> None:
+            envolvidos.append(envelope)
+
+    # Um quadro e nenhum pacote de áudio: o vídeo acaba primeiro.
+    involucro = _ClienteQueDevolveQuadros(daemon, quadros=1, pacotes=0)
+    cliente = involucro.devolver()
+    enviados: list[bytes] = []
+    cliente.enviar = lambda e, media=False: enviados.append(e)  # type: ignore[method-assign]
+
+    emissor = media.EmissorStreaming(
+        pipeline, par["chaves"], par["identidade"], involucro
+    )
+    rede = media.EmissorChamadaRede(emissor, involucro)
+
+    assert rede.correr() is True, "a captura liga"
+    assert len(enviados) == 1, f"{len(enviados)} unidades"
+
+
+def test_o_emissor_diz_false_quando_o_ffmpeg_da_recusa(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """Uma máquina sem ecrã devolve ``False``, e não uma excepção.
+
+    E ``False`` **não** é um erro: é o `ffmpeg` a dizer que a máquina
+    não tem ecrã ou que a geometria não serve, e quem chama decide se
+    isso é uma falha ou um motivo para não ligar. Uma excepção
+    obrigaria cada chamador a apanhar uma coisa que não é excepcional.
+    """
+    pipeline = Pipeline(daemon)
+
+    class _QueRecusa:
+        def enviar(self, envelope: bytes, media: bool = False) -> None:
+            pass
+
+        def media_capturar(self, *args: int) -> None:
+            raise ErroDaemon(ERR_MEDIA, "Unknown input format: 'x11grab'")
+
+        def media_ler(self):  # type: ignore[no-untyped-def]
+            raise AssertionError("não devia ler: a captura não ligou")
+
+    emissor = media.EmissorStreaming(
+        pipeline, par["chaves"], par["identidade"], _QueRecusa()  # type: ignore[arg-type]
+    )
+    rede = media.EmissorChamadaRede(emissor, _QueRecusa())  # type: ignore[arg-type]
+
+    assert rede.correr() is False, "a captura não ligou"
+    assert rede.ligada is False
+
+
+def test_o_clock_ms_do_audio_e_o_tempo_acumulado(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """O relógio do áudio conta **tempo**, e não pacotes.
+
+    E o teste é sobre pacotes de **tamanhos diferentes**, que é onde a
+    diferença aparece: o `ffmpeg` não garante que todos os pacotes
+    tenham os mesmos 20 ms, e uma rajada produz um maior. Com
+    `self.audios * ms` — índice em vez de tempo — o relógio saltava
+    para o fim da chamada sem que nada désse conta, que é exactamente
+    o «desvio de relógio» que §5.3 existe para detectar.
+
+    ## E a agregação (Fase 2) não estraga isto
+
+    A agregação junta pacotes antes de mandar, e a soma dos tempos de um
+    corpo pode ser lida do próprio corpo: a 32 kbit/s são 4 bytes por
+    milissegundo, e o corpo é a concatenação de pacotes válidos. É essa
+    soma que tem de aparecer no relógio da mensagem **seguinte** — se o
+    relógio usasse o índice, saltaria a cada rajada.
+    """
+    pipeline = Pipeline(daemon)
+    # 80 bytes = 20 ms, 160 = 40 ms, 80 = 20 ms, repetido. Uma rajada
+    # produz um pacote maior, e o Opus tem pacotes de duração variável.
+    #
+    # Dezasseis pacotes chegam a 480 ms, o que dá três mensagens de
+    # 160 ms — e o limitador de §8.0 precisa de vídeo que as justifique,
+    # porque a janela é 200 ms.
+    envolvido = _ClienteQueDevolveQuadros(daemon, quadros=5, pacotes=16)
+    envolvido.tamanhos = [80, 160, 80] * 6
+    cliente = envolvido.devolver()
+
+    with a_registar(cliente) as registos:
+        emissor = media.EmissorStreaming(
+            pipeline, par["chaves"], par["identidade"], envolvido
+        )
+        for _ in range(5):
+            emissor.um_quadro()
+        for _ in range(16):
+            emissor.um_audio_distinto()
+
+    audios = [
+        media.abrir(b.decode())
+        for b, _ in registos
+        if b and media.abrir(b.decode()).tipo == "audio"
+    ]
+    assert len(audios) >= 2, f"só {len(audios)} mensagens de áudio nos 16 pacotes"
+
+    # O tempo de uma mensagem lê-se do seu próprio corpo: a 32 kbit/s
+    # são 4 bytes por milissegundo, e o corpo é a concatenação.
+    def ms_do_corpo(corpo: bytes) -> int:
+        return len(corpo) // 4
+
+    # E o relógio de cada mensagem é a soma das anteriores. É esta
+    # asserção que prova que o relógio conta **tempo**: a segunda
+    # mensagem começa onde a primeira acabou, e não num índice.
+    acumulado = 0
+    for i, m in enumerate(audios):
+        assert m.clock_ms == acumulado, (
+            f"a mensagem {i} tem clock_ms {m.clock_ms} e o acumulado é "
+            f"{acumulado}: o relógio está a contar pacotes, não tempo"
+        )
+        acumulado += ms_do_corpo(m.corpo)
+
+    # E o tempo total dos corpos bate com o que o relógio acumulou, que
+    # é a propriedade de «não deriva» de §5.3.
+    total_ms = sum(ms_do_corpo(m.corpo) for m in audios)
+    assert total_ms == acumulado, f"{total_ms} ms nos corpos, {acumulado} no relógio"

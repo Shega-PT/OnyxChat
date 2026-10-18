@@ -111,15 +111,49 @@ pub const JANELA_RATE: Duration = Duration::from_secs(10);
 /// O teto de [`LIMITE_FRAMES`] é de **texto**: 128 mensagens de
 /// conversa por 10 s. Uma chamada de vídeo mede-se noutro sítio.
 ///
-/// ```text
-/// 480p a 30 fps, VP8 a 300 kbit/s + Opus a 32 kbit/s
-///   = 344 kbit/s
-///   ÷ 49 125 bytes por envelope
-///   = 0,9 mensagens por segundo
-/// ```
+/// ## A contagem que importa, e a que não é a do bitrate
 ///
-/// Nove décimos de mensagem por segundo. O texto, sozinho, pode usar os
-/// 12,8 e não dá para usar a excepção toda.
+/// Dividir o **bitrate** pelo tamanho máximo de um envelope e chamar ao
+/// resultado «mensagens por segundo» mede quanto caberia num envelope
+/// cheio, não o que se envia — e subestima a chamada por duas ordens de
+/// grandeza.
+///
+/// A contagem é a do codec, e é muito mais alta:
+///
+/// | Canal | Taxa | Por janela de 10 s |
+/// |---|---|---|
+/// | VP8, 1 moldura por quadro | 30 msg/s | 300 |
+/// | Opus, 1 pacote de 20 ms | 50 msg/s | 500 |
+/// | **Total, sem agregação** | **80 msg/s** | **800** |
+///
+/// Um teto de media de 64 por janela esgotava em **0,8 s** de chamada.
+/// O valor tem de ser derivado da contagem, e não do inverso.
+///
+/// ## São duas as condições, e as duas são necessárias
+///
+/// **Uma: agregar o Opus.** O codec é independente do contentor, e uma
+/// `Moldura` pode levar vários pacotes. Com 8 pacotes (≈160 ms) por
+/// mensagem, o áudio passa de 50 para ~6,3 msg/s.
+///
+/// | Canal | Taxa | Por janela de 10 s |
+/// |---|---|---|
+/// | VP8, 1 moldura por quadro | 30 msg/s | 300 |
+/// | Opus agregado, 8 pacotes | ~6,3 msg/s | ~63 |
+/// | **Total** | **~36 msg/s** | **~363** |
+///
+/// **Duas: subir o teto para 512.** Com 363 e o teto em 512 há 41% de
+/// folga, e a folga é necessária: um `ffmpeg` sob carga entrega quadros
+/// aos trancos, e uma janela fixa de 10 s sem margem rejeita o pico
+/// mesmo quando a média cabe.
+///
+/// ## Porque não um teto sem limite
+///
+/// Porque 512 ainda é um teto. Sem ele, um par com a chave de uma
+/// amizade pode enviar 51 mensagens por segundo durante a janela
+/// inteira, e o orçamento de memória por ligação (`crate::orcamento`)
+/// deixaria de ser um orçamento. 512 é o que uma chamada real usa mais
+/// a sua folga, e não um número redondo que esconde uma permissão de
+/// inundação.
 ///
 /// ## Porque é uma janela **separada** e não um teto maior
 ///
@@ -127,19 +161,19 @@ pub const JANELA_RATE: Duration = Duration::from_secs(10);
 /// distinção só aparece no plaintext depois de decifrado — e o
 /// `p2p.rs` não decifra nada, por desenho. Subir `LIMITE_FRAMES`
 /// deixaria um par enviar 512 mensagens de texto por janela, e quem
-/// flooda texto passava a ter folga que nunca pediu.
+/// flooda texto passaria a ter folga que nunca pediu.
 ///
 /// Duas janelas resolvem: o texto fica com 128 e a media com
 /// [`LIMITE_FRAMES_MEDIA`], e nenhuma das duas pode gastar a outra.
-/// Uma chamada usa 0,9 msg/s de media e 12,8 de texto, e as duas
-/// cabem.
+/// Uma chamada usa ~363 de media por janela e até 128 de texto, e as
+/// duas cabem.
 ///
 /// ## E o que isto **não** abre
 ///
 /// Nada. O `FRAME_CHAT` continua a ser um `FRAME_CHAT`, o envelope
 /// continua o mesmo, e a cifra continua a mesma. A excepção é um
 /// contador — não é um caminho novo para a rede, e não é menos seguro.
-pub const LIMITE_FRAMES_MEDIA: u32 = 64;
+pub const LIMITE_FRAMES_MEDIA: u32 = 512;
 
 /// Fatia máxima de espera pelo **primeiro byte** de um frame numa
 /// receção faseada (`receber_por_lotes`).

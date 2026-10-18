@@ -199,6 +199,39 @@ pub const TIPO_AUDIO: u8 = 0x01;
 /// Tipo de conteúdo: vídeo.
 pub const TIPO_VIDEO: u8 = 0x02;
 
+/// Tipo de conteúdo: controlo de chamada.
+///
+/// Um convite, uma aceitação, uma recusa. **Não** é uma moldura `ONX1`:
+/// o corpo é ASCII versionado e o `ENCODE` trata-o como texto opaco.
+/// O que partilha com o áudio e o vídeo é a chave derivada — e é isso
+/// que garante que só o par abre um convite, e que a rede não o
+/// distingue de texto.
+///
+/// O valor é **congelado**: mudar um valor de derivação é indistinguível
+/// de um envelope antigo a abrir com a chave nova, e o sintoma é texto
+/// ilegível em vez de um erro. O mesmo valor está em
+/// `messenger/amizade.py::TIPO_CALL`.
+pub const TIPO_CALL: u8 = 0x03;
+
+/// Tipo de conteúdo: ficheiro arbitrário.
+///
+/// Entra no sistema de tipos pela mesma razão que [`TIPO_CALL`]: a chave
+/// derivada é o que separa um ficheiro de um texto na sondagem, e o
+/// que impede que alguém que não é o par descubra que se está a enviar
+/// um ficheiro.
+pub const TIPO_FICHEIRO: u8 = 0x04;
+
+/// Os tipos que [`derivar_k1_por_tipo`] aceita.
+///
+/// Uma lista e não um `matches!`: a ordem é a **ordem da sondagem**, e
+/// ela é o que torna o custo previsível — texto primeiro (uma
+/// verificação), os tipos de media a seguir, e `call`/`ficheiro` no fim
+/// porque são raros.
+///
+/// Um tipo fora daqui devolve `None`. Ver a nota em
+/// [`derivar_k1_por_tipo`].
+pub const TIPOS_CONHECIDOS: [u8; 4] = [TIPO_AUDIO, TIPO_VIDEO, TIPO_CALL, TIPO_FICHEIRO];
+
 /// Deriva a K1 de uma mensagem de media, por tipo de conteúdo.
 ///
 /// É [`derivar_k1`] com [`DOMINIO_MEDIA`] ‖ `tipo` a acrescentar ao
@@ -207,7 +240,7 @@ pub const TIPO_VIDEO: u8 = 0x02;
 /// ## Porque devolve `Option`
 ///
 /// Porque um tipo desconhecido **não pode** produzir uma chave. Se
-/// devolvesse `[u8; 32]` e confiasse no chamador, bastava um `0x03` a
+/// devolvesse `[u8; 32]` e confiasse no chamador, bastava um `0x09` a
 /// passar sem reparo para o sistema a gerar chaves que ninguém sabe
 /// distinguir umas das outras — e o erro apareceria como «a imagem não
 /// abre», muito longe da sua causa.
@@ -228,7 +261,7 @@ pub fn derivar_k1_por_tipo(
     pub_emissor: &[u8; 32],
     tipo: u8,
 ) -> Option<[u8; 32]> {
-    if !matches!(tipo, TIPO_AUDIO | TIPO_VIDEO) {
+    if !TIPOS_CONHECIDOS.contains(&tipo) {
         return None;
     }
 
@@ -343,6 +376,28 @@ mod tests {
     /// uma desigualdade.
     const VECTOR_K1_VIDEO_INVERSO: &str =
         "5d6da3de9879224f0c400ab71759e94e1ff646df4c3c82b01890d54a99020e46";
+
+    /// Vector da K1 de controlo, `call`, `A→B`.
+    ///
+    /// Calculado pelo Python (biblioteca padrão) e verificado aqui pela
+    /// implementação independente em `hkdf`. A razão de um vector
+    /// congelado em vez de recalculado com a mesma fórmula do código é
+    /// a mesma dos três acima: duas implementações que recalculam com a
+    /// mesma fórmula provam que a fórmula está escrita duas vezes, não
+    /// que está certa.
+    const VECTOR_K1_CALL: &str =
+        "70ebec1d713eef973f105b3693427f4e14f5db8644a183b3ee56dd7f55153eb4";
+
+    /// Vector da K1 de controlo, `ficheiro`, `A→B`.
+    const VECTOR_K1_FICHEIRO: &str =
+        "82e68b18777feb5e29fd88b8d7cf2eee88dff655c876f1cc5d8dff42942da09f";
+
+    /// Vector da K1 de controlo, `call`, `B→A`.
+    ///
+    /// Existe pelo mesmo motivo que [`VECTOR_K1_VIDEO_INVERSO`]: um
+    /// convite de Alice para Bob não pode abrir como se fosse de Bob.
+    const VECTOR_K1_CALL_INVERSO: &str =
+        "5b449c390dae1e58d870df2ae5552bdf0ac4d4d9867eb572eab7bfc3b0b34541";
 
     /// Matriz de quatro valores distintos: as chaves dos dois lados e as
     /// identidades dos dois lados. Distintas para que qualquer troca de
@@ -531,6 +586,72 @@ mod tests {
             hex32(VECTOR_K1_VIDEO),
             "a K1 de vídeo mudou — é uma quebra de formato, não um bug"
         );
+        assert_eq!(
+            derivar_k1_por_tipo(&KA, &KB, &PUB_A, TIPO_CALL).unwrap(),
+            hex32(VECTOR_K1_CALL),
+            "a K1 de controlo de chamada mudou — é uma quebra de formato, não um bug"
+        );
+        assert_eq!(
+            derivar_k1_por_tipo(&KA, &KB, &PUB_A, TIPO_FICHEIRO).unwrap(),
+            hex32(VECTOR_K1_FICHEIRO),
+            "a K1 de controlo de ficheiro mudou — é uma quebra de formato, não um bug"
+        );
+    }
+
+    /// Um tipo de controlo fora da lista não deriva.
+    ///
+    /// A mesma doutrina de `derivar_k1_por_tipo` aplicada aos valores
+    /// que ainda não têm nome: `0x05` e acima recusam, em vez de
+    /// produzirem chaves que ninguém sabe distinguir.
+    ///
+    /// E `0x03`/`0x04` já **não** recusam, porque passaram a ser
+    /// `TIPO_CALL` e `TIPO_FICHEIRO`. O teste fixa essa transição: um
+    /// sistema antigo que tivesse `0x03` a abrir com a chave do vídeo
+    /// deixaria de abrir de repente, e a mudança tem de ser visível
+    /// num teste e não num relato de bug.
+    #[test]
+    fn os_tipos_de_controlo_sao_conhecidos_e_os_outros_nao() {
+        for tipo in [0x00u8, 0x05, 0x10, 0xFF] {
+            assert!(
+                derivar_k1_por_tipo(&KA, &KB, &PUB_A, tipo).is_none(),
+                "o tipo 0x{tipo:02x} não devia derivar"
+            );
+        }
+
+        assert!(derivar_k1_por_tipo(&KA, &KB, &PUB_A, TIPO_CALL).is_some());
+        assert!(derivar_k1_por_tipo(&KA, &KB, &PUB_A, TIPO_FICHEIRO).is_some());
+    }
+
+    /// Os quatro tipos derivados dão chaves todas diferentes.
+    ///
+    /// Uma colisão seria o pior bug possível nesta função: dois tipos
+    /// de conteúdo a abrir com a mesma chave é indistinguível de um
+    /// deles ser texto, e o sintoma — um convite lido como mensagem —
+    /// não aponta para a causa.
+    #[test]
+    fn os_quatro_tipos_dao_chaves_distintas() {
+        let mut chaves = TIPOS_CONHECIDOS
+            .iter()
+            .map(|&tipo| derivar_k1_por_tipo(&KA, &KB, &PUB_A, tipo).unwrap())
+            .collect::<Vec<_>>();
+        let total = chaves.len();
+        chaves.sort();
+        chaves.dedup();
+        assert_eq!(
+            chaves.len(),
+            total,
+            "dois tipos de conteúdo partilham chave"
+        );
+    }
+
+    /// A direcção estende-se ao controlo de chamada.
+    #[test]
+    fn o_convite_mantem_a_direccao() {
+        assert_eq!(
+            derivar_k1_por_tipo(&KB, &KA, &PUB_B, TIPO_CALL).unwrap(),
+            hex32(VECTOR_K1_CALL_INVERSO),
+            "um convite de Alice não pode abrir como se fosse de Bob"
+        );
     }
 
     /// A direcção do `info` estende-se à derivação por tipo.
@@ -579,21 +700,29 @@ mod tests {
         assert_ne!(audio, video, "áudio e vídeo não podem partilhar chave");
     }
 
-    /// Um tipo desconhecido **não** deriva.
-    ///
-    /// É o teste de [`derivar_k1_por_tipo`] a devolver `Option`: o `0x00`
-    /// (texto) e o `0x03` (não existe) têm de recusar, porque uma chave
-    /// derivada com um tipo que ninguém sabe ler produz envelopes que não
-    /// abrem em lado nenhum.
-    #[test]
-    fn tipo_desconhecido_nao_deriva() {
-        for tipo in [0x00u8, 0x03, 0x10, 0xFF] {
-            assert!(
-                derivar_k1_por_tipo(&KA, &KB, &PUB_A, tipo).is_none(),
-                "o tipo 0x{tipo:02x} não devia ter derivado chave"
-            );
-        }
+/// Um tipo desconhecido **não** deriva.
+///
+/// É o teste de [`derivar_k1_por_tipo`] a devolver `Option`: o `0x00`
+/// (texto) e os valores acima de [`TIPOS_CONHECIDOS`] têm de recusar,
+/// porque uma chave derivada com um tipo que ninguém sabe ler produz
+/// envelopes que não abrem em lado nenhum.
+///
+/// ## E o `0x03`, que antes recusava
+///
+/// Era o valor de «não existe». Passou a ser [`TIPO_CALL`], e a
+/// transição é irreversível: um sistema que tivesse gravado algo
+/// com a chave de `0x03` antes desta alteração abre hoje com a chave
+/// do controlo de chamada. O sintoma é texto ilegível, e por isso o
+/// teste diz explicitamente que `0x03` **passa** a derivar.
+#[test]
+fn tipo_desconhecido_nao_deriva() {
+    for tipo in [0x00u8, 0x05, 0x10, 0xFF] {
+        assert!(
+            derivar_k1_por_tipo(&KA, &KB, &PUB_A, tipo).is_none(),
+            "o tipo 0x{tipo:02x} não devia ter derivado chave"
+        );
     }
+}
 
     /// O `info` de media é o `info` de texto mais o rótulo e o tipo.
     ///
