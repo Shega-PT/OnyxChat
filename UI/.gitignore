@@ -36,7 +36,7 @@ tools/node/
 tools/.cache/
 tools/*.parcial
 
-# --- Construção do Tauri (Etapa 6) -----------------------------------
+# --- Construção do Tauri ---------------------------------------------
 # Os caminhos são relativos a **esta** pasta: um padrão com barra inicial
 # ou intermédia ancora-se no directório onde está o `.gitignore`, não na
 # raiz do repositório. Escrever `UI/src-tauri/target/` aqui resolveria

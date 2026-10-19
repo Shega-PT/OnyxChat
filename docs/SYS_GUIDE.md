@@ -451,8 +451,8 @@ tests/vectors/identidade.json →  identificador e impressão sobre SHA-256
 docs/test_vectors.md          →  forma legível dos mesmos dados (GERADO)
 ```
 
-São **quatro** ficheiros, e o quarto — `identidade.json` — só entrou na
-Etapa 3, com a identidade derivada. As listas deste guia só o incluíam a
+São **quatro** ficheiros, e o quarto — `identidade.json` — só entrou
+com a identidade derivada. As listas deste guia só o incluíam a
 partir de 2026-10-13, e um leitor que contasse os vectores a partir daqui
 contaria três quando há quatro.
 

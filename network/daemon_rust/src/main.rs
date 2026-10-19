@@ -618,7 +618,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Aviso de páginas não trancadas (F0c)
+    // Aviso de páginas não trancadas
     // -----------------------------------------------------------------
 
     /// Páginas trancadas ⇒ **não** há aviso. O arranque tem de ser

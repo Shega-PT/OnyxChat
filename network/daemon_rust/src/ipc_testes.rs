@@ -2046,7 +2046,7 @@ fn pedido_pendente_zeroiza_corpo() {
 
 /// O registo anti-replay sobrevive a um `Estado::novo`.
 ///
-/// Este é o teste de integração da fase B3, e é o que fecha o buraco
+/// Este é o teste de integração da persistência, e é o que fecha o buraco
 /// de ponta a ponta. `anti_replay::tests::o_registo_sobrevive_a_um_
 /// reinicio` prova que o *registo* persiste; este prova que o
 /// *daemon* o carrega. São coisas diferentes, e a segunda é a que
@@ -2910,4 +2910,193 @@ fn o_ficheiro_e_validado_antes_do_leitor_embebido_arrancar() {
         "a mensagem é «{mensagem}» e não diz que faltam peças — o que \
          sugere que o erro veio do leitor e não da validação"
     );
+}
+
+// ---------------------------------------------------------------------
+// A descodificação de imagem
+// ---------------------------------------------------------------------
+
+/// O `MEDIA_IMAGEM` descodifica um VP8 em JPEG, com a geometria à frente.
+///
+/// E o teste do caminho completo: o VP8 vem do `ffmpeg` (mesmo
+/// binário embebido que a captura usa), o JPEG sai com o cabeçalho
+/// certo, e a geometria precede o corpo.
+#[test]
+fn o_media_imagem_descodifica_um_vp8_real() {
+    let Some(vp8) = vp8_de_teste() else {
+        eprintln!("media: sem ffmpeg embebido ou sem VP8; a imagem não é verificável");
+        return;
+    };
+
+    let estado = estado_de_teste();
+    // Sem captura viva, o corpo traz a geometria: `largura ‖ altura ‖
+    // vp8`.
+    let mut corpo = vec![320u16.to_le_bytes().to_vec(), 240u16.to_le_bytes().to_vec()].concat();
+    corpo.extend_from_slice(&vp8);
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_imagem(&corpo));
+    let Some(dados) = resposta_ok(&resposta) else {
+        panic!("o MEDIA_IMAGEM deu erro: {resposta:?}");
+    };
+
+    assert!(dados.len() > 4, "a resposta tem {} bytes", dados.len());
+    assert_eq!(
+        u16::from_le_bytes([dados[0], dados[1]]),
+        320,
+        "a largura no corpo da resposta"
+    );
+    assert_eq!(
+        u16::from_le_bytes([dados[2], dados[3]]),
+        240,
+        "a altura no corpo da resposta"
+    );
+
+    let jpeg = &dados[4..];
+    assert_eq!(
+        &jpeg[..2],
+        [0xFF, 0xD8],
+        "a resposta não começa com um JPEG: {:02x?}",
+        &jpeg[..jpeg.len().min(4)]
+    );
+    assert!(
+        jpeg.len() > 200,
+        "o JPEG tem {} bytes: uma imagem de 320×240 tem mais",
+        jpeg.len()
+    );
+}
+
+/// Um corpo vazio recusa, e não devolve uma imagem de zero bytes.
+#[test]
+fn o_media_imagem_recusa_o_corpo_vazio() {
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &corpo_media_imagem(&[]));
+    let (codigo, _) = erro_de(&resposta).expect("erro");
+    assert_eq!(codigo, ERR_PAYLOAD_MALFORMADO);
+}
+
+/// Um corpo sem geometria e sem captura recusa.
+///
+/// A geometria é o que o receptor diz que a imagem vai ter, e sem ela
+/// o JPEG sairia com uma dimensão inventada.
+#[test]
+fn o_media_imagem_recusa_o_corpo_sem_geometria() {
+    let estado = estado_de_teste();
+    let resposta = super::processar_pedido(&estado, &corpo_media_imagem(&[1, 2, 3]));
+    let (codigo, _) = erro_de(&resposta).expect("erro");
+    assert_eq!(codigo, ERR_PAYLOAD_MALFORMADO);
+}
+
+/// Um VP8 que não é VP8 dá erro de media, e não uma imagem.
+#[test]
+fn o_media_imagem_recusa_o_que_nao_e_vp8() {
+    let estado = estado_de_teste();
+    let mut corpo = vec![320u16.to_le_bytes().to_vec(), 240u16.to_le_bytes().to_vec()].concat();
+    corpo.extend_from_slice(&[0xAAu8; 2048]);
+
+    let resposta = super::processar_pedido(&estado, &corpo_media_imagem(&corpo));
+    let (codigo, _) = erro_de(&resposta).expect("erro");
+    assert_eq!(
+        codigo, ERR_MEDIA,
+        "um VP8 inválido tem de dar erro de media, e não um JPEG vazio"
+    );
+}
+
+/// O corpo do `MEDIA_IMAGEM`, com o opcode.
+fn corpo_media_imagem(corpo: &[u8]) -> Vec<u8> {
+    let mut completo = vec![CMD_MEDIA_IMAGEM];
+    completo.extend_from_slice(corpo);
+    completo
+}
+
+/// A resposta de um `OK`, ou `None` se foi um erro.
+fn resposta_ok(resposta: &[u8]) -> Option<&[u8]> {
+    match resposta.first() {
+        Some(&ESTADO_OK) => Some(&resposta[1..]),
+        _ => None,
+    }
+}
+
+/// Um VP8 de teste, gerado pelo `ffmpeg` embebido.
+///
+/// E a mesma imagem que o `media/imagem.rs` usa nos seus testes: uma
+/// faixa preta e uma branca, que o VP8 tem de codificar.
+fn vp8_de_teste() -> Option<Vec<u8>> {
+    use crate::media::ffmpeg_embutido as emb;
+
+    if !emb::disponivel() {
+        return None;
+    }
+
+    let fd = emb::preparar().expect("prepara o executável");
+    let caminho_exec = format!("/proc/self/fd/{fd}");
+
+    let executavel: std::ffi::OsString = caminho_exec.into();
+    let argumentos: Vec<std::ffi::OsString> = [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "yuv420p",
+        "-s",
+        "320x240",
+        "-i",
+        "pipe:0",
+        "-frames:v",
+        "1",
+        "-c:v",
+        "libvpx",
+        "-f",
+        "ivf",
+        "pipe:1",
+    ]
+    .iter()
+    .map(std::ffi::OsString::from)
+    .collect();
+
+    let mut comando = std::process::Command::new(&executavel);
+    comando.args(&argumentos);
+    comando.stdin(std::process::Stdio::piped());
+    comando.stdout(std::process::Stdio::piped());
+    comando.stderr(std::process::Stdio::null());
+
+    let mut filho = comando.spawn().ok()?;
+    {
+        use std::io::Write as _;
+        let (w, h) = (320usize, 240usize);
+        let mut plano = Vec::with_capacity(w * h);
+        for _ in 0..h {
+            for x in 0..w {
+                plano.push(if x < w / 3 { 16u8 } else { 235u8 });
+            }
+        }
+        if let Some(mut entrada) = filho.stdin.take() {
+            let _ = entrada.write_all(&plano);
+            let meio = (w / 2) * (h / 2);
+            let _ = entrada.write_all(&vec![128u8; meio]);
+            let _ = entrada.write_all(&vec![128u8; meio]);
+        }
+    }
+
+    let saida = match filho.stdout.take() {
+        Some(mut s) => {
+            use std::io::Read as _;
+            let mut buf = Vec::new();
+            let _ = s.read_to_end(&mut buf);
+            buf
+        }
+        None => Vec::new(),
+    };
+    let _ = filho.wait();
+    emb::fechar();
+
+    if saida.is_empty() {
+        return None;
+    }
+    let mut leitor = crate::media::ivf::LeitorIvf::novo(std::io::Cursor::new(saida)).ok()?;
+    match leitor.proximo().ok()? {
+        crate::media::ivf::EstadoQuadro::Quadro(q) => Some(q.dados),
+        _ => None,
+    }
 }

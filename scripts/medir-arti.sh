@@ -53,9 +53,9 @@
 #
 # Cada medição corre dentro de uma scope de cgroup com `MemoryMax` e
 # `OOMPolicy=kill`, como qualquer build. `MemorySwapMax=0` nestas
-# medições, deliberadamente: a pergunta da Fase 1 é «o `rustc` cabe em
-# RAM?», e deixar o swap responder por ele mediria outra coisa. O swap
-# é a Fase 3, e é uma decisão separada.
+# medições, deliberadamente: a primeira pergunta é «o `rustc` cabe em
+# RAM?», e deixar o swap responder por ele mediria outra coisa. A
+# medição com swap é uma decisão separada.
 #
 # Referência: `docs/DEV_GUIDE.md`, secção 1.2 e `docs/testing.md` §Gate de
 # hardware.

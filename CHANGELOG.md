@@ -12,6 +12,221 @@ constrói por cima dele e só tarde descobre que não havia lá nada.
 
 ---
 
+## [0.2.0] — 2026-10-19
+
+- **Autor:** ShegaPT (pseudónimo)
+- **Titular dos direitos de autor:** Carlos Alberto da Silva Brito
+- **Licença:** PolyForm Noncommercial 1.0.0 — uso comercial exige
+  autorização do titular, ver [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)
+- **Estado:** versão **não publicada** — o repositório não tem
+  etiqueta de versão, e os quatro manifestos (`Cargo.toml`,
+  `Cargo.toml` do `crypto_core`, `pyproject.toml` e `UI/package.json`)
+  concordam em `0.2.0`.
+
+> Esta entrada cobre **a adição do sistema de streaming e
+> não-streaming de vídeo e áudio** — a captura, o transporte, a
+> descodificação, a reprodução e o cancelamento de eco.
+>
+> E o bloco do que fica por fazer está no fim, e é deliberado: a
+> **sinalização de chamada ainda não chega ao par** e o **envio de
+> ficheiros ainda não sai pela rede**. As duas coisas estão escritas e
+> testadas, e falta-lhes a sessão de rede do `messenger` — que tem as
+> chaves de amizade e que o `sidecar` não tem.
+
+### Adicionado — media como texto, com dois modos
+
+O invariante é que **o que sai para a rede é um `FRAME_CHAT` com um
+envelope normal**: `p2p.rs`, [`p2p.md`](docs/p2p.md),
+[`relay.md`](docs/relay.md) e o `OnyxMiniNode` **não mudam**. O que muda
+é uma coisa — qual `Chaves` entra no `ENCODE`. O tipo viaja na chave
+(K1 derivada por HKDF, com o tipo no `salt` **e** no `info`), não no
+envelope, e a verificação da etiqueta AEAD da K1 **é** o detector.
+
+| Item | Onde |
+| --- | --- |
+| Pipeline K1→K9 **novo**, com o tipo no `info` do HKDF | [`media.md`](docs/media.md) §1 |
+| Moldura `ONX1`: préâmbulo de 36 bytes, ASCII legível | [`media.md`](docs/media.md) §2.2, `media/moldura.rs` |
+| Modo **não-streaming**: um manifesto e N fatias, com resumo SHA-256 | [`media.md`](docs/media.md) §2.5, `media/ficheiro.rs` |
+| Modo **streaming**: um quadro por mensagem, com relógio e delta | [`media.md`](docs/media.md) §8, `media/anel.rs`, `media/coalescer.rs` |
+| Quatro tipos de derivação: áudio, vídeo, controlo de chamada, ficheiro | `crypto/rust/src/amizade.rs`, `messenger/amizade.py` |
+| Relógio mestre contado, e não estimado | [`media.md`](docs/media.md) §5, `media/relogio.rs` |
+| Regra dos três cenários do lip sync | [`media.md`](docs/media.md) §5.5, `messenger/lipsync.py` |
+| Reconstrução de um ficheiro perdido, por mensagem de texto | [`media.md`](docs/media.md) §4.3, `messenger/media.py` |
+
+### Adicionado — captura, no daemon
+
+O `ffmpeg` embebido é quem captura, e o daemon é quem o traz.
+
+| Item | Onde |
+| --- | --- |
+| Câmara por V4L2 (`/dev/video*`), com `ONYXCAMERA` para escolher | `media/ffmpeg.rs` §`entrada_de_video` |
+| Microfone por ALSA, com `ONYXMICROFONE` para escolher | `media/ffmpeg.rs` §`entrada_de_audio` |
+| Codificação **VP8** a 640×480@30 fps, com `-deadline realtime` | `media/ffmpeg.rs`, [`media.md`](docs/media.md) §8.1 |
+| Codificação **Opus** a 32 kbit/s, com `-vbr off` | `media/ffmpeg.rs` §8.1 |
+| Medido: **78 205 bytes** de VP8 para 2 s de câmara a 640×480 | `tools/ffmpeg/build.sh`, medição reproduzível |
+| Medido: **95 056 bytes** de PCM para 0,5 s de microfone | idem |
+
+### Adicionado — descodificação e reprodução, no daemon
+
+A interface é uma página servida a um **WebKitGTK 6**, e o WebKitGTK
+**não garante** `VideoDecoder`, `AudioDecoder` nem `AudioContext` — as
+três APIs de browser de que a primeira implementação dependia. Por isso o
+**daemon** passou a ser o motor de media, e a interface nunca vê os
+bytes.
+
+| Item | Onde |
+| --- | --- |
+| `MEDIA_IMAGEM` (0x13): descodifica VP8 para **JPEG** | `media/imagem.rs`, [`ipc.md`](docs/ipc.md) |
+| Medido: **2 003 bytes** de JPEG a partir de um quadro de 640×480 | `media/imagem.rs` |
+| Reprodução do áudio no dispositivo de som, por ALSA | `media/saida.rs` |
+| `MEDIA_AUDIO` (0x12) com `seq ‖ clock_ms ‖ opus` | `network/daemon_rust/src/ipc.rs` |
+| Reprodução de um ficheiro guardado, em `memfd` selado | `media/reproduzir.rs` |
+
+### Adicionado — cancelamento de eco
+
+O AEC3 do WebRTC, carregado com `dlopen` — a máquina não tem os
+cabeçalhos, e uma crate `*-sys` não compila sem eles.
+
+| Item | Onde |
+| --- | --- |
+| Cancelador de eco com o AEC3 do WebRTC | `media/eco.rs` |
+| Medido: razão de energia **0,83** com um eco sintético de 90 % | `media/eco.rs` §Testes |
+| A referência de renderização, que o cancelador precisa | `media/saida.rs` §`referencia` |
+| `speexdsp` como alternativa, quando o WebRTC não está | `media/eco.rs` |
+
+### Adicionado — lip sync
+
+O áudio é o relógio mestre, e o vídeo é apresentado em relação a ele.
+
+| Item | Onde |
+| --- | --- |
+| Sessão de lip sync com a regra dos três cenários | `messenger/lipsync.py` |
+| `clock_ms` no **áudio**, contado pelo daemon | `network/daemon_rust/src/ipc.rs` §`MEDIA_AUDIO` |
+| 19 testes | `tests/test_lipsync.py` |
+
+### Adicionado — ficheiros arbitrários
+
+O módulo de media aceitava um **conjunto fechado** — áudio e vídeo.
+Um `.pdf` era recusado com «não sei o formato».
+
+| Item | Onde |
+| --- | --- |
+| Tipo de conteúdo **`ficheiro`**, com o seu carácter na moldura | `media/moldura.rs`, `crypto/rust/src/amizade.rs` |
+| `POST /ficheiros` — envia um ficheiro arbitrário | `server/rotas.py` |
+| `GET /armazenamento` — **tudo** o que a conta tem guardado | `server/rotas.py`, `server/loja.py` §`armazenamento` |
+| Vista de armazenamento, com reabertura pelo `memfd` | `UI/src/pages/Armazenamento.jsx` |
+| Botão de enviar ficheiro, com clipe na caixa de escrita | `UI/src/components/onyx/MessageComposer.jsx` |
+
+### Adicionado — interface
+
+| Item | Onde |
+| --- | --- |
+| Chamada de áudio e de vídeo, com dois botões no cabeçalho da conversa | `UI/src/components/onyx/ConversationView.jsx` |
+| A chamada **sem** `WebCodecs`: o daemon descodifica, a interface mostra | `UI/src/lib/onyx/Chamada.jsx` |
+| Estados da chamada: parada, a-tocar, a-esperar, ligada, terminada | `UI/src/lib/onyx/Chamada.jsx` §`ESTADO` |
+
+### Adicionado — envelope de controlo
+
+| Item | Onde |
+| --- | --- |
+| `RING`, `ACCEPT`, `REJECT`, `CANCEL`, `BYE`, com sessão de 16 bytes | `messenger/controle.py` |
+| 31 testes | `tests/test_controle.py` |
+
+### Corrigido — o `ffmpeg` embebido não capturava nada
+
+A receita tinha `--disable-everything` e **nenhum** `--enable-indev`, e o
+`configure` desligava as entradas de captura com um `WARNING` que ninguém
+lia. O `-buildconf` declarava `--enable-indev=alsa` e o binário **não
+tinha** `alsa` — e a falha só aparecia no primeiro `MEDIA_CAPTURAR`, com o
+daemon já a correr e a ligação estabelecida.
+
+| Item | Onde |
+| --- | --- |
+| Entradas de captura na receita, e uma verificação que falha o build se faltarem | `tools/ffmpeg/build.sh` |
+| `--enable-decoder=opus`, que faltava para o áudio ter caminho de volta | `tools/ffmpeg/build.sh` |
+| `--enable-decoder=pcm_s16le`, sem o qual o microfone era capturado e rejeitado | `tools/ffmpeg/build.sh` |
+| `--enable-outdev=alsa`, que faltava para haver por onde tocar | `tools/ffmpeg/build.sh` |
+| Teste que **falha** quando as entradas não estão no binário | `network/daemon_rust/tests/media_embutido.rs` |
+
+### Corrigido — a taxa de media que não cabia
+
+O tecto de media era 64 por janela de 10 s, e uma chamada a 30 fps com
+Opus de 20 ms produz 80 mensagens por segundo — 800 por janela.
+
+| Item | Onde |
+| --- | --- |
+| Agregação de **8 pacotes** de Opus por mensagem (160 ms) | `messenger/media.py` |
+| `LIMITE_FRAMES_MEDIA` de 64 para **512** | `network/daemon_rust/src/p2p.rs` |
+| Medido: **362** mensagens por janela, contra 512 — 41 % de folga | `network/daemon_rust/src/p2p.rs` §`LIMITE_FRAMES_MEDIA` |
+
+E a conta que fiscaliza isto estava errada por duas ordens de grandeza:
+dividia o **bitrate** pelo tamanho de um envelope, e media o que caberia
+num envelope cheio em vez do que se envia.
+
+### Corrigido — o relógio do áudio era estimado
+
+A agregação dividia os bytes por `bytes_por_ms` — uma média. Um pacote
+de 20 ms estimado em 19,6 ms dá 24 segundos de diferença ao fim de
+dez minutos de chamada.
+
+| Item | Onde |
+| --- | --- |
+| O daemon **conta** o tempo de media e escreve-o no cabeçalho | `network/daemon_rust/src/ipc.rs` §`MEDIA_AUDIO` |
+| A agregação usa o tempo contado, e não a média | `messenger/media.py` §`_ms_do_audio_acumulado` |
+
+### Corrigido — a configuração do cancelador de eco
+
+A `AecConfig` do WebRTC são quatro `int16_t`, e passar um `i32` dava
+`AEC_BAD_PARAMETER_ERROR` (12004) — que é um número que não aponta para
+a causa.
+
+| Item | Onde |
+| --- | --- |
+| A configuração com o layout certo | `media/eco.rs` |
+| A assinatura do `WebRtcAec_Create`, que a biblioteca tem **diferente** da publicada | `media/eco.rs` §`PfnCriar` |
+
+### Corrigido — a interface dependia de APIs que o renderizador não garante
+
+A primeira implementação da chamada usava `VideoDecoder`, `AudioDecoder` e
+`AudioContext`. As três são de browser, e o renderizador é um
+WebKitGTK 6.
+
+| Item | Onde |
+| --- | --- |
+| `VideoChamada.js` e `AudioChamada.js` removidos | `UI/src/lib/onyx/` |
+| A chamada passou a pedir imagens ao daemon | `UI/src/lib/onyx/Chamada.jsx` |
+
+### Documentação
+
+| Item | Onde |
+| --- | --- |
+| A especificação do sistema de media, do invariante ao lip sync | [`media.md`](docs/media.md) |
+| Os opcodes de media e as respostas | [`ipc.md`](docs/ipc.md) |
+| As rotas do sidecar, com as de media e as de ficheiro | [`sidecar.md`](docs/sidecar.md) |
+| Os vectors cruzados dos quatro tipos de derivação | [`test_vectors.md`](docs/test_vectors.md) |
+
+### O que esta entrada não cobre
+
+Duas coisas estão escritas, testadas e **não** chegam ao par. A
+razão é a mesma nas duas: **o `sidecar` não tem as chaves de
+amizade**, e quem envia pela rede é o `messenger`, que as tem.
+
+- **A sinalização de chamada não chega ao par.** O `RING`, o `ACCEPT` e
+  o `REJECT` têm formato (`messenger/controle.py`) e chave derivada
+  (`crypto/rust/src/amizade.rs`), e falta-lhes a sessão de rede que os
+  ligue.
+- **O envio de ficheiros não sai pela rede.** A rota `POST /ficheiros`
+  guarda o ficheiro e devolve o manifesto; quem o envia é o
+  `messenger`, e `enviar_transferencia` — que cifra, envia e monta —
+  **está escrito e testado**, e ninguém o chama.
+
+E o que está testado é o **caminho**, não a rede: que o que sai do
+emissor é o que o receptor separa, com um `ffmpeg` falso e sem Tor. Um
+teste que dependesse de qualquer um dos dois falharia numa máquina sem
+câmara.
+
+---
+
 ## [Não publicado]
 
 Trabalhos que ainda não têm versão. A secção não existia até haver o
@@ -109,8 +324,7 @@ estados que nada produzia.
   `silenciar_conversa`, `limpar_historico`, `bloquear_contacto` e a
   Already-existente `marcar_lida`, agora exposta por rota;
 - cinco rotas novas em `server/rotas.py`, todas `POST` (a rota
-  `/conversas/{id}/lida` já existia desde a Etapa 5 sem que nada a
-  chamasse);
+  `/conversas/{id}/lida` já existia sem que nada a chamasse);
 - cinco métodos em cada um dos dois adaptadores, mais a declaração no
   contrato `data-adapter.js` — **25** em cada, e o número passa a ser
   conferido por `scripts/verificar_estrutura.py`;
@@ -143,7 +357,7 @@ o Markdown continua bem formado e o leitor vê uma linha igual às outras.
 
 | Alegação falsa | Onde estava | A verdade |
 | --- | --- | --- |
-| `mlockall` por fazer | quatro documentos | implementado desde a fase F |
+| `mlockall` por fazer | quatro documentos | já implementado |
 | `pub_de_hex()` é código morto | [`ipc.md`](docs/ipc.md) | chamado em `ipc.rs:879` |
 | anti-replay só em memória | [`message_format.md`](docs/message_format.md) | persiste, com `fsync` e `rename` |
 | não há cliente de discovery em `messenger/` | [`discovery.md`](docs/discovery.md) | `messenger/descoberta.py` |
@@ -160,12 +374,12 @@ seria a mesma mentira.
 ### Corrigido — texto que mentia a quem usava o programa
 
 - `Settings.jsx`, no ramo **real** (não de demonstração), dizia «a ponte
-  que o serve ainda não existe — chega na Etapa 5». A Etapa 5 está
-  concluída desde havia meses.
-- `TopBar.jsx` prometia «Bloquear» e «Exportar chave» da Etapa 4, que
-  já estava concluída, e afirmava «o OnyxChat não tem contas». Passou a
-  ligar as acções reais: trancar a sessão e exportar a cópia cifrada.
-- `Recuperar.jsx` dizia que «a Etapa 5 põe aqui o sidecar real».
+  que o serve ainda não existe — chega quando o sidecar lá chegar». O
+  sidecar já estava concluído havia meses.
+- `TopBar.jsx` prometia «Bloquear» e «Exportar chave» de trabalho já
+  concluído, e afirmava «o OnyxChat não tem contas». Passou a ligar as
+  acções reais: trancar a sessão e exportar a cópia cifrada.
+- `Recuperar.jsx` dizia que «o sidecar real chega aqui».
 
 Ao ligar essas acções apareceu um **defeito real** que a leitura não
 teria encontrado: a cópia de segurança era exportada em base64 e o ecrã de
@@ -188,9 +402,10 @@ excepção desaparecer **em silêncio**.
   «22 métodos», «catorze funções» e «vinte e uma funções» — o número
   real nunca foi nenhum dos três, e o 22 era a contagem das **rotas**,
   copiada para a outra. A contagem passou a ser conferida pelo portão.
-- **Colisão de nomes.** «Etapa 7» significava três coisas diferentes: a
-  interface, a rede, e uma terceira em `test_e2e_sidecar.py`. A rede
-  passou a escrever «etapa de rede», sem número.
+- **Colisão de nomes.** Um mesmo número de etapa significava três
+  coisas diferentes: a interface, a rede, e uma terceira em
+  `test_e2e_sidecar.py`. A rede passou a escrever «etapa de rede», sem
+  número, e a interface deixou de numerar.
 - **`docs/sidecar.md` inexistente** — ver acima.
 - **Defeitos menores:** uma tabela que dizia «cinco áreas» sobre quatro,
   duas linhas duplicadas, um passo duplicado, um vector de testes
@@ -292,7 +507,8 @@ especificações formais e testes de paridade».
 > existe — e um link para uma página que devolve 404 é a mesma promessa
 > que não se cumpre que este documento passou o dia inteiro a corrigir.
 >
-> Quando publicares, `git tag v0.1.0` torna a linha abaixo verdadeira e
+> Quando publicares, `git tag v0.2.0` torna a linha abaixo verdadeira e
 > a referência passa a apontar para a *release*.
 
+[0.2.0]: https://github.com/Shega-PT/OnyxChat
 [0.1.0]: https://github.com/Shega-PT/OnyxChat

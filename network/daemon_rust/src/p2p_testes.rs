@@ -1304,7 +1304,7 @@ fn frame_novo() {
 }
 
 // -----------------------------------------------------------------
-// Endpoint do relay — validação (Fase E)
+// Endpoint do relay — validação
 // -----------------------------------------------------------------
 //
 // Estes testes são a razão de `Endpoint::validar` existir. Sem eles,

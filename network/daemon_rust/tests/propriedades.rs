@@ -5,7 +5,7 @@
 // exige autorização do titular — ver COMMERCIAL-LICENSE.md.
 
 // =====================================================================
-// propriedades.rs — property tests do daemon (Fase 3.2)
+// propriedades.rs — property tests do daemon
 // ---------------------------------------------------------------------
 // Invariântes do sistema para TODO o domínio de inputs gerados
 // (Resumo §48), não apenas para exemplos fixos:
@@ -173,7 +173,7 @@ proptest! {
 // matriz documenta. Só assim é que a tabela de `testing.md` fica
 // verificada por código e não apenas afirmada em prosa:
 //
-//   versão alterada    → EnvelopeInvalido   (anti-downgrade, fase 1)
+//   versão alterada    → EnvelopeInvalido   (anti-downgrade)
 //   nonce alterado     → AssinaturaInvalida (nonce coberto pela sig.)
 //   assinatura alter.  → AssinaturaInvalida (Ed25519)
 //   ciphertext alter.  → AssinaturaInvalida (a sig. cobre o ciphertext)

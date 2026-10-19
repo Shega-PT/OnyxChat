@@ -7,64 +7,99 @@
 /**
  * `Chamada` — a chamada, de ponta a ponta, do botão ao som.
  *
- * ## Um só componente, e porquê
+ * ## E o que mudou, e porquê
  *
- * Porque uma chamada tem **um** relógio. O vídeo e o áudio têm relógios
- * independentes no browser — o `VideoDecoder` conta em quadros e o
- * `AudioContext` em amostras de cristal — e o que os liga é o
- * `clock_ms` que o daemon carimba em cada quadro e o limitador da §8.0
- * que impede o áudio de passar à frente.
+ * A versão anterior deste componente dependia de três APIs de browser
+ * que o renderizador **não garante**:
  *
- * Com dois componentes, cada um com o seu `useEffect`, os dois
- * conversos nascem em momentos diferentes e o áudio pode ficar meio
- * segundo à frente do vídeo sem que nada o diga. Com um, o relógio é
- * um.
+ * | API | Onde | O que acontece sem ela |
+ * |---|---|---|
+ * | `VideoDecoder` | `VideoChamada.js` | a imagem não aparece — e o erro é um ecrã preto |
+ * | `AudioDecoder` | `AudioChamada.js` | o som não aparece — e o erro é silêncio |
+ * | `AudioContext` | `AudioChamada.js` | o áudio fica `suspended` — e o erro é silêncio |
  *
- * ## O gesto, e porque não há atalho para ele
+ * O renderizador é um **WebKitGTK 6** (`scripts/interface-visual.js`),
+ * e o WebKitGTK não garante nenhuma delas. A primeira versão do
+ * `VideoChamada.js` dizia-o no seu próprio cabeçalho: «um browser sem
+ * `VideoDecoder` não tem vídeo».
  *
- * ## Porque o botão é preciso e não um `useEffect`
+ * Por isso o áudio e o vídeo **mudaram de dono**:
  *
- * O browser não deixa criar um `AudioContext` fora de um gesto do
- * utilizador. Sem gesto, o contexto nasce `suspended`, o `decode()`
- * corre e não produz som, **sem erro nenhum** — e o sintoma é uma
- * chamada em que se vê a imagem e não se ouve a voz, que é a falha mais
- * confusa que uma chamada pode ter.
+ * * o **vídeo** é descodificado no daemon, que tem o `ffmpeg` com o
+ *   decoder de VP8, e chega à interface como **JPEG** — que qualquer
+ *   motor de renderização mostra num `<img>` sem descodificar nada;
+ * * o **áudio** é descodificado e reproduzido no daemon, que o escreve
+ *   no dispositivo de som. A interface nunca vê o áudio.
  *
- * Não há `resume()` que resolva: `resume()` também precisa de um gesto.
- * E não há polyfill. A decisão é do browser e é a única forma de
- * respectá-la sem mentir ao utilizador sobre o que está a acontecer.
+ * E o que a interface faz, então, é mostrar imagens e dizer ao daemon
+ * o que tocar. O `AudioContext` desapareceu, e com ele a restrição de
+ * «só dentro de um gesto» — que era a fonte da metade dos problemas
+ * desta componente.
  *
- * ## O atraso, honestamente
+ * ## Os estados
+ *
+ * São **cinco**, e não três, porque uma chamada tem mais momentos do
+ * que «ligada» e «parada»:
  *
  * ```text
- *   1 frame de captura        33 ms
- * + fila do VideoDecoder     ~33 ms
- * + AudioContext             10-20 ms   §10.3.1
- * + RTT do Tor             100-500 ms   §3.5
+ * parada → a-tocar → a-esperar → ligada → terminada
  * ```
  *
- * O `AudioContext` e o `VideoDecoder` são os dois que se podem
- * escolher. O RTT não: §3.5 diz que é o piso e que nenhum número
- * daqui o reduz.
+ * E cada um existe porque sem ele a pessoa não sabe o que está a
+ * acontecer. O `a-esperar` — a pessoa recebeu um convite e ainda não
+ * respondeu — é o que impede que alguém fique a falar para o vazio
+ * sem perceber que o outro lado não ouviu.
  *
- * ## O que este componente **não** faz
+ * ## E o lip sync
  *
- * Não escolhe quem chama, não descodifica o Opus (isso é o
- * `AudioChamada`), não desenha o quadro (isso é o `VideoChamada`), e
- * não sabe nada de envelopes. É a cola entre três coisas que já sabem
- * o seu trabalho.
+ * O `clock_ms` que viaja com cada quadro e com cada pacote de áudio é
+ * o que liga os dois. E a decisão — apresentar, apresentar já, ou
+ * descartar — é a regra dos três cenários de `docs/media.md` §5.5.
+ *
+ * A regra está no **daemon**, e não aqui: o daemon tem os dois
+ * relógios, e a interface tem um só e não sabe a que momento pertence.
+ *
+ * ## E o que este componente **não** faz
+ *
+ * Não escolhe quem chama — isso é do `TopBar`, que sabe a quem é a
+ * conversa. Não sabe nada de envelopes, de chaves ou de Tor. E não
+ * decide o que é um quadro válido: isso é do `ffmpeg`, que o diz.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ErroVideo, useVideoChamada } from './VideoChamada.js'
-import { useAudioChamada } from './AudioChamada.js'
 
 /**
- * A geometria de omissão, e tem de bater com `EmissorStreaming` em Python.
+ * O que correu mal com o media.
+ *
+ * E uma classe própria, e não um `Error` nu, porque a interface mostra
+ * a mensagem e o `name` é o que a distingue de um erro de rede — que é
+ * uma coisa com outra leitura.
+ *
+ * ## E porque vive aqui
+ *
+ * Porque o `VideoChamada.js` — onde vivia — deixou de existir: a
+ * descodificação passou para o daemon, e o que a interface faz do vídeo
+ * é mostrar um JPEG. A classe ficou, e mudar de sítio é o que evita
+ * deixar um ficheiro morto que ainda é importado.
+ */
+export class ErroVideo extends Error {
+  /**
+   * @param {string} mensagem O que correu mal, em português.
+   * @param {string} [código] O `name` da excepção do browser.
+   */
+  constructor(mensagem, código = '') {
+    super(mensagem)
+    this.name = 'ErroVideo'
+    this.código = código
+  }
+}
+
+/**
+ * A geometria, e tem de bater com `EmissorStreaming` em Python.
  *
  * 480p a 30 fps a 300 kbit/s: §3.4.2 mediu 6,3× de folga no orçamento
- * de 12,8 msg/s.
+ * de mensagens.
  */
 const LARGURA = 854
 const ALTURA = 480
@@ -75,49 +110,127 @@ const VIDEO_KBPS = 300
 /**
  * Os estados de uma chamada.
  *
- * São três e não dois porque «a ligar» e «ligada» são coisas
- * diferentes para quem está do outro lado: durante o `a ligar` o
- * `ffmpeg` ainda está a arrancar e ainda não há som, e dizer «ligada»
- * antes disso é uma mentira que a pessoa descobre 200 ms depois.
+ * E um `Object.freeze`, porque um estado que muda de valor é um estado
+ * que se compara por identidade noutro sítio e dá sempre diferente.
  */
-const ESTADO = {
+export const ESTADO = Object.freeze({
+  /** Não há chamada. */
   PARADA: 'parada',
-  A_LIGAR: 'a-ligar',
+  /** Tocou, e o outro lado ainda não respondeu. */
+  A_TOCAR: 'a-tocar',
+  /** O outro lado tocou, e esta pessoa ainda não respondeu. */
+  A_ESPERAR: 'a-esperar',
+  /** A chamada está a decorrer. */
   LIGADA: 'ligada',
+  /** A chamada acabou. */
+  TERMINADA: 'terminada',
+})
+
+/**
+ * O que a interface mostra, por estado.
+ *
+ * E um mapa e não um `switch` dentro do componente, porque o mesmo
+ * estado aparece em mais do que um sítio — o ecrã e o botão — e dois
+ * `switch` divergem.
+ */
+export const TEXTO_ESTADO = Object.freeze({
+  [ESTADO.PARADA]: '',
+  [ESTADO.A_TOCAR]: 'A tocar…',
+  [ESTADO.A_ESPERAR]: 'Chamada a entrar…',
+  [ESTADO.LIGADA]: 'A chamar',
+  [ESTADO.TERMINADA]: 'Chamada terminada',
+})
+
+/**
+ * Converte base-64 em bytes.
+ *
+ * E o `atob` e não o `fetch('data:...')` que a versão anterior usava.
+ * O `fetch` de um `data:` URL é uma **operação assíncrona** que
+ * bloqueia o laço de leitura por um instante de cada vez — e a 30
+ * quadros por segundo isso são 30 paragens por segundo num caminho que
+ * devia ser só uma leitura.
+ *
+ * @param {string} base64
+ * @returns {Uint8Array}
+ */
+function deBase64(base64) {
+  const binario = atob(base64)
+  const bytes = new Uint8Array(binario.length)
+  for (let i = 0; i < binario.length; i += 1) {
+    bytes[i] = binario.charCodeAt(i)
+  }
+  return bytes
 }
 
 /**
- * A chamada: vídeo e áudio, com um relógio.
+ * Converte bytes num `blob:` URL, para um `<img>`.
+ *
+ * E um `blob:` e não um `data:` URL porque o `data:` embute a imagem
+ * inteira no atributo `src` — e a 30 quadros por segundo, a 30 KB por
+ * quadro, são 900 KB de base-64 por segundo a entrar no DOM e a sair
+ * dele.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function paraBlobUrl(bytes) {
+  return URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }))
+}
+
+/**
+ * A chamada: o que a interface faz, e o que pede ao daemon.
  *
  * @param {object} props
  * @param {object} props.adaptador O adaptador (`bridge-adapter.js`).
  * @param {(estado: string) => void} [props.aoMudarEstado] Chamado com o
- *   estado: `parada`, `a-ligar` ou `ligada`.
+ *   estado da chamada.
  * @param {(quadros: number) => void} [props.aoReceberVideo] Quantos
- *   quadros a UI já viu. Serve para mostrar que a chamada está viva,
- *   que num vídeo parado também é verdade.
+ *   quadros a UI já viu.
+ * @param {(imagem: string | null) => void} [props.aoReceberImagem] A
+ *   imagem mais recente, como um `blob:` URL. O componente **não**
+ *   mostra a imagem: quem mostra é quem tem o `<img>`, e passar a URL
+ *   é o que deixa a decisão de a mostrar a quem tem o contexto.
+ * @param {(sessao: string | null) => void} [props.aoMudarSessao] A
+ *   sessão da chamada, que é o que amarra o convite ao media.
+ * @param {(accoes: object) => void} [props.aoMudarAccoes] Chamado com
+ *   as acções da chamada — `ligar`, `atender`, `recusar`,
+ *   `entrouChamada` e `terminar`. É por aqui que quem tem os botões
+ *   chega às acções.
  * @returns {JSX.Element} O elemento.
  */
-export default function Chamada({ adaptador, aoMudarEstado, aoReceberVideo }) {
-  const { canvasRef, erro: erroVideo, descodificar: descodificarVideo } =
-    useVideoChamada(LARGURA, ALTURA)
-  const { descodificar: descodificarAudio, acordar, estado: estadoAudio, erro: erroAudio } =
-    useAudioChamada()
-
+export default function Chamada({
+  adaptador,
+  aoMudarEstado,
+  aoReceberVideo,
+  aoReceberImagem,
+  aoMudarSessao,
+  aoMudarAccoes,
+}) {
   const [estado, definirEstado] = useState(ESTADO.PARADA)
   const [erro, definirErro] = useState(null)
   const [quadros, definirQuadros] = useState(0)
+  const [imagem, definirImagem] = useState(null)
 
   // Um `ref` e não estado: o `AbortController` tem de sobreviver a
   // re-renders, e um `useState` recriava o pedido a cada render — o que
-  // com 30 fps por segundo é 30 leituras de quadros a mais por segundo.
+  // com 30 fps por segundo são 30 leituras de quadros a mais por
+  // segundo.
   const pararRef = useRef(null)
+  // E a `URL` da imagem, para a revogar. Uma `blob:` URL que não é
+  // revogada fica na memória do renderer até ao fim da sessão, e a 30
+  // por segundo são 30 imagens por segundo a acumular.
+  const urlImagemRef = useRef(null)
 
   const parar = useCallback(() => {
     if (pararRef.current) {
       pararRef.current.abort()
       pararRef.current = null
     }
+    if (urlImagemRef.current) {
+      URL.revokeObjectURL(urlImagemRef.current)
+      urlImagemRef.current = null
+    }
+    definirImagem(null)
   }, [])
 
   useEffect(() => {
@@ -127,7 +240,10 @@ export default function Chamada({ adaptador, aoMudarEstado, aoReceberVideo }) {
     if (aoReceberVideo && estado === ESTADO.LIGADA) {
       aoReceberVideo(quadros)
     }
-  }, [estado, quadros, aoMudarEstado, aoReceberVideo])
+    if (aoReceberImagem) {
+      aoReceberImagem(imagem)
+    }
+  }, [estado, quadros, imagem, aoMudarEstado, aoReceberVideo, aoReceberImagem])
 
   const terminar = useCallback(
     async (adaptadorActual) => {
@@ -137,9 +253,32 @@ export default function Chamada({ adaptador, aoMudarEstado, aoReceberVideo }) {
       } catch {
         // A chamada já acabou; uma falha a fechá-la é ruído.
       }
+      definirEstado(ESTADO.TERMINADA)
     },
     [parar],
   )
+
+  /**
+   * Liga a captura local.
+   *
+   * @param {object} adaptadorActual
+   * @returns {Promise<boolean>} Se a captura arrancou.
+   */
+  const ligarCaptura = useCallback(async (adaptadorActual) => {
+    try {
+      await adaptadorActual.startVideoStream(
+        LARGURA,
+        ALTURA,
+        FPS,
+        AUDIO_KBPS,
+        VIDEO_KBPS,
+      )
+      return true
+    } catch (e) {
+      definirErro(new ErroVideo(`a captura não arrancou: ${e.message}`))
+      return false
+    }
+  }, [])
 
   /**
    * Liga a chamada. **Chamar dentro de um gesto do utilizador.**
@@ -148,24 +287,13 @@ export default function Chamada({ adaptador, aoMudarEstado, aoReceberVideo }) {
    *   quando falhou — a falha vai para o `erro` e não é atirada.
    */
   const ligar = useCallback(async () => {
-    if (estado !== ESTADO.PARADA) {
+    if (estado !== ESTADO.PARADA && estado !== ESTADO.TERMINADA) {
       return
     }
-    definirEstado(ESTADO.A_LIGAR)
+    definirEstado(ESTADO.A_TOCAR)
     definirErro(null)
 
-    // O áudio primeiro, e **dentro do gesto**: é o único momento em
-    // que o browser deixa criar um `AudioContext`. Se este passo
-    // falhar, a captura nem é ligada — um `ffmpeg` a ler o ecrã sem
-    // ninguém a ouvir é pior do que nenhum.
-    const acordou = await acordar()
-    if (!acordou) {
-      definirErro(
-        new ErroVideo(
-          'o browser não deixou ligar o áudio: uma chamada só começa ' +
-            'a partir de um clique',
-        ),
-      )
+    if (!(await ligarCaptura(adaptador))) {
       definirEstado(ESTADO.PARADA)
       return
     }
@@ -173,20 +301,6 @@ export default function Chamada({ adaptador, aoMudarEstado, aoReceberVideo }) {
     const controlador = new AbortController()
     pararRef.current = controlador
     let vivo = true
-
-    try {
-      await adaptador.startVideoStream(
-        LARGURA,
-        ALTURA,
-        FPS,
-        AUDIO_KBPS,
-        VIDEO_KBPS,
-      )
-    } catch (e) {
-      definirErro(new ErroVideo(`a captura não arrancou: ${e.message}`))
-      definirEstado(ESTADO.PARADA)
-      return
-    }
 
     definirEstado(ESTADO.LIGADA)
 
@@ -215,138 +329,121 @@ export default function Chamada({ adaptador, aoMudarEstado, aoReceberVideo }) {
         }
 
         try {
-          const vp8 = await deBase64(quadro.vp8)
-          await descodificarVideo(vp8, quadro.clockMs)
-          if (vivo) {
-            definirQuadros((n) => n + 1)
+          // E a A descodificação acontece **no daemon**. O VP8 chega
+          // cru e sai JPEG, e a interface escreve num `<img>` — que
+          // qualquer motor de renderização mostra sem descodificar
+          // nada.
+          const imagemDecodificada = await adaptador.decodeVideoImage(
+            quadro.vp8,
+            LARGURA,
+            ALTURA,
+          )
+          if (!vivo) {
+            return
           }
+
+          if (urlImagemRef.current) {
+            URL.revokeObjectURL(urlImagemRef.current)
+          }
+          const url = paraBlobUrl(deBase64(imagemDecodificada.jpeg))
+          urlImagemRef.current = url
+          definirImagem(url)
+          definirQuadros((n) => n + 1)
         } catch (e) {
           if (vivo) {
-            definirErro(e)
+            // Uma imagem que não descodificou **não** é o fim da
+            // chamada. É um quadro perdido — e perdê-lo é o que o
+            // descarte do lip sync faz de propósito. O laço continua.
+            definirErro(new ErroVideo(`um quadro não descodificou: ${e.message}`))
           }
-          return
         }
       }
 
       if (vivo) {
         await terminar(adaptador)
-        definirEstado(ESTADO.PARADA)
       }
     }
 
-    const correrAudio = async () => {
-      while (vivo && !controlador.signal.aborted) {
-        let pacote
-        try {
-          pacote = await adaptador.readAudioFrame()
-        } catch (e) {
-          if (vivo) {
-            definirErro(new ErroVideo(`a leitura do áudio falhou: ${e.message}`))
-          }
-          return
-        }
-        if (!pacote) {
-          return
-        }
-        try {
-          await descodificarAudio(pacote)
-        } catch (e) {
-          if (vivo) {
-            definirErro(e)
-          }
-          return
-        }
-      }
-    }
-
-    // Dois laços e não um: o `readVideoFrame` bloqueia até haver
-    // quadro e o `readAudioFrame` até haver pacote. Um laço que
-    // esperasse pelos dois nunca sairia de espera — e os dois
-    // O bloqueio é o que mantém cada um ao seu ritmo.
-    correrAudio()
     correr()
-  }, [adaptador, acordar, descodificarAudio, descodificarVideo, estado, terminar])
+  }, [estado, adaptador, ligarCaptura, terminar])
 
-  const desligar = useCallback(async () => {
-    await terminar(adaptador)
-    definirEstado(ESTADO.PARADA)
-  }, [adaptador, terminar])
+  /**
+   * Atende uma chamada que está a entrar.
+   *
+   * @param {string} sessao A sessão do convite.
+   * @returns {Promise<void>}
+   */
+  const atender = useCallback(
+    async (sessao) => {
+      if (estado !== ESTADO.A_ESPERAR) {
+        return
+      }
+      definirEstado(ESTADO.LIGADA)
+      if (aoMudarSessao) {
+        aoMudarSessao(sessao)
+      }
+    },
+    [estado, aoMudarSessao],
+  )
 
-  const erroFinal = erro ?? erroVideo ?? erroAudio
-  if (erroFinal) {
-    return (
-      <div role="alert" className="onyx-chamada--erro">
-        <p>{erroFinal.message}</p>
-        <button type="button" onClick={() => definirErro(null)}>
-          Fechar
-        </button>
-      </div>
-    )
-  }
+  /**
+   * Recusa uma chamada que está a entrar.
+   *
+   * @returns {Promise<void>}
+   */
+  const recusar = useCallback(async () => {
+    definirEstado(ESTADO.TERMINADA)
+    parar()
+  }, [parar])
 
-  if (estado === ESTADO.PARADA) {
-    return (
-      <div className="onyx-chamada--parada">
-        {/* `onClick` e não `onPointerDown`: o browser conta um clique
-            como gesto de utilizador e nem todos os eventos de ponteiro
-            contam — um `touchstart` num browser sem `{passive: false}`
-            pode ser comido. */}
-        <button type="button" onClick={ligar}>
-          Ligar chamada
-        </button>
-      </div>
-    )
-  }
+  /**
+   * Marca que uma chamada está a entrar.
+   *
+   * @param {string} sessao A sessão do convite.
+   */
+  const entrouChamada = useCallback(
+    (sessao) => {
+      if (estado !== ESTADO.PARADA) {
+        return
+      }
+      definirEstado(ESTADO.A_ESPERAR)
+      if (aoMudarSessao) {
+        aoMudarSessao(sessao)
+      }
+    },
+    [estado, aoMudarSessao],
+  )
+
+  // A limpeza: o `AbortController` e a `blob:` URL.
+  useEffect(() => () => parar(), [parar])
+
+  // As acções da chamada, para quem tem o contexto.
+  //
+  // E um callback e não o retorno do componente, porque o `Chamada` é
+  // usado dentro de um `ChamadaView` que **é** quem tem os botões — e
+  // um `ref` seria a única forma de o pai chamar estas funções, e um
+  // `ref` para um `useCallback` é a forma mais chata de o resolver.
+  //
+  // E o `aoMudarAccoes` é chamado **sempre** que as acções mudam, e
+  // não só no primeiro render: o `ligar` depende do `estado`, e sem
+  // isto o pai ficaria com a função do primeiro render — a que não
+  // ligava porque o estado era `parada` mas o closure era de outro
+  // momento.
+  useEffect(() => {
+    if (aoMudarAccoes) {
+      aoMudarAccoes({ ligar, atender, recusar, entrouChamada, terminar })
+    }
+  }, [ligar, atender, recusar, entrouChamada, terminar, aoMudarAccoes])
 
   return (
-    <div className="onyx-chamada">
-      <canvas
-        ref={canvasRef}
-        width={LARGURA}
-        height={ALTURA}
-        aria-label="Vídeo da chamada"
-      />
-      <button type="button" onClick={desligar}>
-        Desligar
-      </button>
-      {estadoAudio.naFila > 0 ? (
-        <span className="onyx-chamada--fila">
-          áudio: {estadoAudio.naFila} em espera
-        </span>
-      ) : null}
+    <div
+      className="onyx-chamada"
+      data-estado={estado}
+      data-quadros={quadros}
+      data-tem-erro={erro ? 'sim' : 'nao'}
+    >
+      {erro ? <p className="onyx-chamada-erro">{erro.message}</p> : null}
+      {aoMudarEstado ? null : <span>{TEXTO_ESTADO[estado]}</span>}
     </div>
   )
-}
-
-/**
- * Converte base-64 em `Uint8Array`.
- *
- * **Não** usa `atob`: `atob` dá uma `string`, e passar os bytes por
- * uma string e voltar a convertê-los custa o dobro e passa por um
- * caminho onde um byte acima de 0x7F já mudou. `fetch` com um `data:`
- * URL faz a descodificação em C++ do browser.
- *
- * @param {string} base64 O texto em base-64.
- * @returns {Promise<Uint8Array>} Os bytes.
- */
-async function deBase64(base64) {
-  const resposta = await fetch(`data:application/octet-stream;base64,${base64}`)
-  return new Uint8Array(await resposta.arrayBuffer())
-}
-
-/**
- * Exporta o áudio a um descodificador, para uso fora do componente.
- *
- * Existe para o caso de o áudio vir por um caminho que não é o
- * `readVideoFrame` — um `MediaStream` do browser, ou um teste. Sem
- * isto, quem quiser dar áudio a este componente tem de saber os
- * detalhes do `AudioContext`.
- *
- * @param {object} descodificador O que `useAudioChamada` devolve.
- * @param {Uint8Array} dados O pacote de Opus.
- * @param {number} [taxa] A taxa, se souber.
- * @returns {Promise<void>} Resolve quando foi entregue.
- */
-export async function darAudio(descodificador, dados, taxa = 0) {
-  await descodificador.descodificar(dados, taxa)
 }

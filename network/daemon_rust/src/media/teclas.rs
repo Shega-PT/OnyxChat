@@ -59,6 +59,14 @@ pub fn bytes_de_tipo_video() -> u8 {
     amizade::TIPO_VIDEO
 }
 
+/// O byte do tipo de ficheiro no `info` do HKDF.
+///
+/// E o valor que a derivação reservou, e o mesmo que o Python usa. E
+/// **diferente** do `F` do preâmbulo — ver [`crate::media::moldura::Tipo::tipo_derivado`].
+pub fn bytes_de_tipo_ficheiro() -> u8 {
+    amizade::TIPO_FICHEIRO
+}
+
 /// O tipo de media de que o `info` de uma chave foi derivado, ou
 /// `None` se não foi nenhum.
 ///
@@ -70,6 +78,7 @@ pub fn tipo_de_bytes(b: u8) -> Option<Tipo> {
     match b {
         x if x == bytes_de_tipo_audio() => Some(Tipo::Audio),
         x if x == bytes_de_tipo_video() => Some(Tipo::Video),
+        x if x == bytes_de_tipo_ficheiro() => Some(Tipo::Ficheiro),
         _ => None,
     }
 }
@@ -85,7 +94,7 @@ pub fn tipo_de_bytes(b: u8) -> Option<Tipo> {
 /// tem de testar na mesma ordem — e duas listas de ordem divergentes
 /// dariam um sistema que abre texto num lado e áudio no outro. Ver
 /// `messenger/media.py`.
-pub const ORDEM: [Tipo; 2] = [Tipo::Audio, Tipo::Video];
+pub const ORDEM: [Tipo; 3] = [Tipo::Audio, Tipo::Video, Tipo::Ficheiro];
 
 /// As chaves K1 de media para um envelope, por tipo.
 ///
@@ -109,11 +118,15 @@ pub fn derivadas(
     let video =
         amizade::derivar_k1_por_tipo(k_emissor, k_recetor, publica_emissor, amizade::TIPO_VIDEO)
             .ok_or(ErroMedia::TipoSemChave(amizade::TIPO_VIDEO))?;
+    let ficheiro =
+        amizade::derivar_k1_por_tipo(k_emissor, k_recetor, publica_emissor, amizade::TIPO_FICHEIRO)
+            .ok_or(ErroMedia::TipoSemChave(amizade::TIPO_FICHEIRO))?;
 
     Ok(ChavesMedia {
         texto: *k_texto,
         audio,
         video,
+        ficheiro,
     })
 }
 
@@ -129,6 +142,12 @@ pub struct ChavesMedia {
     pub audio: [u8; 32],
     /// A chave derivada de vídeo.
     pub video: [u8; 32],
+    /// A chave derivada de ficheiro.
+    ///
+    /// E o que separa um ficheiro do texto na sondagem — e o que
+    /// impede que quem não é o par saiba que se está a enviar um
+    /// ficheiro.
+    pub ficheiro: [u8; 32],
 }
 
 impl ChavesMedia {
@@ -143,6 +162,7 @@ impl ChavesMedia {
         match tipo {
             Tipo::Audio => Some(self.audio),
             Tipo::Video => Some(self.video),
+            Tipo::Ficheiro => Some(self.ficheiro),
         }
     }
 
@@ -262,6 +282,7 @@ mod testes {
             texto: [0x00; 32],
             audio: [0xAA; 32],
             video: [0xBB; 32],
+            ficheiro: [0xCC; 32],
         }
     }
 

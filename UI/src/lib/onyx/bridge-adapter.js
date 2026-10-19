@@ -172,9 +172,9 @@ export class ErroDoSidecar extends Error {
  * `ErroDoSidecar`, que traz o código HTTP e o detalhe.
  *
  * Uma versão anterior deste ficheiro dizia que «todas as funções
- * recusavam até a Etapa 5». Já não era verdade, e uma mensagem de erro
- * que aponta para um estado ultrapassado faz quem depura perder tempo a
- * procurar a Etapa 5 num projecto que já passou dela.
+ * recusavam». Já não era verdade, e uma mensagem de erro que aponta
+ * para um estado ultrapassado faz quem depura perder tempo a procurar
+ * um estado que já passou.
  */
 /** @type {import('./data-adapter').AdaptadorDados} */
 export const bridgeAdapter = {
@@ -201,7 +201,7 @@ export const bridgeAdapter = {
   /**
    * Marca a conversa e as suas mensagens recebidas como lidas.
    *
-   * A rota `/conversas/{id}/lida` existe no backend desde a Etapa 5 e
+   * A rota `/conversas/{id}/lida` existe no backend e
    * nunca foi chamada: o botão estava no menu de contexto e não fazia
    * nada. Ver `Conversations.jsx` §As acções que escrevem.
    *
@@ -412,6 +412,27 @@ export const bridgeAdapter = {
   },
 
   /**
+   * Descodifica um quadro de VP8 para JPEG.
+   *
+   * E o caminho de volta da imagem. A interface é uma página servida a
+   * um WebKitGTK 6, e o WebKitGTK **não garante** `VideoDecoder` — a
+   * API de WebCodecs. Sem ela, quem tem o `ffmpeg` com o decoder de VP8
+   * é o daemon, e a imagem chega à interface pronta a mostrar num
+   * `<img>`.
+   *
+   * @param {string} vp8 o quadro em base-64.
+   * @param {number} largura
+   * @param {number} altura
+   * @returns {Promise<{largura: number, altura: number, jpeg: string}>}
+   */
+  async decodeVideoImage(vp8, largura, altura) {
+    return pedir('/api/media/streaming/imagem', {
+      method: 'POST',
+      body: { vp8, largura, altura },
+    })
+  },
+
+  /**
    * Termina a captura.
    *
    * @returns {Promise<void>}
@@ -487,6 +508,41 @@ export const bridgeAdapter = {
       method: 'POST',
       body: JSON.stringify({ conversa: conversationId, texto: text }),
     });
+  },
+
+  /**
+   * Envia um ficheiro para uma conversa.
+   *
+   * O ficheiro vai em **base-64** no corpo, e não como um
+   * `multipart/form-data`, porque a rota o tem de cifrar — e o que
+   * entra na cifra é texto opaco, não um corpo de formulário.
+   *
+   * E a base-64 custa 33 % de tamanho, que é o preço de um `JSON` que
+   * não tem um tipo de conteúdo para ficheiros. Para um ficheiro de
+   * 10 MB são 13 MB no fio, e é o mesmo custo que a media já paga.
+   *
+   * @param {string} conversationId
+   * @param {string} nome O nome do ficheiro, com a extensão.
+   * @param {string} conteudo O conteúdo em base-64.
+   * @returns {Promise<object>}
+   */
+  async sendFile(conversationId, nome, conteudo) {
+    return pedir('/api/ficheiros', {
+      method: 'POST',
+      body: JSON.stringify({ conversa: conversationId, nome, conteudo }),
+    })
+  },
+
+  /**
+   * O armazenamento: tudo o que a conta tem guardado.
+   *
+   * @param {boolean} [completas] `true` só as prontas, `false` só as
+   *   incompletas, sem o valor as duas.
+   * @returns {Promise<{transferencias: object[]}>}
+   */
+  async listStorage(completas = undefined) {
+    const consulta = completas === undefined ? '' : `?completas=${completas ? 'sim' : 'nao'}`
+    return pedir(`/api/armazenamento${consulta}`)
   },
 
   /** @returns {Promise<object>} */

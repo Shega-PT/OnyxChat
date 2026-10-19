@@ -311,7 +311,7 @@ recusar_build() {
 
 # O `CARGO_PROFILE_DEV_DEBUG=none` que a verificação da arti mediu.
 #
-# Não é uma optimização: é a medição da Fase 1 do `scripts/medir-arti.sh`,
+# Não é uma optimização: é a primeira medição do `scripts/medir-arti.sh`,
 # e é a razão pela qual o perfil da arti desceu de 1156 MB para 931 MB e
 # passou a caber com o editor aberto.
 #

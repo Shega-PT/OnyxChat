@@ -8,7 +8,7 @@
 # ## Onde vêm estas versões
 #
 # As quatro primeiras (bash, git, Python, Rust) e as duas do C/C++ estão
-# em `docs/USER_GUIDE.md` §1.1. A do Node foi acrescentada pela Etapa 1 da
+# em `docs/USER_GUIDE.md` §1.1. A do Node foi acrescentada com a
 # interface: o Vite 8 declara `engines.node` e o `instalar.sh` da
 # interface fixa o mesmo número. **Estes três sítios têm de concordar**;
 # se divergirem, o sintoma é um erro de módulo que não menciona versões.

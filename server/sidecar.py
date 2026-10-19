@@ -535,7 +535,7 @@ class Manipulador(BaseHTTPRequestHandler):
         Devolve ``501`` com a razão. Não devolve um WebSocket a meio, nem
         um ``404`` que não diz nada.
 
-        O plano desta Etapa previa «HTTP + WebSocket», e a parte do
+        O plano original previa «HTTP + WebSocket», e a parte do
         WebSocket ficou por fazer de propósito — ver ``docs/sidecar.md``
         §O canal de eventos, onde a decisão está escrita com a
         razão. Resumo: as vinte e cinco funções do contrato em

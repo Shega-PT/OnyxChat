@@ -48,7 +48,7 @@ misterioso em que a interface aparente funcionar.
 
 ## §A tabela de rotas
 
-**35 rotas**, todas em `server/rotas.py`. A contagem e a correspondência
+**38 rotas**, todas em `server/rotas.py`. A contagem e a correspondência
 caminho a caminho são conferidas por
 `tests/test_sidecar.py::test_a_tabela_de_rotas_da_documentacao_esta_certa`,
 e não é decorativa: uma rota acrescentada sem documentar aqui é uma rota
@@ -73,7 +73,12 @@ já não existe é um botão partido que ainda parece vivo.
 | `GET` | `/media/estado` | se há leitor, e porque não há se não há |
 | `POST` | `/media/streaming/iniciar` | liga a captura e a codificação VP8 |
 | `GET` | `/media/streaming/quadro` | o próximo quadro de VP8, em base-64 |
-| `GET` | `/media/streaming/audio` | o próximo pacote de Opus, em base-64 |
+| `GET` | `/media/streaming/audio` | o próximo pacote de Opus, em base-64, com a sequência e o `clockMs` |
+| `GET` | `/armazenamento` | **todas** as transferências da conta, de todas as conversas |
+| `POST` | `/ficheiros` | envia um ficheiro — corpo `{"conversa": id, "nome": "…", "conteudo": base64}` |
+| `GET` | `/armazenamento` | **todas** as transferências da conta, de todas as conversas |
+| `POST` | `/ficheiros` | envia um ficheiro — corpo `{"conversa": id, "nome": "…", "conteudo": base64}` |
+| `POST` | `/media/streaming/imagem` | descodifica um VP8 para JPEG — corpo `{"vp8": base64, "largura": n, "altura": n}` |
 | `POST` | `/media/streaming/parar` | diz à UI que pode deixar de pedir |
 | `GET` | `/contactos` | lista, com `?pesquisa=` |
 | `POST` | `/contactos/{id}/bloqueado` | bloqueia ou desbloqueia — corpo `{"valor": true\|false}` |
@@ -156,7 +161,7 @@ confundisse os dois passaria a medir a coisa errada. Ver
 
 **`GET /api/eventos` responde `501`, e é de propósito.**
 
-O plano original desta Etapa era «HTTP + WebSocket». O WebSocket ficou
+O plano original era «HTTP + WebSocket». O WebSocket ficou
 por fazer, e a razão está escrita:
 
 * As vinte funções do contrato em `bridge-adapter.js` são **todas**
@@ -170,16 +175,16 @@ Um `501` com a razão é melhor do que as duas alternativas: um
 WebSocket meio implementado, que a interface não sabe usar, ou um `404`
 que não diz nada e transforma uma decisão em mistério.
 
-> A contagem é **30**, não 28 nem 22. `bridge-adapter.js` e
-> `mock-adapter.js` têm 30 métodos cada, e `data-adapter.js` declara 30.
+> A contagem é **37**, não 28 nem 22. `bridge-adapter.js` e
+> `mock-adapter.js` têm 37 métodos cada, e `data-adapter.js` declara 37.
 > Os **28** eram os métodos antes das rotas de reprodução; o **22** era o
 > número de **rotas** desta tabela numa versão ainda mais antiga, e as
 > contagens foram trocadas na documentação até 2026-10-13: `sidecar.py`
 > dizia «vinte e uma funções do contrato» e `UI/README.md` dizia «22
 > métodos» — nenhum dos dois era certo, e nenhum era o número do outro.
 >
-> A relação entre rotas e métodos não é de um para um: as **31** rotas
-> dão 30 métodos, porque `/api/eventos` não tem método nenhum — não é
+> A relação entre rotas e métodos não é de um para um: as **38** rotas
+> dão 37 métodos, porque `/api/eventos` não tem método nenhum — não é
 > pedido/resposta, responde `501` de propósito.
 
 ---

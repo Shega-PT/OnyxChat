@@ -228,7 +228,7 @@ user/
 
 # 6. Interface
 # React + Vite. `src/` é o que se escreve; o resto é ferramental.
-UI/                           # 95 ficheiros JavaScript versionados
+UI/                           # 93 ficheiros JavaScript versionados
 ├─ README.md                # Padrões, decisões e o que a interface promete
 ├─ package.json
 ├─ src/
@@ -237,8 +237,10 @@ UI/                           # 95 ficheiros JavaScript versionados
 │   ├─ components/onyx/     # Componentes próprios: shell, lista, modais
 │   ├─ components/ui/       # Componentes base (shadcn/ui)
 │   ├─ hooks/               # `use-mobile`, `use-size`
-│   └─ lib/onyx/            # Adaptadores, contexto, formatação, vídeo e áudio
-│                          # `VideoChamada.js`/`AudioChamada.js` = WebCodecs
+│   └─ lib/onyx/            # Adaptadores, contexto, formatação, chamada
+│                          # `Chamada.jsx` = a chamada, sem WebCodecs
+│                          # (`VideoChamada.js`/`AudioChamada.js` saíram: a
+│                          #  descodificação passou para o daemon)
 ├─ tools/
 │   ├─ onyxchat             # `instalar`: Node local com SHA-256 fixado
 │   ├─ versoes.txt

@@ -257,7 +257,7 @@ export default function Settings() {
  * tem nada a ver com isto.
  *
  * Misturá-los daria um botão que «guarda» algo que não guardou — que é o
- * género de mentira que a Etapa 2 passou a remover de todo o resto.
+ * género de mentira que se passou a remover de todo o resto.
  *
  * ## Porque o interruptor é recarregado
  *

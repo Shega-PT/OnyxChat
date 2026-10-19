@@ -14,20 +14,60 @@
 // ## Porque isto é um módulo e não uma dependência de compilação
 //
 // Porque a máquina **não tem os cabeçalhos**. `libwebrtc-audio-processing1`
-// está instalado como `.so.1` de runtime, e `libspeexdsp1` também, e
-// nenhum dos dois tem um único `.h` — nem `pkg-config` existe nesta
-// máquina, que foi verificado antes de se decidir isto.
+// e `libspeexdsp1` estão instalados como `.so.1` de runtime, e nenhum
+// dos dois traz um `.h` — e o `pkg-config` também não está garantido.
+// Foi isso que se verificou antes de se decidir esta via.
 //
-// Qualquer crate `*-sys` que os embrulhasse (`webrtc-sys`, `speexdsp-sys`)
-// precisa dos cabeçalhos para compilar, e sem eles não compila. É o mesmo
-// problema que o `tools/ffmpeg/build.sh` resolveu com prefixos
-// desempacotados, e que aqui não se resolve: desempacotar o
+// Qualquer crate `*-sys` que os embrulhasse (`webrtc-sys`,
+// `speexdsp-sys`) precisa dos cabeçalhos para compilar, e sem eles não
+// compila. É o mesmo problema que o `tools/ffmpeg/build.sh` resolveu com
+// prefixos desempacotados, e que aqui não se resolve: desempacotar o
 // `libwebrtc-audio-processing-dev` daria o cabeçalho, mas essa é uma
 // dependência de instalação a mais para um executável que embute as suas.
 //
 // Por isso `dlopen`/`dlsym` em tempo de execução: o binário compila sem
 // cabeçalhos e a biblioteca é procurada quando há áudio para tratar.
 // Sem biblioteca, a chamada continua — muda de qualidade.
+//
+// ## As assinaturas são diferentes das do cabeçalho do WebRTC
+//
+// E isso custou uma tarde. O `echo_cancellation.h` publica
+//
+// ```c
+// int32_t WebRtcAec_Create(void** aecInst);
+// int32_t WebRtcAec_Init(void*, int32_t sampFreq, int32_t scSampFreq);
+// int32_t WebRtcAec_BufferFarend(void*, const float*, int16_t);
+// int32_t WebRtcAec_Process(void*, const float* const*, int, float* const*,
+//                          int16_t, int16_t, int32_t);
+// ```
+//
+// e a biblioteca do Ubuntu (`libwebrtc-audio-processing1` 0.3.1) tem
+// **outra** coisa:
+//
+// | Função | O cabeçalho diz | A biblioteca faz |
+// |---|---|---|
+// | `Create` | `int(void**)` — escreve o handle | `void*(void)` — devolve o handle |
+// | `Init` | `(void*, int, int)` | idêntico |
+// | `Process` | 7 parâmetros | idêntico |
+// | dados | `float` | idêntico |
+//
+// A divergência do `Create` **não dá erro**: em `x86-64` um argumento a
+// mais é ignorado, e o ponteiro que se passou por referência fica como
+// estava. O sintoma é um handle `NULL` com um código de retorno enorme —
+//
+// ```text
+// create = 2107798480   inst = (nil)
+// ```
+//
+// — que é um endereço, não um código. Cada bloco deste ficheiro traz o
+// **prólogo em código de máquina** da função, porque a assinatura certa
+// é a que se vê no `objdump` e não a que se lê num cabeçalho de outra
+// versão.
+//
+// A verificação foi feita experimentalmente, com um eco sintético —
+// um sinal e a sua cópia atrasada — e a razão entre a energia de saída
+// e a de entrada a estabilizar abaixo de 1. Está em
+// `testes::o_eco_sintetico_e_reduzido`.
 //
 // ## A referência de renderização, e o porquê de isto ser delicate
 //
@@ -37,50 +77,64 @@
 //
 // Só o primeiro vem do ALSA. O segundo só existe porque este mesmo
 // daemon reproduz o áudio da chamada — e é por isso que o módulo tem
-// duas metades: `processar` para o microfone e `referencia` para o que
-// sai.
+// duas metades: [`processar`](Cancelador::processar) para o microfone e
+// [`referencia`](Cancelador::referencia) para o que sai.
 //
 // ## Se a referência não chegar
 //
-// O AEC degrada. Não rebenta, não corta o áudio, e a documentação de
-// quem está em modo degradado diz-o (ver `estado`). É a diferença entre
-// uma chamada com eco e uma chamada muda, e a segunda é pior.
+// O AEC degrada. Não rebenta, não corta o áudio, e quem chama tem de o
+// poder dizer. É a diferença entre uma chamada com eco e uma chamada
+// muda, e a segunda é pior.
 //
 // ## E o que este módulo não faz
 //
-// Não faz supressão de ruído, nem gains automático, nem não
-// cancelamento de howling. O WebRTC completo (`AudioProcessing`)
-// trataria disso; aqui só o AEC, que é o problema que faz uma chamada
-// em altifalantes ser impossível.
+// Não faz supressão de ruído, nem ganho automático, nem não
+// cancelamento de howling. O `AudioProcessing` completo trataria disso;
+// aqui só o AEC, que é o problema que torna uma chamada em altifalantes
+// ser impossível.
 // =====================================================================
 
 use std::ffi::{c_int, c_void, CString};
 use std::sync::Arc;
 
-/// Amostras por quadro de áudio.
+/// As amostras por bloco de áudio.
 ///
-/// 10 ms a 48 kHz. O valor vem do WebRTC: o AEC é um filtro de
-/// convolução com uma janela de retardo máxima, e a janela é o que
-/// limita a qualidade — uma janela maior apanha mais eco e demora mais
-/// a convergir.
+/// E **160**, e não 480, e a razão não é uma preferência.
 ///
-/// E 48 kHz e não 44,1 kHz porque a receita do Opus de `docs/media.md`
-/// §7.1 é 48 kHz, e um resampler entre a captura e o codec seria
-/// trabalho sem motivo.
-pub const AMOSTRAS_POR_QUADRO: usize = 480;
+/// O `WebRtcAec_BufferFarend` recusa com `AEC_BAD_PARAMETER_ERROR`
+/// (12004) qualquer bloco que não seja de 80 ou 160 amostras, e o
+/// `WebRtcAec_Process` faz a mesma verificação. A taxa de 48 kHz dá
+/// 3,33 ms por bloco de 160 amostras — e o AEC acumula o atraso de forma
+/// independente do tamanho do bloco, porque o que ele mede é o eco, não
+/// o relógio.
+///
+/// Por que 160 e não 80: 80 são 1,67 ms, e a granularidade do atraso
+/// medido seria de menos de milissegundo, o que dá mais precisão e mais
+/// trabalho por segundo. 160 é o ponto em que a granularidade já é
+/// fina para uma sala e o custo por segundo é metade.
+pub const AMOSTRAS_POR_BLOCO: usize = 160;
 
 /// A taxa de amostragem, em Hz.
 ///
-/// Sommar a `AMOSTRAS_POR_QUADRO` para a taxa põe a taxa como
-/// consequência da janela, e não as duas como constantes independentes
-/// que podem divergir.
+/// 48 kHz porque é o que a receita do Opus de `docs/media.md` §7.1 diz,
+/// e porque o AEC aceita 8, 16, 32 e 48 kHz. Mudar a taxa aqui sem
+/// mudar a do codec daria um relógio de áudio que não bate — que é
+/// exactamente o desvio que `docs/media.md` §5.3 existe para detectar.
 pub const TAXA: u32 = 48_000;
 
-/// O número de descritores que o AEC mantém, por canal.
+/// Os blocos por segundo, para a documentação do relógio.
 ///
-/// O WebRTC usa 1 para mono e 2 para estéreo, e é o que
-/// `WebRtcAec_Create` espera para decidir quantos buffers aloca.
-const DESCARTES: u32 = 1;
+/// 48 000 / 160 são 300. E um bloco de 160 amostras a 48 kHz são 3,33 ms,
+/// o que dá 100 quotas de 10 ms — que é o que `docs/media.md` §7.1 usa
+/// como unidade de relógio do áudio.
+pub const BLOCOS_POR_SEGUNDO: u32 = TAXA / AMOSTRAS_POR_BLOCO as u32;
+
+/// O número de bandas que o AEC espera.
+///
+/// O cabeçalho chama-lhe `num_bands` e o valor é sempre 1 para a banda
+/// larga. Passar 0 ou 2 dá `AEC_BAD_PARAMETER_ERROR`, e o áudio sai
+/// silêncio — que é o pior tipo de falha: uma chamada muda sem erro.
+pub const BANDAS: usize = 1;
 
 /// O tamanho da janela de eco, em milissegundos.
 ///
@@ -92,127 +146,209 @@ const DESCARTES: u32 = 1;
 /// Uma menor é mais barata e deixa eco por apanhar. Para altifalantes
 /// numa sala, 500 ms é o ponto em que a razão entre o que se apanha e o
 /// que se paga deixa de melhorar.
-const JANELA_MS: i32 = 500;
+pub const JANELA_MS: i32 = 500;
 
-/// O buffer de dados que o `WebRtcAec_Create` escreve.
+/// Os erros do AEC, para diagnóstico.
 ///
-/// É um alias nomeado, e não `[i32; 11]` escrito no local: um tipo que
-/// termina em `]` no fim de uma linha de tipo é lido pelo `rustdoc`
-/// como um atributo, e o ficheiro deixa de compilar com «this doc
-/// comment doesn't document anything». O alias tem a mesma informação e
-/// não tem o problema.
-#[repr(C)]
-pub struct BufferAec(pub [i32; 11]);
+/// Os valores são os de `echo_cancellation.h` e estão escritos aqui
+/// porque são estáveis na API pública e porque um erro que só é um
+/// número não diz nada a quem lê um log.
+mod erro_aec {
+    /// `AEC_UNSPECIFIED_ERROR`
+    pub const ESPECIFICADO: i32 = 12000;
+    /// `AEC_UNSUPPORTED_FUNCTION_ERROR`
+    pub const NAO_SUPORTADA: i32 = 12001;
+    /// `AEC_UNINITIALIZED_ERROR`
+    pub const NAO_INICIADA: i32 = 12002;
+    /// `AEC_NULL_POINTER_ERROR`
+    pub const PONTEIRO_NULO: i32 = 12003;
+    /// `AEC_BAD_PARAMETER_ERROR` — o que devolve quando o bloco não tem
+    /// 80 nem 160 amostras, e que é o que devolveva a primeira versão
+    /// deste módulo, com 480 amostras por bloco.
+    pub const PARAMETRO_ERRADO: i32 = 12004;
+}
 
-/// A função de criação do AEC.
+/// `void* WebRtcAec_Create(void)`
 ///
-/// A assinatura vem do cabeçalho C do WebRTC, no caminho
-/// `api/audio/aec/public/aec.h` da fonte, e é anotada com
-/// `extern "C"` para que o Rust não a altere.
+/// ## E não `int32_t WebRtcAec_Create(void**)`, que é o que o cabeçalho diz
 ///
-/// ```c
-/// int WebRtcAec_Create(void** handle, int sample_rate, int channel_count,
-///                       int samples_per_channel, int use_10ms_frames,
-///                       int32_t data_size, int32_t* out_data);
+/// Porque o prólogo em código de máquina é:
+///
+/// ```text
+/// 34aa0:  endbr64
+/// 34aa4:  push   %rbp
+/// 34aa5:  mov    $0x78,%edi        <- o tamanho a malloc
+/// 34aaa:  mov    %rsp,%rbp
+/// 34aad:  push   %rbx
+/// 34aae:  sub    $0x8,%rsp
+/// 34ab2:  call   27f50 <malloc@plt>
 /// ```
 ///
-/// ## O `data_size` que o Rust não tem
+/// E `%rdi` — o primeiro argumento — **não aparece em lado nenhum**. A
+/// função não o lê e não o escreve. O que devolve, em `%rax`, é o
+/// `malloc`, que é o handle.
 ///
-/// A assinatura C leva um `data_size` que é o tamanho do buffer de
-/// saída, e o Rust não o tem — porque em Rust o tipo do parâmetro já
-/// diz o tamanho. É a diferença entre C e Rust que torna estas
-/// assinaturas escritas à mão um pouco perigosas, e é a razão de cada
-/// bloco trazer a assinatura C original ao lado: comparar é de olhos.
-///
-/// E `use_10ms_frames` **não** é um booleano sobre o tamanho do quadro:
-/// é o número de milissegundos que cada quadro representa. Passar 10 é
-/// o que diz ao AEC que o quadro é de 10 ms, e é o que faz a
-/// latência ser uma fração do quadro em vez de uma escolha ao acaso.
-type PfnCreate =
-    unsafe extern "C" fn(handle: *mut *mut c_void, sample_rate: c_int, channel_count: c_int,
-                         samples_per_channel: c_int, use_10ms_frames: c_int,
-                         out_data: *mut BufferAec) -> c_int;
+/// Passar `&handle` não dá erro: o argumento é ignorado, e `handle`
+/// fica a `NULL`. Chamar `Init` com um handle `NULL` dá
+/// `AEC_UNINITIALIZED_ERROR`, ou um salto — e a segunda opção aconteceu
+/// durante o desenvolvimento.
+type PfnCriar = unsafe extern "C" fn() -> *mut c_void;
 
-/// A função que destrói o AEC.
-///
-/// ```c
-/// int WebRtcAec_Free(void* handle);
-/// ```
-type PfnFree = unsafe extern "C" fn(handle: *mut c_void) -> c_int;
+/// `int32_t WebRtcAec_Free(void*)`
+type PfnLivre = unsafe extern "C" fn(handle: *mut c_void) -> c_int;
 
-/// A função que aplica o cancelador.
+/// `int32_t WebRtcAec_Init(void*, int32_t sampFreq, int32_t scSampFreq)`
 ///
-/// ```c
-/// int WebRtcAec_Process(void* handle, const int16_t* nearend,
-///                       const int16_t* farend, int16_t* out,
-///                       int* out_delay);
-/// ```
-type PfnProcess = unsafe extern "C" fn(
+/// Os dois argumentos são a taxa do **sinal** e a taxa da **placa de
+/// som**. São iguais numa máquina que captura e reproduz pelo mesmo
+/// dispositivo, que é o caso do `alsa` em modo normal — e são
+/// diferentes quando a captura e a saída passam por MIX_PULSE, em que a
+/// placa mistura várias fontes a outra taxa.
+///
+/// Passar a taxa duas vezes não é a mesma coisa: são duas taxas
+/// diferentes, e quando são iguais é porque acontece de ser.
+type PfnIniciar = unsafe extern "C" fn(
     handle: *mut c_void,
-    near: *const i16,
-    far: *const i16,
-    out: *mut i16,
-    out_delay: *mut c_int,
+    taxa_sinal: c_int,
+    taxa_placa: c_int,
 ) -> c_int;
 
-/// A função que alimenta a referência de renderização.
+/// `int32_t WebRtcAec_BufferFarend(void*, const float*, int16_t)`
 ///
-/// Esta é a que faz o AEC ter o que comparar. Sem chamadas a ela — ou
-/// com chamadas na ordem errada — o filtro não tem eco para cancelar e
-/// degrada para transparente.
+/// O `int16_t` é o **número de amostras**, não o tamanho em bytes: 160
+/// amostras de `float` são 640 bytes, e o AEC recusa o bloco se receber
+/// 640.
+type PfnReferencia =
+    unsafe extern "C" fn(handle: *mut c_void, longe: *const f32, amostras: i16) -> c_int;
+
+/// `int32_t WebRtcAec_Process(void*, const float* const*, int, float* const*, int16_t, int16_t, int32_t)`
 ///
-/// ```c
-/// void WebRtcAec_BufferFarend(void* handle, const int16_t* farend,
-///                             int samples_per_channel);
+/// ## Os sete parâmetros, e o que cada um é
+///
+/// ```text
+/// 1. handle
+/// 2. nearend  — const float* const*  (um array de ponteiros)
+/// 3. num_bands — 1, sempre
+/// 4. out      — float* const*  (um array de ponteiros)
+/// 5. nrOfSamples — 160
+/// 6. msInSndCardBuf — o atraso da placa, em ms
+/// 7. skew — a diferença entre o que tocou e o que foi gravado
 /// ```
-type PfnBufferFarend = unsafe extern "C" fn(
+///
+/// ## E porque o `nearend` é o **microfone**, e não a referência
+///
+/// Porque é assim que o AEC funciona, e a confusão dá um
+/// cancelador que não cancela nada sem dizer porquê.
+///
+/// A referência de renderização — o que os altifalantes tocam — entra
+/// por [`WebRtcAec_BufferFarend`](PfnReferencia), uma chamada à parte.
+/// O `nearend` do `Process` é o que o **microfone** ouviu, que já tem o
+/// eco misturado.
+///
+/// Passar a referência como `nearend` dá um AEC que compara o eco com
+/// ele próprio e devolve o áudio intacto. Foi o que a primeira versão
+/// deste módulo fazia, e o sintoma é uma razão de 1,00: transparente,
+/// sem erro e sem eco cancelado.
+type PfnProcessar = unsafe extern "C" fn(
     handle: *mut c_void,
-    far: *const i16,
-    samples_per_channel: c_int,
-);
+    perto: *const *const f32,
+    bandas: c_int,
+    saida: *mut *mut f32,
+    amostras: i16,
+    atraso_placa_ms: i16,
+    desvio: c_int,
+) -> c_int;
 
-/// A função que diz o atraso entre o que se reproduziu e o que se ouviu.
-///
-/// ```c
-/// void WebRtcAec_SetSystemDelay(void* handle, int delay_ms);
-/// ```
-type PfnSetSystemDelay = unsafe extern "C" fn(handle: *mut c_void, delay_ms: c_int);
+/// `int32_t WebRtcAec_set_config(void*, AecConfig)`
+type PfnConfigurar = unsafe extern "C" fn(handle: *mut c_void, config: ConfigAec) -> c_int;
 
-/// A função que devolve as métricas, para diagnóstico.
-///
-/// ```c
-/// void WebRtcAec_GetMetrics(void* handle, AecMetrics* metrics);
-/// ```
-///
-/// A estrutura é opaca para este módulo: o que interessa é saber se
-/// chamarla é seguro, e o conteúdo dela mudaria entre versões sem que
-/// nada aqui mudasse. Por isso é preciso que a exportação exista e que
-/// o buffer tenha tamanho — e o tamanho nunca é lido.
-type PfnGetMetrics = unsafe extern "C" fn(handle: *mut c_void, metrics: *mut c_void);
+/// `int32_t WebRtcAec_get_error_code(void*)`
+type PfnErro = unsafe extern "C" fn(handle: *mut c_void) -> c_int;
 
-/// Os símbolos carregados da biblioteca de AEC.
+/// `int32_t WebRtcAec_get_echo_status(void*, int*)`
+///
+/// Devolve o estado do eco no *ponteiro* e `0` no retorno — a única
+/// desta API que usa o retorno para «correu bem» e o ponteiro para o
+/// valor.
+type PfnEstadoEco = unsafe extern "C" fn(handle: *mut c_void, estado: *mut c_int) -> c_int;
+
+/// A configuração do AEC, que é uma passagem por valor.
+///
+/// ## Porque uma estrutura e não quatro `i32`
+///
+/// Porque em Rust uma `#[repr(C)]` de quatro `i16` tem exactamente o
+/// mesmo layout que a de C, e passar `&mut i32` é um `transmute` com
+/// o layout errado: o `WebRtcAec_set_config` compara **meias palavras**
+/// (`cmpw $0x1,%ax`), e com um `i32` cada meio-palavra é o byte
+/// superior de um `int` mal alinhado.
+///
+/// A consequência de errar o layout não é um erro visível: os campos
+/// ficam com valores que o AEC não reconhece, e o `set_config` devolve
+/// `AEC_BAD_PARAMETER_ERROR` (12004) — que é o que devolveva esta
+/// versão do ficheiro, com um `i32` e o valor `1` dentro.
+///
+/// ## E os valores que o AEC aceita
+///
+/// Só `0` (conservador) e `1` (moderado) para o modo de ruído. Os
+/// valores `2` e `3` — agressivo e muito agressivo — dão 12004, e
+/// verificá-lo foi o que mostrou que o layout estava errado.
+///
+/// [`MODO_RUIDO_MODERADO`] é o 1: o modo agressivo corta mais ruído de
+/// fundo e distorce mais a voz, e numa chamada a voz é o que importa.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ConfigAec {
+    /// `nlpMode` — o quanto o supressor de ruído trabalha.
+    modo_ruido: i16,
+    /// `skewMode` — compensação de desvio de relógio. Desligado (0),
+    /// porque o `ffmpeg` lê e escreve por descritores separados e não há
+    /// derives de relógio para compensar.
+    modo_desvio: i16,
+    /// `metricsMode` — métricas de eco. Desligado (0), porque só
+    ///Serve para diagnóstico e custa CPU por bloco.
+    modo_metricas: i16,
+    /// `delay_logging` — registo do atraso. Desligado (0), pela mesma
+    /// razão.
+    registar_atraso: i16,
+}
+
+/// O modo de ruído que este módulo usa.
+///
+/// Moderado e não conservador: o conservador deixa passar mais ruído de
+/// fundo, e numa chamada o ruído de fundo da sala é o que impede de se
+/// ouvir a outra pessoa. O agressivo distorce a voz, e a voz é o que a
+/// chamada transmite.
+const MODO_RUIDO_MODERADO: i16 = 1;
+
+/// Os símbolos da API do WebRTC carregados em memória.
 ///
 /// ## Porque `Arc` e não uma referência
 ///
 /// Porque o `Cancelador` é usado pelo laço de captura, que pode estar
-/// num `thread` diferente do que o criou. E porque `Cancelador` tem de
-/// ser `Send` para isso funcionar — e um `*mut c_void` não é.
+/// num `thread` diferente do que o criou, e porque `Cancelador` tem de
+/// ser `Send` para isso funcionar.
 ///
-/// O `Arc` torna a partilha segura sem `unsafe impl Send`, que é o que
-/// um ponteiro cru exigiria e que seria uma promessa que este módulo
-/// teria de manter sozinho.
+/// O `Arc` torna a partilha segura sem `unsafe impl Send` na tabela, e
+/// o `unsafe impl` que fica é sobre `Cancelador` — que é onde a
+/// promessa é de facto sobre o estado.
 #[derive(Clone)]
 struct Simbolos {
     /// `WebRtcAec_Create`
-    criar: PfnCreate,
+    criar: PfnCriar,
     /// `WebRtcAec_Free`
-    livre: PfnFree,
+    livre: PfnLivre,
+    /// `WebRtcAec_Init`
+    iniciar: PfnIniciar,
     /// `WebRtcAec_Process`
-    processar: PfnProcess,
+    processar: PfnProcessar,
     /// `WebRtcAec_BufferFarend`
-    referencia: PfnBufferFarend,
-    /// `WebRtcAec_SetSystemDelay`
-    atraso: PfnSetSystemDelay,
+    referencia: PfnReferencia,
+    /// `WebRtcAec_get_error_code`
+    erro: PfnErro,
+    /// `WebRtcAec_get_echo_status`
+    estado_eco: PfnEstadoEco,
+    /// `WebRtcAec_set_config`
+    configurar: PfnConfigurar,
 }
 
 // `Send` e `Sync` porque o `Arc<Simbolos>` pode ser partilhado entre
@@ -225,15 +361,65 @@ struct Simbolos {
 unsafe impl Send for Simbolos {}
 unsafe impl Sync for Simbolos {}
 
-/// Qual dos dois motores é o carregado, para diagnóstico.
+/// Os símbolos do `speexdsp`, que tem uma API diferente da do WebRTC.
+///
+/// ## Porque não um `Simbolos` só
+///
+/// Porque as assinaturas **não** batem. `WebRtcAec_Create` devolve um
+/// handle opaco e `WebRtcAec_Process` recebe-o; o `speexdsp` devolve um
+/// `int` que é um índice numa tabela global. Forçar os dois no mesmo
+/// struct seria um `transmute` que o compilador aceitaria e que
+/// corromperia memória na primeira chamada.
+#[derive(Clone)]
+struct SimbolosSpeex {
+    /// `int speex_echo_state_init(int, int, int, int, int*, int*)`
+    iniciar: PfnSpeexIniciar,
+    /// `int speex_echo_cancellation(void*, const short*, const short*, short*)`
+    cancelar: PfnSpeexCancelar,
+    /// `void speex_echo_state_destroy(void*)`
+    destruir: PfnSpeexDestruir,
+}
+
+/// `int speex_echo_state_init(int frame_size, int frame_length, int channels, int sample_rate, int*, int*)`
+type PfnSpeexIniciar = unsafe extern "C" fn(
+    tamanho_quadro: c_int,
+    tamanho_janela: c_int,
+    canais: c_int,
+    taxa: c_int,
+    especificacao: *mut c_int,
+    erro: *mut c_int,
+) -> c_int;
+
+/// `int speex_echo_cancellation(void*, const short*, const short*, short*)`
+type PfnSpeexCancelar = unsafe extern "C" fn(
+    estado: *mut c_void,
+    perto: *const i16,
+    longe: *const i16,
+    saida: *mut i16,
+) -> c_int;
+
+/// `void speex_echo_state_destroy(void*)`
+type PfnSpeexDestruir = unsafe extern "C" fn(estado: *mut c_void);
+
+// `Send` e `Sync` pela mesma razão que `Simbolos`: só ponteiros de
+// função, que não tocam estado.
+unsafe impl Send for SimbolosSpeex {}
+unsafe impl Sync for SimbolosSpeex {}
+
+/// Qual dos dois motores é que está a correr.
+///
+/// É um enum de três valores e não um `Debug` do motor, porque o motor
+/// contém ponteiros de função — e `fn` não implementa `Debug`. Derivar
+/// exigiria um `Debug` à mão que imprimiria um endereço, que não diz
+/// nada e muda entre execuções.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MotorDeEco {
-    /// O AEC3 do WebRTC.
+    /// O AEC3 do WebRTC, que é adaptativo: converge para o eco real da
+    /// sala e é o que se quer.
     Webrtc,
-    /// O `speexdsp`.
+    /// O `speexdsp`, que é um filtro fixo e precisa de ser afinado.
+    /// Entra porque é melhor do que eco, e não porque seja equivalente.
     Speex,
-    /// Não há biblioteca: o áudio passa limpo.
-    Nenhum,
 }
 
 /// O cancelador de eco de um fluxo de captura.
@@ -247,103 +433,41 @@ pub enum MotorDeEco {
 /// [`processar`](Self::processar) o que o microfone ouve.
 ///
 /// E a ordem importa: a referência é o que o sistema vai tocar nos
-/// próximos 10 ms, e o microfone é o que já ouviu o que tocou há 10 ms.
-/// Alimentar a referência depois do microfone é dizer ao filtro para
-/// cancelar o eco de um som que ainda não tocou.
+/// próximos milissegundos, e o microfone é o que já ouviu o que tocou
+/// há milissegundos. Alimentar a referência depois do microfone é dizer
+/// ao filtro para cancelar o eco de um som que ainda não tocou.
 pub struct Cancelador {
-    /// O handle opaco da biblioteca, ou `0` quando não há motor.
+    /// O handle opaco da biblioteca.
     ///
-    /// O `0` e não um `Option<*mut c_void>` porque a biblioteca não tem
-    /// handle nenhum neste caso, e um ponteiro nulo é a representação
-    /// que ela própria usa para «não há handle».
+    /// `0` quando não há handle, e não um `Option`, porque a biblioteca
+    /// não tem handle nenhum nesse caso e um ponteiro nulo é a
+    /// representação que ela própria usa para «não há handle».
     handle: *mut c_void,
     /// Os símbolos da API do WebRTC, se for esse o motor.
     ///
-    /// Ficam para o `Drop` chamar a função de destruição correcta: sem
-    /// o mesmo `livre` que criou o handle, a biblioteca não sabe o que
-    /// libertar. São `None` quando o motor é o `speexdsp`, e é por isso
-    /// que `atraso_do_sistema` verifica o motor antes de os usar.
+    /// Ficam para o `Drop` chamar a função de destruição certa: sem o
+    /// mesmo `livre` que criou o handle, a biblioteca não sabe o que
+    /// libertar.
     simbolos: Option<Arc<Simbolos>>,
-    /// Os ponteiros de função do `speexdsp`, se for esse o motor.
+    /// Os símbolos do `speexdsp`, se for esse o motor.
     ///
-    /// A API do `speexdsp` não é a mesma — não tem `Create`, tem
-    /// `state_init` — e por isso vive em campos próprios em vez de
-    /// ser forçada para dentro de [`Simbolos`]. Um motor que não é o
-    /// do WebRTC não tem ponteiros de função do WebRTC, e um struct
-    /// com campos de tipo errado seria `mem::transmute` disfarçado.
+    /// A API é diferente e por isso vive em campos próprios em vez de
+    /// ser forçada para dentro de [`Simbolos`].
     speex: Option<Arc<SimbolosSpeex>>,
-    /// O estado de preprocessamento do `speexdsp`, se for esse o motor.
-    ///
-    /// Vive aqui e não dentro de [`SimbolosSpeex`] porque é **por
-    /// instância**, e a tabela de símbolos é partilhada entre todas. A
-    /// distinção é a mesma de `handle` contra `simbolos`: o primeiro
-    /// é estado, o segundo é tabela.
-    speex_pre: *mut c_void,
-    /// A referência de renderização mais recente.
+    /// A referência de renderização mais recente, em `f32`.
     ///
     /// O `WebRtcAec_Process` quer a referência em dois sítios: o
-    /// `farend` do-processing e o buffer interno que
+    /// `farend` do processamento e o buffer interno que
     /// `WebRtcAec_BufferFarend` encheu. São o **mesmo** áudio, e é por
-    /// isso que fica guardado aqui em vez de ser pedindo ao chamador
-    /// duas vezes.
-    referencia_atual: Vec<i16>,
+    /// isso que fica guardado aqui em vez de ser pedido duas vezes.
+    referencia_atual: Vec<f32>,
+    /// O atraso da placa de som, em milissegundos.
+    ///
+    /// Não é uma constante: depende do tamanho do buffer do ALSA, que
+    /// quem chama configura. [`atraso_do_sistema`](Self::atraso_do_sistema)
+    /// é o sítio onde se diz.
+    atraso_placa_ms: i16,
 }
-
-/// Os símbolos do `speexdsp`, que tem uma API diferente da do WebRTC.
-///
-/// ## Porque não um `Simbolos` só
-///
-/// Porque as assinaturas **não** batem. `WebRtcAec_Create` devolve um
-/// handle opaco e `WebRtcAec_Process` recebe-o; o `speexdsp` devolve um
-/// `int` e usa o valor como índice numa tabela global. Forçar os dois no
-/// mesmo struct seria um `transmute` que o compilador aceitaria e que
-/// corromperia memória na primeira chamada.
-#[derive(Clone)]
-struct SimbolosSpeex {
-    /// `speex_echo_state_init(int frame_size, int frame_length, int channels,
-    /// int sample_rate, int *sample_spec, int *err)`
-    iniciar: PfnSpeexInit,
-    /// `speex_echo_cancellation(SpeexEchoState *st, const short *rec,
-    /// const short *play, short *out)`
-    cancelar: PfnSpeexCancel,
-    /// `speex_echo_state_destroy(SpeexEchoState *st)`
-    destruir: PfnSpeexDestroy,
-    /// `speex_preprocess_state_init(int rate, int channels, int *err)`
-    pre_iniciar: PfnSpeexPreInit,
-    /// `speex_preprocess_run(SpeexEchoState *st, SpeexPreprocessState *ps,
-    /// const short *x, short *y)`
-    pre_correr: PfnSpeexPreRun,
-    /// `speex_preprocess_state_destroy(SpeexPreprocessState *ps)`
-    pre_destruir: PfnSpeexPreDestroy,
-}
-
-/// `int speex_echo_state_init(int, int, int, int, int*, int*)`
-type PfnSpeexInit =
-    unsafe extern "C" fn(frame_size: c_int, frame_length: c_int, channels: c_int,
-                         sample_rate: c_int, spec: *mut c_int, err: *mut c_int) -> c_int;
-
-/// `int speex_echo_cancellation(void*, const i16*, const i16*, i16*)`
-type PfnSpeexCancel =
-    unsafe extern "C" fn(st: *mut c_void, rec: *const i16, play: *const i16, out: *mut i16) -> c_int;
-
-/// `void speex_echo_state_destroy(void*)`
-type PfnSpeexDestroy = unsafe extern "C" fn(st: *mut c_void);
-
-/// `int speex_preprocess_state_init(int, int, int*)`
-type PfnSpeexPreInit =
-    unsafe extern "C" fn(rate: c_int, channels: c_int, err: *mut c_int) -> *mut c_void;
-
-/// `int speex_preprocess_run(void*, void*, const i16*, i16*)`
-type PfnSpeexPreRun =
-    unsafe extern "C" fn(st: *mut c_void, ps: *mut c_void, x: *const i16, y: *mut i16) -> c_int;
-
-/// `void speex_preprocess_state_destroy(void*)`
-type PfnSpeexPreDestroy = unsafe extern "C" fn(ps: *mut c_void);
-
-// `Send` e `Sync` pela mesma razão que `Simbolos`: só ponteiros de
-// função, que não tocam estado.
-unsafe impl Send for SimbolosSpeex {}
-unsafe impl Sync for SimbolosSpeex {}
 
 // O `Cancelador` é usado do laço de captura e destruído no fim dele,
 // que podem ser threads diferentes — daí o `Send`.
@@ -357,9 +481,9 @@ unsafe impl Send for Cancelador {}
 impl Cancelador {
     /// Procura uma biblioteca de cancelamento de eco, se houver uma.
     ///
-    /// Devolve `Ok(None)` — e não `Err` — quando não há nada a
-    /// carregar. Um `Err` faria a captura falhar, e a alternativa a um
-    /// AEC é uma chamada **com eco**, não uma chamada impossível.
+    /// Devolve `None` — e não um erro — quando não há nada a carregar.
+    /// Um erro faria a captura falhar, e a alternativa a um AEC é uma
+    /// chamada **com eco**, não uma chamada impossível.
     ///
     /// A procura é feita **uma vez**, no primeiro quadro, e o resultado
     /// fica. Procurar uma biblioteca a cada quadro seria um `dlopen` por
@@ -367,28 +491,28 @@ impl Cancelador {
     ///
     /// ## E porque o motor escolhido é o primeiro que inicializa
     ///
-    /// Porque uma biblioteca pode estar presente e não funcionar: o
-    /// `WebRtcAec_Create` devolve um código de erro se a taxa ou o
-    /// tamanho do quadro não forem os que ele quer, e ficar com esse
-    /// motor seria uma chamada sem cancelamento quando o `speexdsp`
-    /// estava ali a funcionar.
+    /// Porque uma biblioteca pode estar presente e não funcionar. O
+    /// `WebRtcAec_Init` devolve `AEC_BAD_PARAMETER_ERROR` para uma taxa
+    /// que não seja 8, 16, 32 ou 48 kHz, e ficar com esse motor seria
+    /// uma chamada sem cancelamento quando o `speexdsp` estava ali a
+    /// funcionar.
     pub fn carregar() -> Option<Self> {
         if let Some((handle, simbolos)) = tentar_webrtc() {
             return Some(Cancelador {
                 handle,
                 simbolos: Some(simbolos),
                 speex: None,
-                speex_pre: std::ptr::null_mut(),
                 referencia_atual: Vec::new(),
+                atraso_placa_ms: 0,
             });
         }
-        if let Some((speex, handle, pre)) = tentar_speex() {
+        if let Some((speex, handle)) = tentar_speex() {
             return Some(Cancelador {
                 handle,
                 simbolos: None,
                 speex: Some(Arc::new(speex)),
-                speex_pre: pre,
                 referencia_atual: Vec::new(),
+                atraso_placa_ms: 0,
             });
         }
         None
@@ -398,10 +522,15 @@ impl Cancelador {
     pub fn motor(&self) -> MotorDeEco {
         if self.speex.is_some() {
             MotorDeEco::Speex
-        } else if !self.handle.is_null() {
-            MotorDeEco::Webrtc
+        } else if self.handle.is_null() {
+            // Um `Cancelador` sem handle não existe pela construção — a
+            // fábrica só devolve `Some` com handle — e o `None` do
+            // `carregar` é o caminho de «não há motor». O braço fica
+            // para que uma refactorização não deixe um `Cancelador`
+            // meio inicializado a processar áudio com um handle nulo.
+            MotorDeEco::Speex
         } else {
-            MotorDeEco::Nenhum
+            MotorDeEco::Webrtc
         }
     }
 
@@ -411,25 +540,32 @@ impl Cancelador {
     /// ALSA, tipicamente 20 a 60 ms. Sem ele o AEC compara o eco com o
     /// som na posição errada e degrada-se a meio da chamada.
     ///
-    /// Um valor estimado serve; um valor zero faz o filtro procurar o
-    /// eco cedo demais, e é por isso que o valor **zero é ignorado**
-    /// em vez de ser tomado como «não configure».
+    /// ## E porque o zero é ignorado
+    ///
+    /// Porque `msInSndCardBuf == 0` faz o filtro procurar o eco no
+    /// instante errado, e degrada-se sem erro nem aviso — e o áudio
+    /// sai com eco, que é o que este módulo existe para evitar. Um
+    /// valor estimado serve; um valor zero é pior do que nenhum.
+    ///
+    /// Valores acima de 200 são truncados a 200, que é o tecto que o
+    /// próprio WebRTC usa (`kMaxTrustedDelayMs`).
     pub fn atraso_do_sistema(&mut self, ms: i32) {
-        if ms <= 0 || self.motor() != MotorDeEco::Webrtc {
+        if ms <= 0 {
             return;
         }
-        if let Some(simbolos) = &self.simbolos {
-            unsafe { (simbolos.atraso)(self.handle, ms) };
+        let ms = ms.min(200);
+        if let Ok(ms) = i16::try_from(ms) {
+            self.atraso_placa_ms = ms;
         }
     }
 
     /// Alimenta a referência de renderização: o que vai tocar.
     ///
     /// **Chamar antes de [`processar`](Self::processar).** A referência
-    /// é o que o sistema vai tocar nos próximos 10 ms, e o microfone é o
-    /// que já ouviu o que tocou há 10 ms; alimentá-la depois de
-    /// processar o microfone é dizer ao filtro para cancelar o eco de um
-    /// som que ainda não tocou.
+    /// é o que o sistema vai tocar nos próximos milissegundos, e o
+    /// microfone é o que já ouviu o que tocou há milissegundos;
+    /// alimentá-la depois de processar o microfone é dizer ao filtro
+    /// para cancelar o eco de um som que ainda não tocou.
     ///
     /// Este é o ponto em que a ausência de referência dói. Se isto não
     /// for chamado — porque o daemon não reproduz, porque está a
@@ -438,25 +574,21 @@ impl Cancelador {
     ///
     /// # Segurança
     ///
-    /// `quadro` tem de ter [`AMOSTRAS_POR_QUADRO`] amostras em `i16`.
-    pub unsafe fn referencia(&mut self, quadro: &[i16]) {
-        if quadro.len() != AMOSTRAS_POR_QUADRO {
+    /// `quadro` tem de ter [`AMOSTRAS_POR_BLOCO`] amostras.
+    pub unsafe fn referencia(&mut self, bloco: &[f32]) {
+        if bloco.len() != AMOSTRAS_POR_BLOCO {
             return;
         }
         self.referencia_atual.clear();
-        self.referencia_atual.extend_from_slice(quadro);
+        self.referencia_atual.extend_from_slice(bloco);
 
-        if self.motor() == MotorDeEco::Webrtc {
-            // O `WebRtcAec_BufferFarend` é a via do WebRTC desta
-            // chamada: enche o buffer interno que `Process` vai ler. É
-            // diferente de passar o `farend` ao `Process`, e é a
-            // diferença entre um AEC que adaptou e um que não adaptou.
-            let simbolos = self
-                .simbolos
-                .as_ref()
-                .expect("um cancelador WebRTC tem símbolos carregados");
+        if let Some(simbolos) = &self.simbolos {
             unsafe {
-                (simbolos.referencia)(self.handle, quadro.as_ptr(), AMOSTRAS_POR_QUADRO as c_int)
+                (simbolos.referencia)(
+                    self.handle,
+                    bloco.as_ptr(),
+                    AMOSTRAS_POR_BLOCO as i16,
+                )
             };
         }
         // O `speexdsp` não tem buffer de referência: o
@@ -467,106 +599,161 @@ impl Cancelador {
 
     /// Aplica o cancelador ao que o microfone ouviu.
     ///
-    /// Devolve o quadro limpo, ou `None` se o handle não puder ser
-    /// usado — o que num laço de captura significa fim de captura, e não
-    /// um erro a repetir 30 vezes por segundo.
+    /// Devolve o bloco limpo, ou `None` se o handle não puder ser usado
+    /// — o que num laço de captura significa fim de captura, e não um
+    /// erro a repetir trinta vezes por segundo.
     ///
     /// # Segurança
     ///
-    /// `perto` tem de ter [`AMOSTRAS_POR_QUADRO`] amostras em `i16`.
-    pub fn processar(&mut self, perto: &[i16]) -> Option<Vec<i16>> {
-        if perto.len() != AMOSTRAS_POR_QUADRO {
+    /// `perto` tem de ter [`AMOSTRAS_POR_BLOCO`] amostras.
+    pub fn processar(&mut self, perto: &[f32]) -> Option<Vec<f32>> {
+        // A verificação é o `if` e **não** um `debug_assert`.
+        //
+        // Um `debug_assert_eq!` desaparece com `-O` e a barreira
+        // desaparece com ele — e a barreira é a única coisa entre um
+        // vector curto e uma leitura fora dos limites dentro de código C.
+        // Um `assert_eq!` seria melhor que o `debug_assert` e ainda
+        // rebentaria a meio de uma chamada, que é pior do que recusar:
+        // o chamador trata de `None` como fim de captura e continua.
+        if perto.len() != AMOSTRAS_POR_BLOCO {
             return None;
         }
 
         match self.motor() {
             MotorDeEco::Webrtc => {
-                let mut saida = vec![0i16; AMOSTRAS_POR_QUADRO];
-                // E o `farend` que vai aqui é o **mesmo** que foi para
-                // `WebRtcAec_BufferFarend`: o WebRTC usa os dois, um
-                // para o filtro adaptativo e o outro para a referência
-                // de adaptação. E quando a referência está vazia —
-                // ninguém chamou [`referencia`](Self::referencia) — o
-                // que entra é silêncio, que é o que o AEC espera e o
-                // que faz o áudio sair sem eco **e** sem cortar.
-                let referencia = if self.referencia_atual.len() == AMOSTRAS_POR_QUADRO {
-                    self.referencia_atual.as_ptr()
-                } else {
-                    std::ptr::null()
-                };
-                let mut atraso: c_int = 0;
-                let erro = unsafe {
-                    (self.simbolos.as_ref().expect("motor WebRTC tem símbolos").processar)(
+                let simbolos = self.simbolos.as_ref()?;
+                let mut saida = vec![0f32; AMOSTRAS_POR_BLOCO];
+
+                // Os arrays de ponteiros: o AEC é multi-banda e com uma
+                // banda o array tem um elemento. Passar o ponteiro
+                // directamente é o que fazia a primeira versão deste
+                // módulo devolver silêncio sem erro.
+                let perto_ptrs: [*const f32; BANDAS] = [perto.as_ptr()];
+                let mut saida_ptrs: [*mut f32; BANDAS] = [saida.as_mut_ptr()];
+
+                let r = unsafe {
+                    (simbolos.processar)(
                         self.handle,
-                        perto.as_ptr(),
-                        referencia,
-                        saida.as_mut_ptr(),
-                        &mut atraso,
+                        perto_ptrs.as_ptr(),
+                        BANDAS as c_int,
+                        saida_ptrs.as_mut_ptr(),
+                        AMOSTRAS_POR_BLOCO as i16,
+                        self.atraso_placa_ms,
+                        0,
                     )
                 };
-                if erro != 0 {
+                if r != 0 {
                     return None;
                 }
                 Some(saida)
             }
             MotorDeEco::Speex => {
                 let speex = self.speex.as_ref()?;
-                let mut saida = vec![0i16; AMOSTRAS_POR_QUADRO];
-                let referencia = if self.referencia_atual.len() == AMOSTRAS_POR_QUADRO {
-                    self.referencia_atual.as_ptr()
-                } else {
-                    std::ptr::null()
+                // O `speexdsp` trabalha em `short` e não em `float`, e
+                // o módulo é o ponto onde isso se decide. A conversão
+                // é feita aqui e não na chamada porque o chamador tem
+                // `float` do `ffmpeg` e não faz sentido pedir-lhe que
+                // saiba a escala do `short`.
+                let perto_i16 = para_i16(perto);
+                let longe_i16 = para_i16(&self.referencia_atual);
+                let mut saida = vec![0i16; AMOSTRAS_POR_BLOCO];
+                let r = unsafe {
+                    (speex.cancelar)(
+                        self.handle,
+                        perto_i16.as_ptr(),
+                        longe_i16.as_ptr(),
+                        saida.as_mut_ptr(),
+                    )
                 };
-                let ok = unsafe { (speex.cancelar)(self.handle, perto.as_ptr(), referencia, saida.as_mut_ptr()) };
-                if ok != 0 {
+                if r != 0 {
                     return None;
                 }
-                // E o preprocessamento por cima: ganho automático e
-                // supressão de ruído. Sem isto o `speexdsp` cancela eco
-                // mas fica com mais ruído de fundo do que devia, e o
-                // ganho automático evita que uma voz baixa fique
-                // inaudível depois de o filtro mexer no nível.
-                if !self.speex_pre.is_null() {
-                    let ok = unsafe {
-                        (speex.pre_correr)(
-                            self.handle,
-                            self.speex_pre,
-                            perto.as_ptr(),
-                            saida.as_mut_ptr(),
-                        )
-                    };
-                    if ok != 0 {
-                        return None;
-                    }
-                }
-                Some(saida)
+                Some(para_f32(&saida))
             }
-            MotorDeEco::Nenhum => Some(perto.to_vec()),
+        }
+    }
+
+    /// O último código de erro do AEC.
+    ///
+    /// Vale `-1` para o `speexdsp`, que tem outro mecanismo de erro, e
+    /// é um número para o WebRTC. A UI mostra-o quando uma chamada
+    /// «não tem som»: sem o código, o diagnóstico é uma adivinhação.
+    pub fn ultimo_erro(&self) -> i32 {
+        match &self.simbolos {
+            Some(simbolos) if !self.handle.is_null() => unsafe { (simbolos.erro)(self.handle) },
+            _ => -1,
+        }
+    }
+
+    /// O AEC considera que há eco no que ouviu?
+    ///
+    /// ## Porque interessa
+    ///
+    /// Porque um AEC que devolve o áudio **e** o devolve com eco não é
+    /// distinguível de um que funciona — a diferença só se ouve. Esta
+    /// função é o que permite à UI dizer «o cancelamento de eco está a
+    /// converge» em vez de deixar a pessoa concluir que a chamada é
+    /// má, e desligar os altifalantes sozinha.
+    ///
+    /// ## O que os valores significam
+    ///
+    /// `false` é quase de certeza fala-perto (a pessoa está a falar e o
+    /// sistema está calado), `true` é «pode haver eco» e `None` é «o
+    /// AEC ainda não sabe» — que é o estado normal nos primeiros
+    /// blocos de uma chamada, e que a UI tem de distinguir de «não há
+    /// eco».
+    pub fn eco_detectado(&self) -> Option<bool> {
+        let simbolos = self.simbolos.as_ref()?;
+        let mut estado: c_int = 0;
+        let r = unsafe { (simbolos.estado_eco)(self.handle, &mut estado) };
+        if r != 0 {
+            return None;
+        }
+        match estado {
+            0 => Some(false),
+            1 => Some(true),
+            // Qualquer outro valor é «o AEC ainda não sabe», e não um
+            // booleano. Um `None` aqui é o que impede a UI de dizer
+            // «não há eco» quando o que há é «não sei ainda».
+            _ => None,
         }
     }
 }
 
+/// Converte `f32` na escala do `i16` que o `speexdsp` usa.
+///
+/// ## A escala, e porque é esta
+///
+/// O `speexdsp` trabalha em `short` com a convenção de PCM: −1,0 a 1,0
+/// mapeia para −32768 a 32767. O `libopus` e o `ffmpeg` dão `float`
+/// na mesma escala, e a conversão é multiplicar por 32767 e truncar.
+///
+/// E o truncar e não arredondar é deliberado: arredondar adiciona meio
+/// nível de ruído de quantização, e o `speexdsp` vai amplificar
+/// precisamente essa parte do sinal.
+fn para_i16(amostras: &[f32]) -> Vec<i16> {
+    amostras
+        .iter()
+        .map(|&a| (a.clamp(-1.0, 1.0) * 32_767.0) as i16)
+        .collect()
+}
+
+/// Converte `i16` do `speexdsp` para `f32`.
+fn para_f32(amostras: &[i16]) -> Vec<f32> {
+    amostras.iter().map(|&a| f32::from(a) / 32_767.0).collect()
+}
+
 impl Drop for Cancelador {
     fn drop(&mut self) {
+        // O `speexdsp` e o WebRTC têm funções de destruição diferentes e
+        // cada handle tem de ser libertado pela sua. Chamar a errada é
+        // um `free` num ponteiro que a outra biblioteca não fez.
         if let Some(speex) = self.speex.take() {
-            // O `speexdsp` tem dois estados com_cycle de vida própria, e
-            // um `Drop` que só liberte um deles deixa o outro — e o
-            // `echo_state` tem uma tabela de filtros que é a maior
-            // porção de memória do módulo.
-            if !self.speex_pre.is_null() {
-                unsafe { (speex.pre_destruir)(self.speex_pre) };
-                self.speex_pre = std::ptr::null_mut();
-            }
             if !self.handle.is_null() {
                 unsafe { (speex.destruir)(self.handle) };
                 self.handle = std::ptr::null_mut();
             }
-        }
-        // O handle do WebRTC só é destruído se for dele. Com `speex` a
-        // Some, `handle` é o estado do `speexdsp` e já foi libertado
-        // acima — e libertá-lo com `WebRtcAec_Free` seria um
-        // `free` num ponteiro que a biblioteca não fez.
-        else if let Some(simbolos) = self.simbolos.take() {
+        } else if let Some(simbolos) = self.simbolos.take() {
             if !self.handle.is_null() {
                 unsafe { (simbolos.livre)(self.handle) };
                 self.handle = std::ptr::null_mut();
@@ -577,73 +764,67 @@ impl Drop for Cancelador {
 
 /// Carrega a API do WebRTC, se existir e inicializar.
 ///
-/// Os três passos são deliberados nesta ordem e cada um pode falhar
-/// por si: carregar a biblioteca, encontrar os símbolos, e criar o
-/// handle. Falhar em qualquer um é «não há motor» — e é o mesmo
-/// desfecho para os três, porque um AEC a meio não é um AEC.
+/// Os três passos são deliberados nesta ordem e cada um pode falhar por
+/// si: carregar a biblioteca, encontrar os símbolos, e criar e
+/// inicializar o handle. Falhar em qualquer um é «não há motor» — e é o
+/// mesmo desfecho para os três, porque um AEC a meio não é um AEC.
 fn tentar_webrtc() -> Option<(*mut c_void, Arc<Simbolos>)> {
     let simbolos = carregar_simbolos_webrtc("libwebrtc_audio_processing.so.1")?;
 
-    let mut handle: *mut c_void = std::ptr::null_mut();
-    // O buffer de dados do `Create` é um `[i32; 11]` que a biblioteca
-    // escreve com configuração interna. Não se lê: o conteúdo muda
-    // entre versões e nenhuma decisão aqui depende dele. É alocado na
-    // pilha porque a função copia o que precisa.
-    let mut dados = BufferAec([0; 11]);
-
-    let erro = unsafe {
-        (simbolos.criar)(
-            &mut handle,
-            TAXA as c_int,
-            DESCARTES as c_int,
-            AMOSTRAS_POR_QUADRO as c_int,
-            JANELA_MS,
-            &mut dados,
-        )
-    };
-    if erro != 0 || handle.is_null() {
+    let handle: *mut c_void = unsafe { (simbolos.criar)() };
+    if handle.is_null() {
         return None;
     }
+
+    // E a inicialização, que é separada do `Create` nesta biblioteca.
+    // Sem ela o AEC devolve `AEC_UNINITIALIZED_ERROR` (12002) ao
+    // primeiro bloco, e o áudio sai em silêncio — sem erro visível.
+    let r = unsafe { (simbolos.iniciar)(handle, TAXA as c_int, TAXA as c_int) };
+    if r != 0 {
+        unsafe { (simbolos.livre)(handle) };
+        return None;
+    }
+
+    // O modo do supressor de ruído é moderado, e o resto fica
+    // desligado. Um `set_config` que falha **não** é motivo para
+    // descartar o motor: o AEC sem NLP configurado ainda cancela eco,
+    // só que deixa passar mais ruído. Descartá-lo seria trocar um motor
+    // imperfeito por nenhum.
+    let config = ConfigAec {
+        modo_ruido: MODO_RUIDO_MODERADO,
+        modo_desvio: 0,
+        modo_metricas: 0,
+        registar_atraso: 0,
+    };
+    unsafe { (simbolos.configurar)(handle, config) };
+
     Some((handle, simbolos))
 }
 
 /// Carrega o `speexdsp`, se existir e inicializar.
-fn tentar_speex() -> Option<(SimbolosSpeex, *mut c_void, *mut c_void)> {
+fn tentar_speex() -> Option<(SimbolosSpeex, *mut c_void)> {
     let simbolos = carregar_simbolos_speex("libspeexdsp.so.1")?;
 
     let mut erro: c_int = 0;
     // O `frame_length` é a janela de eco, em amostras: 500 ms a 48 kHz
-    // são 24 000 amostras, que é o mesmo número que `JANELA_MS` dá no
-    // outro motor. E `sample_spec` é o buffer de delay que a função
-    // escreve.
-    let frame_length = (JANELA_MS as usize * TAXA as usize / 1000) as c_int;
-    let mut spec: c_int = 0;
+    // são 24 000 amostras. E `sample_spec` é o buffer de delay que a
+    // função escreve.
+    let tamanho_janela = (JANELA_MS as usize * TAXA as usize / 1000) as c_int;
+    let mut especificacao: c_int = 0;
     let handle = unsafe {
         (simbolos.iniciar)(
-            AMOSTRAS_POR_QUADRO as c_int,
-            frame_length,
-            DESCARTES as c_int,
+            AMOSTRAS_POR_BLOCO as c_int,
+            tamanho_janela,
+            1,
             TAXA as c_int,
-            &mut spec,
+            &mut especificacao,
             &mut erro,
         )
     };
     if erro != 0 || handle <= 0 {
         return None;
     }
-
-    // O preprocessamento — que faz o ganho automático e a supressão de
-    // ruído — é um estado separado, e é o que faz o `speexdsp` melhor
-    // do que um simple `Subtract`. Sem ele o módulo ainda cancela eco,
-    // mas com mais ruído de fundo.
-    let mut erro_pre: c_int = 0;
-    let pre = unsafe { (simbolos.pre_iniciar)(TAXA as c_int, DESCARTES as c_int, &mut erro_pre) };
-    if erro_pre != 0 || pre.is_null() {
-        unsafe { (simbolos.destruir)(handle as *mut c_void) };
-        return None;
-    }
-
-    Some((simbolos, handle as *mut c_void, pre))
+    Some((simbolos, handle as *mut c_void))
 }
 
 /// Carrega a API do WebRTC de uma biblioteca.
@@ -651,8 +832,25 @@ fn tentar_speex() -> Option<(SimbolosSpeex, *mut c_void, *mut c_void)> {
 /// Devolve `None` se a biblioteca não existir **ou** não tiver um dos
 /// símbolos pedidos. A diferença não interessa nos dois casos — o que
 /// interessa é que um `dlopen` a succeed sem `WebRtcAec_Process` é uma
-/// biblioteca de outra coisa com o mesmo nome, e acceptá-la daria um
-/// salto para `None` na primeira chamada.
+/// biblioteca de outra coisa com o mesmo nome.
+///
+/// ## O `dlclose` **não** é feito aqui, e é de propósito
+///
+/// Um `dlclose` cujas referências chegam a zero **descarrega a
+/// biblioteca da memória**, e os ponteiros de função que o `dlsym`
+/// devolveu ficam a apontar para código que já não existe. A primeira
+/// chamada é um salto para memória não mapeada.
+///
+/// A primeira versão deste ficheiro fazia `dlclose` logo a seguir ao
+/// `dlsym`, com um comentário que dizia que o `Arc` mantinha a biblioteca
+/// viva. Não mantém: um `Arc` de ponteiros de função é um `Arc` de
+/// inteiros que happen de estar no endereço de uma função.
+///
+/// A biblioteca fica, portanto, carregada até ao fim do processo. É o
+/// preço de `dlopen`, e é o mesmo que a ligação dinâmica tem em
+/// qualquer programa: uma biblioteca carregada custa alguns MB
+/// residente e nada mais. Fechá-la a meio seria trocar memória por um
+/// salto para código morto.
 fn carregar_simbolos_webrtc(nome: &str) -> Option<Arc<Simbolos>> {
     use libc::RTLD_LAZY;
 
@@ -663,47 +861,68 @@ fn carregar_simbolos_webrtc(nome: &str) -> Option<Arc<Simbolos>> {
             return None;
         }
 
-        // Cada `dlsym` que não encontra o símbolo fecha a biblioteca e
-        // devolve `None`. Sem o `dlclose` ali, uma sequência de
-        // tentativas deixaria uma referência pendurada por biblioteca —
-        // e o `dlopen` seguinte da mesma biblioteca contaria mais uma.
+        // ## O nome do símbolo tem de ser uma `CString`, e não um `&str`
+        //
+        // `"WebRtcAec_Create".as_ptr()` dá um `*const u8` que aponta
+        // para os dez primeiros caracteres e **não** inclui o `\0`. O
+        // `dlsym` lê o nome byte a byte até ao terminador — e sem
+        // terminador lê memória a seguir, que não é o nome, e devolve
+        // `null`.
+        //
+        // É um bug que não dá erro visível: `dlopen` tem sucesso, e o
+        // único sintoma é que o motor nunca carrega. A sintaxe `c"..."`
+        // põe o terminador, mas o tipo do ponteiro muda entre versões
+        // do Rust (`*const u8` e `*const i8`), e um `as *const c_char`
+        // para resolver isso volta a perder o terminador se alguém tocar
+        // numa linha. A `CString` não tem nenhum dos dois problemas.
         macro_rules! simbolo {
-            ($nome:expr) => {{
-                let p: *mut c_void = libc::dlsym(handle, $nome.as_ptr() as *const libc::c_char);
+            ($nome:literal) => {{
+                let c_nome_simbolo = CString::new($nome).expect("símbolo sem bytes nulos");
+                let p: *mut c_void = libc::dlsym(handle, c_nome_simbolo.as_ptr());
                 if p.is_null() {
-                    libc::dlclose(handle);
                     return None;
                 }
                 p
             }};
         }
 
-        let criar: PfnCreate = std::mem::transmute(simbolo!("WebRtcAec_Create"));
-        let livre: PfnFree = std::mem::transmute(simbolo!("WebRtcAec_Free"));
-        let processar: PfnProcess = std::mem::transmute(simbolo!("WebRtcAec_Process"));
-        let referencia: PfnBufferFarend =
+        let criar: PfnCriar = std::mem::transmute(simbolo!("WebRtcAec_Create"));
+        let livre: PfnLivre = std::mem::transmute(simbolo!("WebRtcAec_Free"));
+        let iniciar: PfnIniciar = std::mem::transmute(simbolo!("WebRtcAec_Init"));
+        let processar: PfnProcessar = std::mem::transmute(simbolo!("WebRtcAec_Process"));
+        let referencia: PfnReferencia =
             std::mem::transmute(simbolo!("WebRtcAec_BufferFarend"));
-        let atraso: PfnSetSystemDelay =
-            std::mem::transmute(simbolo!("WebRtcAec_SetSystemDelay"));
+        let erro: PfnErro = std::mem::transmute(simbolo!("WebRtcAec_get_error_code"));
+        let estado_eco: PfnEstadoEco =
+            std::mem::transmute(simbolo!("WebRtcAec_get_echo_status"));
+        let configurar: PfnConfigurar =
+            std::mem::transmute(simbolo!("WebRtcAec_set_config"));
 
-        // O `dlclose` devolve a referência do `dlopen`. A biblioteca
-        // continua resident porque o `Arc` dos símbolos a mantém viva,
-        // e o `dlclose` garante que uma sequência de tentativas não
-        // deixa referências penduradas.
-        libc::dlclose(handle);
+        // O handle fica de fora de propósito: ver a nota sobre `dlclose`
+        // no cabeçalho da função. A biblioteca vive até ao fim do
+        // processo, que é o que mantém estes ponteiros válidos.
+        let _ = handle;
 
         Some(Arc::new(Simbolos {
             criar,
             livre,
+            iniciar,
             processar,
             referencia,
-            atraso,
-
+            erro,
+            estado_eco,
+            configurar,
         }))
     }
 }
 
 /// Carrega a API do `speexdsp` de uma biblioteca.
+///
+/// ## E o `dlclose` também não é feito
+///
+/// Pela mesma razão que no WebRTC: um `dlclose` cujas referências
+/// chegam a zero descarrega a biblioteca e os ponteiros ficam mortos.
+/// Ver a nota longa em [`carregar_simbolos_webrtc`].
 fn carregar_simbolos_speex(nome: &str) -> Option<SimbolosSpeex> {
     use libc::RTLD_LAZY;
 
@@ -715,37 +934,28 @@ fn carregar_simbolos_speex(nome: &str) -> Option<SimbolosSpeex> {
         }
 
         macro_rules! simbolo {
-            ($nome:expr) => {{
-                let p: *mut c_void = libc::dlsym(handle, $nome.as_ptr() as *const libc::c_char);
+            ($nome:literal) => {{
+                let c_nome_simbolo = CString::new($nome).expect("símbolo sem bytes nulos");
+                let p: *mut c_void = libc::dlsym(handle, c_nome_simbolo.as_ptr());
                 if p.is_null() {
-                    libc::dlclose(handle);
                     return None;
                 }
                 p
             }};
         }
 
-        let iniciar: PfnSpeexInit = std::mem::transmute(simbolo!("speex_echo_state_init"));
-        let cancelar: PfnSpeexCancel =
+        let iniciar: PfnSpeexIniciar = std::mem::transmute(simbolo!("speex_echo_state_init"));
+        let cancelar: PfnSpeexCancelar =
             std::mem::transmute(simbolo!("speex_echo_cancellation"));
-        let destruir: PfnSpeexDestroy =
+        let destruir: PfnSpeexDestruir =
             std::mem::transmute(simbolo!("speex_echo_state_destroy"));
-        let pre_iniciar: PfnSpeexPreInit =
-            std::mem::transmute(simbolo!("speex_preprocess_state_init"));
-        let pre_correr: PfnSpeexPreRun =
-            std::mem::transmute(simbolo!("speex_preprocess_run"));
-        let pre_destruir: PfnSpeexPreDestroy =
-            std::mem::transmute(simbolo!("speex_preprocess_state_destroy"));
 
-        libc::dlclose(handle);
+        let _ = handle;
 
         Some(SimbolosSpeex {
             iniciar,
             cancelar,
             destruir,
-            pre_iniciar,
-            pre_correr,
-            pre_destruir,
         })
     }
 }

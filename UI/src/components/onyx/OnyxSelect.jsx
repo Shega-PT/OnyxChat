@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
  *
  * `options` são cadeias simples: o valor apresentado e o valor enviado são
  * o mesmo. As definições cujas opções têm de ser objectos (por exemplo,
- * opções com um valor interno diferente do rótulo) ficam para a Etapa 7,
+ * opções com um valor interno diferente do rótulo) ficam para o que falta,
  * quando o conteúdo passar a vir do `config.json` do backend.
  */
 export default function OnyxSelect({

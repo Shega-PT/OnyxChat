@@ -11,7 +11,7 @@
 // dos dados, e nenhuma escreve no adaptador.
 //
 //   páginas  →  dataAdapter  →  mockAdapter    (demonstração)
-//   páginas  →  dataAdapter  →  bridgeAdapter  (backend real, Etapa 5)
+//   páginas  →  dataAdapter  →  bridgeAdapter  (backend real)
 //
 // ## Porque a escolha acontece aqui e não nas páginas
 //
@@ -79,6 +79,8 @@ import { PonteIndisponivel } from './bridge-adapter';
  * @property {() => Promise<{identifier: string, name?: string}|null>} getDiscoverySuggestion
  * @property {(identificador: string) => Promise<object>} discover
  * @property {(conversationId: string, texto: string) => Promise<object>} sendMessage
+ * @property {(conversationId: string, nome: string, conteudo: string) => Promise<object>} sendFile
+ * @property {(completas?: boolean) => Promise<{transferencias: object[]}>} listStorage
  * @property {(identificador: string, mensagem: string) => Promise<object>} sendContactRequest
  * @property {(conversationId: string) => Promise<object>} markConversationRead
  * @property {(conversationId: string, pinned: boolean) => Promise<object>} pinConversation
@@ -91,7 +93,8 @@ import { PonteIndisponivel } from './bridge-adapter';
  * @property {(transferId: string) => Promise<object>} playTransfer
  * @property {(largura: number, altura: number, fps: number, audioKbps: number, videoKbps: number) => Promise<{largura: number, altura: number}>} startVideoStream
  * @property {() => Promise<{sequencia: number, clockMs: number, vp8: string} | null>} readVideoFrame
- * @property {() => Promise<{opus: string} | null>} readAudioFrame
+ * @property {() => Promise<{opus: string, sequencia: number, clockMs: number} | null>} readAudioFrame
+ * @property {(vp8: string, largura: number, altura: number) => Promise<{largura: number, altura: number, jpeg: string}>} decodeVideoImage
  * @property {() => Promise<void>} stopVideoStream
  * @property {(contactId: string, blocked: boolean) => Promise<object>} blockContact
  * @property {() => Promise<{estado: string}>} getAccountState

@@ -26,7 +26,7 @@ import { OnyxIconButton } from '@/components/onyx/OnyxButton';
  *
  * Por isso a faixa não tem botão de fechar. O único botão é **desligar a
  * demonstração**, que recarrega a aplicação e a deixa a mostrar o estado
- * verdadeiro: a bridge, que até à Etapa 5 recusa com uma explicação.
+ * verdadeiro: a bridge, que recusa com uma explicação.
  *
  * ## A cor
  *

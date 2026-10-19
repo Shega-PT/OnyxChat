@@ -147,7 +147,11 @@ def test_a_ordem_de_sondagem_comeca_pelo_texto():
     """
     ordem = media.order_de_sondagem()
     assert ordem[0] == "texto"
-    assert ordem[1:] == ("audio", "video", "call", "ficheiro"), ordem[1:]
+    # E a ordem completa, com os tipos de controlo no fim.
+    #
+    # A ordem é a mesma que a do Rust (`media/teclas.rs::ORDEM`), e
+    # divergirem daria um tipo que um dos lados abre e o outro não.
+    assert ordem[1:] == ("audio", "video", "ficheiro", "call"), ordem[1:]
 
 
 def test_a_ordem_de_sondagem_cobre_exatamente_os_tipos_com_chave():
@@ -617,14 +621,14 @@ def test_a_geometria_do_manifesto_esta_em_acordo():
 
 
 # ---------------------------------------------------------------------
-# Os tipos de controlo (Fase 1)
+# Os tipos de controlo
 # ---------------------------------------------------------------------
 
 
 def test_os_tipos_de_controle_derivam_e_sao_distintos():
     """``call`` e ``ficheiro`` têm chave própria, e ela é diferente.
 
-    É a propriedade de que depende tudo o resto da Fase 1: um convite de
+    É a propriedade de que depende tudo o resto: um convite de
     chamada e um ficheiro têm de abrir com chaves que **só o par**
     conhece, e que são diferentes entre si.
 

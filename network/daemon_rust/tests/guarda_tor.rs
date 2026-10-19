@@ -312,8 +312,8 @@ fn ficheiros_de_teste_so_atras_de_cfg_test() {
 /// o que está escrito e o que é verdade **não produz erro de
 /// compilação**. O `Cargo.toml` diz uma coisa, o `LICENSE` outra, o
 /// `README` uma terceira, e a build passa exactamente igual. O mesmo
-/// aconteceu na fase F com `sodium_memzero` (documentado, não chamado) e
-/// na fase G4 com a paridade da K9 (afirmada num comentário, sem teste):
+/// aconteceu com `sodium_memzero` (documentado, não chamado) e
+/// com a paridade da K9 (afirmada num comentário, sem teste):
 /// o padrão de «o projecto tem mais uma verdade escrita do que
 /// verificada» repete-se, e um guard test é a forma barata de parar.
 ///
@@ -1100,7 +1100,7 @@ fn os_auditores_de_texto_passam() {
 
 /// A derivação da K1 tem de bater entre o Rust e o Python.
 ///
-/// A fase I introduzia duas implementações da mesma fórmula: uma em
+/// A derivação por tipo introduziu duas implementações da mesma fórmula: uma em
 /// Rust (`crypto/rust/src/amizade.rs`, sobre a crate `hkdf`) e outra em
 /// Python (`messenger/amizade.py`, sobre `hmac`/`hashlib`). As duas têm
 /// de dar o mesmo valor, e essa condição não se verifica com um teste de
@@ -1200,9 +1200,9 @@ fn extrair_atribuicao(texto: &str, prefixo: &str) -> String {
 
 /// A limpeza de memória está **chamada**, não só documentada.
 ///
-/// A fase F encontrou `sodium_memzero` declarado no header do libsodium
+/// Já se encontrou `sodium_memzero` declarado no header do libsodium
 /// e presente no `.a`, e nenhuma chamada em todo o projecto C/C++ — a
-/// mesma forma de mentira que a fase G4 encontrou na K9: a garantia
+/// mesma forma de mentira que a paridade da K9 teve: a garantia
 /// escrita, a verificação inexistente.
 ///
 /// Este guard fecha as duas metades:

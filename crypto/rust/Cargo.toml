@@ -37,7 +37,7 @@ zeroize = "1"
 libc = "0.2"
 
 # ---------------------------------------------------------------------
-# Dev-dependencies — property tests (Fase 3.2)
+# Dev-dependencies — property tests
 # ---------------------------------------------------------------------
 [dev-dependencies]
 proptest = { workspace = true }

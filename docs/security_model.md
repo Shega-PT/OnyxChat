@@ -67,7 +67,7 @@ parsing por comprimento    nunca delimitadores, nunca panics
 bounds checking            índices validados antes de acesso
 zeroization                limpeza de material sensível em memória
 error handling             Result/enum — nunca unwrap em input externo
-mlockall                   páginas trancadas — evita page-out para swap (F0c)
+mlockall                   páginas trancadas — evita page-out para swap
 ```
 
 ### 4. Segurança operacional

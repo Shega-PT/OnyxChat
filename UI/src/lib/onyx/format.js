@@ -174,7 +174,7 @@ export function initials(name = '') {
 // =====================================================================
 // Identidade: o que já vem calculado
 // ---------------------------------------------------------------------
-// As funções `identifierFor` e `fingerprintFor` **saíram** na Etapa 3.
+// As funções `identifierFor` e `fingerprintFor` **saíram**.
 //
 // Derivavam um resumo de 32 bits e um gerador linear congruente, e a
 // impressão assim obtida era apresentada como se verificasse algo. Não

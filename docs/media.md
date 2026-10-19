@@ -107,10 +107,26 @@ o texto já tem, e está declarada em §1.4 em vez de omitida.
 
 `TIPO` é **um byte**, e só a media o usa:
 
-| Valor | Significado |
-| --- | --- |
-| `0x01` | áudio |
-| `0x02` | vídeo |
+| Valor | Significado | Caractere na moldura |
+| --- | --- | --- |
+| `0x01` | áudio | `A` |
+| `0x02` | vídeo | `V` |
+| `0x03` | controlo de chamada | — |
+| `0x04` | ficheiro | `F` |
+
+E os dois últimos acrescentam-se depois, e os valores são **congelados**:
+mudar um valor de derivação é indistinguível de um envelope antigo a
+abrir com a chave nova, e o sintoma é texto ilegível em vez de um erro.
+
+O `0x03`, o controlo de chamada, **não tem caractere na moldura** — um
+convite é uma linha ASCII num envelope, e não uma moldura `ONX1`. O
+que partilha com o áudio e o vídeo é a chave derivada, e é isso que
+garante que só o par abre um convite.
+
+O `0x04`, o ficheiro, **tem** caractere, porque um ficheiro viaja em
+fatias — e a machinery de fatias (manifesto, resumo, montagem, retoma) é
+a de `ONX1`. Um contentor novo seria a mesma machinery escrita duas
+vezes, e as duas divergiriam.
 
 **O texto não entra nesta fórmula.** Continua a usar a K1 de longa
 duração que já usava, e essa é a razão de o texto continuar
@@ -213,7 +229,7 @@ Texto ASCII puro, dentro do plaintext **já cifrado** — a rede não o vê.
 | Offset | Tam. | Campo | Notas |
 | --- | --- | --- | --- |
 | 0 | 4 | `ONX1` | magia ASCII |
-| 4 | 1 | `tipo` | `A` áudio · `V` vídeo |
+| 4 | 1 | `tipo` | `A` áudio · `V` vídeo · `F` ficheiro |
 | 5 | 1 | `versão` | `1` |
 | 6 | 1 | `modo` | `F` não-streaming · `S` streaming |
 | 7 | 1 | `flags` | `0` a `7` — três bits em base 2: manifesto · keyframe · fim-de-lote |
@@ -276,7 +292,7 @@ unidade é o que mantém o preâmbulo em 18 bytes.
 
 | Tam. | Campo |
 | --- | --- |
-| 1 | `tipo` — `A` áudio · `V` vídeo (§2.2) |
+| 1 | `tipo` — `A` áudio · `V` vídeo · `F` ficheiro (§2.2) |
 | 4 | `total_bytes` (`u32` big-endian) |
 | 4 | `total_pedacos` (`u32` big-endian) |
 | 2 | `bytes_por_pedaco` (`u16`) |
@@ -285,6 +301,11 @@ unidade é o que mantém o preâmbulo em 18 bytes.
 | 4 | `duracao_s` (`u32`) |
 | 32 | `sha256` do conteúdo montado |
 | var. | `nome` em base-64, sem bytes nulos |
+
+E o ficheiro **arbitrário** usa o mesmo manifesto, com o `tipo` a `F`, o
+`codec` a `nenhum` e o `formato` a `binario` — e a combinação é
+**verificada**, porque um ficheiro que diga ser um vídeo seria aberto
+por um leitor de vídeo.
 
 **O `tipo` é um campo do manifesto e não se deduz do `codec`.** É o
 erro que a implementação apanhou: sem ele, o receptor lia o `codec` e
@@ -369,7 +390,13 @@ acrescenta um campo.
 | `0x0001` | Opus | áudio comprimido | `0x0001` Opus · `0x0002` MP3 · `0x0003` WAV |
 | `0x0002` | rawvideo gray | frames de 8 bits | `0x0010` rawvideo |
 | `0x0004` | VP8 | compressão de movimento | `0x0030` IVF |
-| `0x0003` | Matroska | invólido para streaming | `0x0020` MP4 · `0x0021` Matroska · `0x0022` WebM |
+| `0x0003` | Matroska | inválido para streaming | `0x0020` MP4 · `0x0021` Matroska · `0x0022` WebM |
+| `0x0005` | nenhum | ficheiro arbitrário | `0x0030` binário |
+
+E o ficheiro arbitrário usa `codec = 0x0005` e `formato = 0x0030` — e
+os dois significam a mesma coisa: **o sistema não sabe descrever isto**.
+O destinatário recebe-o inteiro, e é o que uma pessoa espera ao
+mandar um PDF.
 
 A separação entre `codec` e `formato` é deliberada: **o `codec` diz o que
 decodificar**, o `formato` diz **o que o contentor é**. Um vídeo
@@ -392,6 +419,21 @@ novo o produz**.
 
 Isto **não** impede os 30 fps. Um lote de streaming (§8.3) transporta
 vários frames de origem numa só mensagem.
+
+E a media tem a **excepcção** de `LIMITE_FRAMES_MEDIA = 512` por
+janela — porque uma chamada a 30 fps com Opus de 20 ms produz 80
+mensagens por segundo, e 800 por janela, e o tecto de texto não chega.
+
+> **A conta que fiscaliza a excepção, e o erro que ela corrigiu**
+>
+> A primeira versão desta secção dividia o **bitrate** pelo tamanho
+> máximo de um envelope e chamava ao resultado «mensagens por segundo».
+> Isso mede o que caberia num envelope cheio, e não o que se envia.
+>
+> A contagem real é a do codec, e com a agregação do áudio (§10.3.3.1)
+> são **363 mensagens por janela** de 640×480 a 30 fps — 41 % de folga
+> sobre as 512, e a folga é necessária porque um `ffmpeg` sob carga
+> entrega quadros aos trancos.
 
 > **Esta secção foi reescrita duas vezes.** A primeira versão tinha uma
 > tabela de taxas escrita **antes** do encoder existir, e ela estava
@@ -746,8 +788,8 @@ seria um contrato que mente.
 > comando de paragem exigiria um `pid` guardado no daemon para poder
 > falar de «aquela» captura — e um `pid` guardado é um estado que
 > sobrevive à coisa que o justificava. Um `ffmpeg` vivo depois de o
-> `sidecar` fechar seria um `x11grab` a ler o ecrã de uma pessoa sem que
-> ninguém consuma.
+> `sidecar` fechar seria uma câmara a ler o aposento de uma pessoa sem
+> que ninguém consuma.
 | `MEDIA_REPRODUZIR` | `0x10` | `transferencia: 16 bytes hex ‖ leitor: u8` | `pid: u32 LE` |
 
 `MEDIA_REPRODUZIR` **não leva chaves**, e a razão merece estar escrita
@@ -1243,35 +1285,58 @@ um frame-P depende dos anteriores e não sabe se virá o seguinte.
 Num pipe nunca se sabe quando acaba, e por isso um `ffmpeg` a ler IVF
 de um pipe **não mostra nada**.
 
-E daí a escolha: **quem descodifica é a UI, com `WebCodecs`**. Não é
-uma preferência de front-end:
+E daí a escolha: **quem descodifica é o daemon, com o `ffmpeg` que já
+está embebido**. Não é uma preferência de front-end:
 
-* O `VideoDecoder` descodifica cada `EncodedVideoChunk` à medida que
-  chega, e **não precisa de saber quantos há**. O problema do IVF
-  não existe para ele.
-* `optimizeForLatency` desliga o buffering de reordenação. Sem isso o
-  browser guarda dois ou três quadros à espera de um keyframe, e a
-  imagem que aparece tem dois ou três quadros de atraso — numa
-  chamada, isso é uma conversa em que as pessoas se interrompem.
-* Não há subprocesso, não há contentor intermédio, e não há latência
-  de lote.
+* O `ffmpeg` descodifica cada quadro à medida que chega, e o IVF
+  reconstruído de uma trama só não tem o problema do pipe — o
+  problema era o IVF *completo* num pipe, e aqui o IVF é de uma
+  trama, com o tamanho declarado.
+* O custo é um subprocesso por quadro, e é o que se mediu: **cerca de
+  8 ms** a 480p, num stream de 30 quadros por segundo. São 240 ms de
+  CPU por segundo, num pacote que está a passar 30 quadros por
+  segundo.
+* A alternativa — a UI descodificar — exige `VideoDecoder`, e o
+  renderizador **não garante** que a tenha (§10.3.0).
 
-E o daemon não descodifica porque **nunca precisa de o fazer**: um
-emissor não descodifica. Ligar o `libvpx` para descodificar também
-duplicaria o executável por uma coisa que só o receptor usa.
+E a nota que se segue estava certa, e agora está **errada**: o daemon
+não descodificava porque *nunca precisava* — o emissor não
+descodifica. Mas o `daemon` desta aplicação é **emissor e receptor ao
+mesmo tempo**: quem recebe um stream é o mesmo `daemon` que está a
+mandar o seu. E o `libvpx` para descodificar **já estava** ligado na
+receita, sem que ninguém o usasse.
+
+> Ajustar o executável por causa disto é o que a nota previa, e não
+> aconteceu: `--enable-decoder=vp8` já lá estava. O que custou foi
+> **`--enable-decoder=opus`**, que não, e que sem ele o áudio da
+> chamada não tem caminho de volta.
 
 #### 8.0.2 O que o daemon **não** faz
 
-O daemon **não decodifica**. Transporta bytes de VP8 de um lado ao
-outro, e quem os decodifica é o receptor, que tem o `ffmpeg` completo.
+O daemon **não guarda** o que descodifica. Descodifica, entrega, e
+larga o resultado — e é por isso que o JPEG não é um ficheiro: é um
+`memfd` que ninguém abre a não ser a interface.
 
-E isto não é uma poupança de espaço: o `build.sh` liga `libvpx` para
-codificar, e ligar também para decodicar duplicaria o executável por
-uma coisa que **o emissor não precisa**. Um emissor nunca descodifica.
+E o quadro chega ao anel em bytes comprimidos, e o anel conta
+**unidades** e não microssegundos — porque um quadro de VP8 tem
+comprimento variável, e «contar microssegundos de vídeo» não teria
+base nenhuma.
 
-O quadro chega ao anel em bytes comprimidos, e o anel conta **unidades**
-e não microssegundos — porque um quadro de VP8 tem comprimento
-variável, e «contar microssegundos de vídeo» não teria base nenhuma.
+> **O que mudou, e o que a nota previa**
+>
+> A nota dizia que o daemon não descodificava porque *nunca precisa*,
+> e que ligar o `libvpx` para descodificar «duplicaria o executável
+> por uma coisa que **o emissor não precisa**».
+>
+> A primeira parte é certa e a segunda é o que a refuta: **esta
+> aplicação é emissor e receptor ao mesmo tempo**, e o `libvpx` para
+> descodificar **já estava** ligado na receita, sem que ninguém o
+> usasse. O que faltava era o `--enable-decoder=opus` — e sem ele o
+> áudio da chamada não tem caminho de volta.
+>
+> E o que a nota errou foi a **conclusão**: não é «o emissor não
+> precisa». É «o emissor não precisa, mas o receptor do mesmo daemon
+> precisa, e o executável é o mesmo».
 
 ### 8.1 Captura: `ffmpeg` e o segundo canal
 
@@ -1280,11 +1345,11 @@ descritor 3 é criado pelo pai antes do `exec` e sobrevive à substituição
 da imagem do processo:
 
 ```text
-ffmpeg -f x11grab -video_size WxH -framerate F -i :0.0
+ffmpeg -f v4l2 -i /dev/video0          ← a CÂMARA
        -filter:v scale=W:H
        -c:v libvpx -b:v Bk -deadline realtime -cpu-used 8 -g 60
        -map 0:v -f ivf -                         → fd 1  (vídeo)
-       -i default
+       -f alsa -i default
        -map 1:a -c:a libopus -b:a Bk -vbr off
               -f opus fd:3                        → fd 3  (áudio)
 ```
@@ -1305,6 +1370,35 @@ ffmpeg -f x11grab -video_size WxH -framerate F -i :0.0
   3 é qualquer outra coisa e o áudio vai para o sítio errado sem erro
   nenhum. Daí `dup2` com verificação e `_exit(127)`.
 
+#### 8.1.0 A fonte é uma **câmara**, e não um ecrã
+
+A primeira versão desta secção usava `-f x11grab`, que é captura de
+**ecrã**. E o próprio `docs/media.md` chegou a dizer que uma chamada
+«não escolhe quem chama» — que é exactamente o que o código fazia, mas
+ao contrário: uma chamada que mostrava o ecrã inteiro de quem ligava.
+
+A fonte é agora, por ordem:
+
+1. **`ONYXCAMERA`** — o caminho do dispositivo, ou o índice numérico
+   do `/dev/video*`. É a saída para quem tem duas câmaras.
+2. **`/dev/video*`** — a webcam ou a câmara USB, por V4L2. É a primeira
+   porque **não precisa de nada**: `/dev/video*` é uma interface do
+   kernel, não uma biblioteca, e a receita liga `v4l2` sem pedir
+   cabeçalho nenhum.
+3. **`pipewiregrab`** — para quem usa PipeWire e não tem
+   `/dev/video*`. Fica depois do V4L2 porque precisa da biblioteca do
+   PipeWire, e o V4L2 não precisa.
+
+> **O `x11grab` saiu da receita.** E a razão não é o ecrã ser
+> irrelevante: é que habilitar `libxcb` **aborta o `configure`** numa
+> máquina sem `xau`/`xdmcp`, e uma dependência que pode fazer o build
+> inteiro desaparecer não é uma dependência condicional. A captura de
+> ecrã, se algum dia for pedida, é um caminho novo — não um
+> `--enable` às cegas.
+
+E o `v4l2` é o que permite a geometria mínima de uma chamada: **640×480
+a 30 fps**, medido a 84 608 bytes de VP8 por dois segundos.
+
 #### 8.1.1 O `stderr` é lido, e o arranque é verificado
 
 O `stderr` do `ffmpeg` vai para um pipe, e o que está dentro do pipe
@@ -1313,9 +1407,9 @@ importa:
 * **Se ninguém o lê**, o buffer (64 kB) enche e o `ffmpeg` **bloqueia
   para sempre** à espera de um leitor que não existe. A captura fica
   pendurada e nada está errado do ponto de vista de ninguém.
-* **Se ninguém o lê e o `ffmpeg` falha** — ecrã não encontrado, formato
-  não suportado — `MEDIA_CAPTURAR` respondia `OK`. A pessoa via «a
-  capturar» e não acontecia nada, sem pista.
+* **Se ninguém o lê e o `ffmpeg` falha** — câmara não encontrada,
+  formato não suportado — `MEDIA_CAPTURAR` respondia `OK`. A pessoa
+  via «a capturar» e não acontecia nada, sem pista.
 
 Por isso há uma thread que consome o pipe e guarda as **últimas 8
 linhas**, e [`lancar`] espera até 60 ms para o filho dizer que não
@@ -1339,16 +1433,12 @@ fecha, morre.
 Um comando de paragem exigiria um `pid` guardado no daemon para poder
 falar de «aquela» captura — e um `pid` guardado é um estado que
 sobrevive à coisa que o justificava. Um `ffmpeg` vivo depois de o
-`sidecar` fechar seria um `x11grab` a ler o ecrã de uma pessoa sem que
-ninguém consuma.
+`sidecar` fechar seria uma câmara a ler o aposento de uma pessoa sem
+que ninguém consuma.
 
 E uma segunda captura não substitui a primeira: seria uma segunda
-leitura do mesmo ecrã, a competir com a primeira, e quem pediu a
+leitura da mesma câmara, a competir com a primeira, e quem pediu a
 primeira ficaria sem som sem saber porquê.
-
-**Wayland**: `-f x11grab` só funciona com XWayland. A detecção é
-`$XDG_SESSION_TYPE`; sem XWayland o emissor usa `pipewiregrab`
-(ffmpeg ≥ 6.1) ou recusa com um erro que diz qual.
 
 ### 8.2 O anel, orçado em microssegundos
 
@@ -1677,33 +1767,80 @@ ffmpeg (VP8, 480p, 30 fps)
   → DECODE                   o receptor descifra
   → ReceptorStreaming        separa texto, áudio e vídeo
   → ChamadaRede              o laço que lê a ligação e separa
-  → VideoDecoder             WebCodecs descodifica
-  → canvas                   a imagem
+  → MEDIA_IMAGEM 0x13        o daemon descodifica o VP8
+  → JPEG                     a imagem, que a interface mostra
 ```
 
 Nenhum passo disto é um caminho novo para a rede: o vídeo é um `CHAT`
 como o texto, e o que o torna vídeo é estar comprimido.
 
+#### 10.3.0 Onde o áudio e o vídeo são tocados, e porquê
+
+**No daemon.** E a razão é o renderizador.
+
+A interface é uma página servida a um **WebKitGTK 6**
+(`scripts/interface-visual.js`), e o WebKitGTK **não garante** três
+APIs de browser:
+
+| API | Onde era usada | O que acontece sem ela |
+|---|---|---|
+| `VideoDecoder` | `VideoChamada.js` | a imagem não aparece — e o erro é um ecrã preto |
+| `AudioDecoder` | `AudioChamada.js` | o som não aparece — e o erro é silêncio |
+| `AudioContext` | `AudioChamada.js` | o áudio fica `suspended` — e o erro é silêncio |
+
+E o `VideoChamada.js` **dizia-o** no seu cabeçalho: «um browser sem
+`VideoDecoder` não tem vídeo, e a UI diz isso em vez de mostrar um ecrã
+preto». O código estava escrito contra uma hipótese que o renderizador
+não garante.
+
+Por isso o dono mudou:
+
+* o **vídeo** é descodificado no daemon — que tem o `ffmpeg` com
+  `--enable-decoder=vp8`, e que já o tinha sem o usar — e chega à
+  interface como **JPEG**, que qualquer motor de renderização mostra num
+  `<img>` sem descodificar nada;
+* o **áudio** é descodificado e reproduzido no daemon, que o escreve
+  no dispositivo de som com `--enable-outdev=alsa`. A interface nunca vê
+  o áudio.
+
+E o que a interface ganhou com isto foi a **ausência** da restrição
+de «só dentro de um gesto do utilizador»: o `AudioContext` exigia um
+gesto, e o gesto era a fonte de metade dos problemas da componente.
+
+> **O custo é honesto:** o JPEG é uma segunda geração. O VP8 entra, o
+> JPEG sai, e a qualidade é a de uma re-codificação a 480p. A
+> alternativa — manter o VP8 até à interface — é a que exige
+> `VideoDecoder`, e portanto a que não funciona.
+
 | peça | onde | estado |
 | --- | --- | --- |
 | `ffmpeg` com VP8 a 480p | `tools/ffmpeg/build.sh` | feito, medido |
+| `ffmpeg` com **entrada** de câmara e microfone | `tools/ffmpeg/build.sh` | feito, medido a 640×480 |
+| `ffmpeg` com **saída** de áudio (`--enable-outdev=alsa`) | `tools/ffmpeg/build.sh` | feito, medido |
+| `ffmpeg` com decoder de Opus e de VP8 | `tools/ffmpeg/build.sh` | feito |
 | ler o IVF do pipe | `media/ivf.rs` | feito, 14 testes |
 | `MEDIA_CAPTURAR` / `MEDIA_LER` | `ipc.rs` | feito, testes IPC |
-| `Captura` com `video_kbps` | `media/ffmpeg.rs` | feito |
+| `Captura` com `video_kbps` e câmara | `media/ffmpeg.rs` | feito |
 | `media_ler()` | `ipc_client.py` | feito |
-| `EmissorStreaming` | `media.py` | feito, 3 testes |
-| `ReceptorStreaming` | `media.py` | feito, 4 testes |
-| `ChamadaRede` (quem ouve) | `media.py` | feito, 4 testes |
-| `EmissorChamadaRede` (quem fala) | `media.py` | feito, 3 testes |
-| `MEDIA_AUDIO` + `media_audio()` | `ipc.rs`, `ipc_client.py` | feito |
-| `LimitadorAudio` (a §8.0) | `media.py` | feito, 6 testes |
+| `EmissorStreaming` | `media.py` | feito |
+| `ReceptorStreaming` | `media.py` | feito |
+| `ChamadaRede` (quem ouve) | `media.py` | feito |
+| `EmissorChamadaRede` (quem fala) | `media.py` | feito |
+| `MEDIA_AUDIO` **com `clock_ms`** | `ipc.rs`, `ipc_client.py` | feito |
+| `MEDIA_IMAGEM` (VP8 → JPEG) | `ipc.rs`, `media/imagem.rs` | feito, 8 testes |
+| `LimitadorAudio` (a §8.0) | `media.py` | feito |
 | `um_audio()` / `um_audio_distinto()` | `media.py` | feito |
-| `AudioChamada` (`WebCodecs`) | `UI/…/AudioChamada.js` | feito |
-| `readAudioFrame` no adaptador e na rota | `bridge-adapter.js`, `rotas.py` | feito, 4 testes |
-| `VideoChamada` (`WebCodecs`) | `UI/…/VideoChamada.js` | feito |
-| `Chamada` (vídeo + áudio, um relógio) | `UI/…/Chamada.jsx` | feito |
-| três métodos nos dois adaptadores | `bridge-adapter.js` + `mock-adapter.js` | feito |
-| três rotas de streaming | `server/rotas.py` | feito, 8 testes |
+| agregação de Opus (8 pacotes por mensagem) | `media.py` | feito |
+| `LimitadorAudio` e a janela de 200 ms | `media.py` | feito |
+| `saida.rs` — reproduzir o áudio no ALSA | `media/saida.rs` | feito, 8 testes |
+| `eco.rs` — cancelar o eco com o AEC do WebRTC | `media/eco.rs` | feito, 19 testes |
+| `lipsync.py` — a regra dos três cenários | `messenger/lipsync.py` | feito, 19 testes |
+| `controle.py` — o envelope de controlo | `messenger/controle.py` | feito, 31 testes |
+| `Chamada` (sem `WebCodecs`) | `UI/…/Chamada.jsx` | feito |
+| botões de áudio e de vídeo | `UI/…/ConversationView.jsx` | feito |
+| `readAudioFrame` no adaptador e na rota | `bridge-adapter.js`, `rotas.py` | feito |
+| `decodeVideoImage` no adaptador e na rota | `bridge-adapter.js`, `rotas.py` | feito |
+| rotas de streaming | `server/rotas.py` | feito |
 
 ### 10.3.1 O áudio não é o vídeo com outro nome
 
@@ -1712,47 +1849,94 @@ atrasado mostra-se com dois quadros de detras, e é quase
 imperceptível a 30 fps. Um pacote de áudio atrasado é voz que chega
 tarde, e quem está a ouvir percebe antes de ver.
 
-Daí as duas decisões do `AudioChamada`:
+Daí as duas decisões do áudio:
 
 | | vídeo | áudio |
 | --- | --- | --- |
-| fila | até ao `dequeue` | **três pacotes** |
-| atraso | `optimizeForLatency` | `playbackLatency` de 60 ms |
+| quem descodifica | o daemon, para JPEG | o daemon, para PCM |
+| quem apresenta | a interface, num `<img>` | o daemon, no ALSA |
 | quando está atrasado | mostra mesmo assim | **descarta o antigo** |
 
-Os 60 ms não são um ajuste: é o menor atraso que o `AudioContext` pode
-dar sem estalar, e é por isso que uma chamada tem 10 a 20 ms de atraso
-que **ninguém pode tirar**. É o browser a poder começar a mixar.
-
 E o descarte é sempre do **antigo**, nunca do recente — descartar o
-recente tirava a voz a quem está a falar *agora*, e isso ouve-se.
+recente tiraria a voz a quem está a falar *agora*, e isso ouve-se.
 
-#### 10.3.1.1 O gesto, e porque não há atalho
+#### 10.3.1.1 O cancelamento de eco
 
-O browser não deixa criar um `AudioContext` fora de um gesto do
-utilizador. Sem gesto, o contexto nasce `suspended`, o `decode()` corre
-e não produz som, **sem erro nenhum** — e o sintoma é uma chamada em
-que se vê a imagem e não se ouve a voz, que é a falha mais confusa que
-uma chamada pode ter.
+**É feito, e é no daemon** — em `media/eco.rs`, com o AEC3 do WebRTC
+carregado por `dlopen`.
 
-Não há `resume()` que resolva: `resume()` também precisa de um gesto.
-E não há polyfill. A decisão é do browser e é a única forma de a
-respectar sem mentir ao utilizador sobre o que está a acontecer.
+A forma como funciona é a de sempre: o AEC precisa de duas coisas, e
+só uma delas vem do microfone.
 
-Por isso o botão «Ligar chamada» do `Chamada.jsx` **é** o gesto, e o
-áudio é acordado **antes** da captura: se o browser recusar, nenhum
-`ffmpeg` é lançado, porque um `ffmpeg` a ler o ecrã sem ninguém a
-ouvir é pior do que nenhum.
+* o **sinal perto** — o que o microfone ouve, com o eco já misturado;
+* o **sinal longe** — o que os altifalantes estão a tocar, limpo.
 
-#### 10.3.1.2 O que a chamada não faz
+E o sinal longe **só existe porque o daemon reproduz o áudio**. Por isso
+o `Saida` regista cada bloco que escreve, e o `Cancelador` lê esse
+registo. Um AEC sem referência não cancela: compara o eco com ele
+próprio e devolve o áudio intacto.
 
-* **Cancelamento de eco.** Numa chamada entre duas máquinas há o eco
-  da voz que acabou de falar, e o `echoCancellation` do
-  `getUserMedia` trata o do **microfone** — o da linha não. Isso é um
-  filtro de eco por referência e não cabe aqui.
-* **Sincronização labial.** O `VideoDecoder` e o `AudioContext` têm
-  relógios independentes, e alinhar os dois é trabalho a sério.
-* **Escolher quem chama.** Isto não é uma centralita.
+> **Porque `dlopen` e não uma crate `webrtc-sys`**
+>
+> Porque a máquina **não tem os cabeçalhos**. O
+> `libwebrtc-audio-processing1` e o `libspeexdsp1` estão instalados como
+> `.so.1` de runtime, e nenhum dos dois tem um único `.h` — nem
+> `pkg-config` existe. Qualquer crate `*-sys` precisa deles para
+> compilar.
+>
+> E é por isso que as assinaturas estão escritas à mão, e que **cada
+> bloco do ficheiro traz o cabeçalho C original ao lado**. A assinatura
+> publicada pelo WebRTC e a da biblioteca do Ubuntu **não são a mesma**:
+> o `WebRtcAec_Create` publica `int32_t(void**, int, int, int, int, int32_t*)`
+> e a biblioteca tem `void*(void)`. E `WebRtcAec_Process` usa `float*`,
+> não `int16_t*`.
+>
+> A assinatura certa é a que se vê no `objdump` do prólogo, e é a que
+> está escrita no ficheiro.
+
+E o que se mediu, com um eco sintético de 90 % de amplitude e 48
+amostras de atraso:
+
+| | razão da energia de saída sobre a de entrada |
+| --- | --- |
+| nos primeiros blocos | 1,00 — o AEC ainda não adaptou |
+| depois de 2000 blocos | **0,83** — está a subtractar |
+
+#### 10.3.1.2 O lip sync
+
+**É feito**, e é a regra dos três cenários de §5.5 — implementada em
+`messenger/lipsync.py`.
+
+E o que a torna possível é o `clock_ms` do **áudio**, que deixou de ser
+estimado:
+
+* o daemon **conta** o tempo de media à medida que os bytes passam, e
+  escreve-o no cabeçalho de cada pacote (`MEDIA_AUDIO` passou a devolver
+  `seq ‖ clock_ms ‖ opus`);
+* o receptor compara o relógio do vídeo com o do áudio, e decide.
+
+A estimação anterior — dividir os bytes por `bytes_por_ms` — dava o
+tempo **recebido**, e não o de captura. São coisas diferentes: um
+pacote que esperou 200 ms na rede tem o mesmo tamanho, e o receptor sem
+cabeçalho não distingue «a voz chegou agora» de «a voz foi capturada há
+200 ms».
+
+E a estimativa era uma **média**: ao fim de dez minutos de chamada,
+um pacote de 20 ms estimado em 19,6 ms dá 24 segundos de diferença.
+
+#### 10.3.1.3 O que a chamada não faz
+
+* **A sinalização de ponta a ponta.** O `controle.py` define o formato
+  do convite, da aceitação e da recusa, e as chaves derivadas existem
+  (§1.4). Mas o `RING` não chega ao par: falta a sessão de rede do
+  `messenger`, que é trabalho de arquitectura e não de media.
+* **O envio de ficheiros pela rede.** A rota `/ficheiros` guarda o
+  ficheiro e devolve o manifesto; quem o envia é o `messenger`, que
+  tem as chaves de amizade.
+
+E o que estas duas coisas têm em comum é o mesmo que a impede: **o
+`sidecar` não tem as chaves de amizade**, e o que envia pela rede é o
+`messenger`.
 
 ### 10.3.2 A sondagem é o que faz o sistema funcionar
 
@@ -1811,40 +1995,83 @@ EmissorStreaming ──► ligação ──► ChamadaRede ──► ReceptorStr
 
 E o que esse teste prova é o **caminho**, não a rede: que o que sai do
 emissor é o que o receptor separa. Não há Tor, não há `ffmpeg` e não há
-ecrã — e um teste que dependesse de qualquer um deles falharia em
-qualquer máquina sem ecrã.
+câmara — e um teste que dependesse de qualquer um deles falharia em
+qualquer máquina sem câmara.
+
+#### 10.3.3.1 A agregação do áudio, e a conta que a obriga
+
+O `MEDIA_AUDIO` devolve **um pacote** de Opus de cada vez, e um pacote
+de 20 ms são 50 por segundo. Com o vídeo a 30 fps, uma chamada produz
+**80 mensagens por segundo** — 800 por janela de 10 s, contra um tecto
+de media que era 64.
+
+O tecto subiu para **512**, e o áudio passou a ser agregado: **8
+pacotes numa mensagem**, ou 160 ms de áudio.
+
+| | antes | depois |
+| --- | --- | --- |
+| mensagens de áudio por segundo | 50 | 6,3 |
+| mensagens de vídeo por segundo | 30 | 30 |
+| total por janela de 10 s | 800 | **363** |
+| tecto | 512 | 512 |
+
+E a folga é de 41 %, que é necessária: um `ffmpeg` sob carga entrega
+quadros aos trancos, e uma janela fixa de 10 s sem margem rejeita o pico
+mesmo quando a média cabe.
+
+> **A conta antiga estava errada, e o erro era de método.** A primeira
+> versão desta secção dividia o **bitrate** pelo tamanho máximo de um
+> envelope e chamava ao resultado «mensagens por segundo». Isso mede o
+> que caberia num envelope cheio, não o que se envia — e subestimava a
+> chamada por duas ordens de grandeza. A contagem real é a do codec.
+
+#### 10.3.3.2 A escolher quem chama
+
+Feito na interface: **dois botões** no cabeçalho da conversa — um de
+áudio e um de vídeo — em `ConversationView.jsx`.
+
+E são dois botões, e não um menu, porque a alternativa escondia a acção
+mais usada de uma chamada. E a chamada de áudio **não** precisa de
+câmara, e quem recebe um convite de áudio não quer ver a cara de quem
+liga.
 
 ### 10.3.4 O que ainda falta
 
-#### 10.3.4.1 O `clock_ms` do áudio
+#### 10.3.4.1 A sinalização, de ponta a ponta
 
-O pacote de Opus **é** o relógio (§5.3): 80 bytes a 32 kbit/s são 20 ms,
-e o receptor sabe o tempo sem lhe dizerem. E mesmo assim o `clock_ms`
-**viaja**, e a §5.4 dá a razão — é a verificação cruzada que apanha
-perda, adulteração e um `bytes_por_ms` declarado a enganar.
+O formato do convite existe e está testado: `messenger/controle.py`
+define `RING`, `ACCEPT`, `REJECT`, `CANCEL` e `BYE`, com a sessão de 16
+bytes que amarra o convite ao media, e as chaves derivadas estão no
+§1.4.
 
-A correção que isto custou é a que está escrita abaixo, e vale mais
-que o número:
+O que falta é o **caminho**: o `RING` tem de chegar ao par, e para isso
+a sessão de rede do `messenger` tem de existir.
 
-```python
-# ERRADO: o índice, não o tempo
-clock_ms = self.audios * ms
+E a lacuna é de arquitectura, não de media: **o `sidecar` não tem as
+chaves de amizade**, e quem envia pela rede é o `messenger`, que as
+tem. Montar essa ligação — a ligacao P2P com as chaves, e o
+`RECEBER` a alimentar o `ChamadaRede` — é o trabalho que falta.
 
-# CERTO: o tempo acumulado
-clock_ms = self._ms_audio
-self._ms_audio += ms
-```
+O mesmo vale para o envio de ficheiros: a rota `/ficheiros` guarda e
+devolve o manifesto, e quem o envia pela rede é o `messenger`, com o
+`enviar_transferencia` que **já está escrito e testado** e que
+ninguém chama.
 
-A diferença só aparece quando **os pacotes não têm todos o mesmo
-tamanho**, e eles não têm: uma rajada produz um pacote maior, e o Opus
-tem pacotes de duração variável. Com o índice, o relógio saltava para
-o fim da chamada sem que nada désse conta — que é exactamente o
-«desvio de relógio» que a §5.4 existe para detectar, e que o próprio
-módulo estava a producir.
+#### 10.3.4.2 O `clock_ms` do áudio
+
+**Feito.** O `MEDIA_AUDIO` passou a devolver `seq ‖ clock_ms ‖ opus`, e o
+`clock_ms` é **contado** pelo daemon à medida que os bytes passam.
+
+A diferença entre contar e estimar aparece quando os pacotes **não têm
+todos o mesmo tamanho**, e eles não têm: uma rajada produz um pacote
+maior, e o Opus tem pacotes de duração variável. Com uma média, o
+relógio saltava para o fim da chamada sem que nada désse conta — que é
+exactamente o «desvio de relógio» que a §5.4 existe para detectar, e
+que o próprio módulo estava a producir.
 
 E o `ceil` na conta dos milissegundos, porque um pacote que dá 19,6 ms
-**são 20 ms de áudio**: arredondar para baixo faz o relógio perder tempo
-ao longo de uma chamada, e perder tempo é pior do que ganhar.
+**são 20 ms de áudio**: arredondar para baixo faz o relógio perder
+tempo ao longo de uma chamada, e perder tempo é pior do que ganhar.
 
 O que **não** está decidido e é proibido descrever como decidido:
 

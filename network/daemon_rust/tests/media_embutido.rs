@@ -248,8 +248,8 @@ fn o_executavel_embutido_descodifica_opus() {
 ///
 /// O binário embebido, aquele mesmo que o daemon executa e que já traz
 /// `--enable-decoder=vp8` desde a receita, é um descodificador VP8
-/// completo. Este teste não o usa ainda; existe para que, quando a Fase
-/// de descodificação o usar, ninguém se esqueça de que a capacidade já
+/// completo. Este teste não o usa ainda; existe para que, quando a
+/// descodificação o usar, ninguém se esqueça de que a capacidade já
 /// lá está.
 #[test]
 fn o_executavel_embutido_descodifica_vp8() {

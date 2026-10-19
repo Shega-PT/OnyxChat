@@ -43,6 +43,7 @@ tipo, porque o JSON é tudo `any`.
 from __future__ import annotations
 
 import base64
+import binascii
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -204,6 +205,11 @@ def montar(
             _transferencias,
             "transferencias",
         ),
+        # O armazenamento: **todas** as transferências da conta, de
+        # todas as conversas. E o envio de ficheiro arbitrário, que a
+        # e que antes era impossível.
+        Rota("GET", "/armazenamento", _armazenamento, "armazenamento"),
+        Rota("POST", "/ficheiros", _enviar_ficheiro, "enviar-ficheiro"),
         Rota("GET", "/transferencias/{id}", _transferencia, "transferencia"),
         Rota(
             "POST",
@@ -220,6 +226,7 @@ def montar(
         ),
         Rota("GET", "/media/streaming/quadro", _quadro_streaming, "quadro-streaming"),
         Rota("GET", "/media/streaming/audio", _audio_streaming, "audio-streaming"),
+        Rota("POST", "/media/streaming/imagem", _imagem_streaming, "imagem-streaming"),
         Rota("POST", "/media/streaming/parar", _parar_streaming, "parar-streaming"),
         Rota(
             "DELETE",
@@ -430,6 +437,140 @@ def _transferencias(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]
         "transferencias": contexto.loja.transferencias(
             parametros["id"], completas=completas
         )
+    }
+
+
+def _armazenamento(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """**Tudo** o que a conta tem guardado, de todas as conversas.
+
+    `GET /armazenamento`.
+
+    E a vista de armazenamento: a pessoa pergunta «o que tenho
+    guardado?» — e a resposta é a lista, com o nome de quem mandou e
+    a conversa de onde veio.
+
+    E é **tudo**, e não o que está numa conversa: a pergunta do
+    armazenamento é por conta, e a das transferências é por conversa.
+    São perguntas diferentes e a resposta é diferente.
+
+    O filtro ``completas`` é o mesmo das transferências, e pela mesma
+    razão: «o que posso abrir?» é a pergunta de facto, e uma
+    transferência a meio é informação que se mostra.
+    """
+    bruto = contexto.um("completas", "").lower()
+    if bruto in ("", "todos", "todas"):
+        completas = None
+    else:
+        completas = contexto.flag("completas")
+    return {"transferencias": contexto.loja.armazenamento(completas=completas)}
+
+
+def _enviar_ficheiro(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """Guarda um ficheiro enviado e devolve o seu manifesto.
+
+    `POST /ficheiros`.
+
+    E a rota de **envio de ficheiro arbitrário** — o que traz
+    e que antes era impossível, porque o emissor de transferências só
+    aceitava extensões de media.
+
+    ## E o que esta rota **não** faz
+
+    **Não envia pela rede.** A rota guarda o ficheiro na conta e
+    devolve o manifesto — a mesma forma que a media tem — e quem envia
+    pela rede é o `messenger`, que tem as chaves de amizade. A rota não
+    tem chaves, e fingir que tem seria um caminho que cifra com a
+    chave errada.
+
+    E o porquê de o ficheiro ser guardado **antes** de ser enviado é o
+    mesmo de sempre: quem envia guarda uma cópia para poder responder a
+    uma retoma sem reler o ficheiro.
+
+    ## O corpo
+
+    ``{"conversa": id, "nome": "relatorio.pdf", "conteudo": base64}``.
+
+    E o conteúdo vem em base-64 porque o que entra na cifra é texto
+    opaco — e o `JSON` não tem um tipo de conteúdo para ficheiros.
+    """
+    corpo = contexto.json()
+    nome = corpo.get("nome")
+    conteudo_b64 = corpo.get("conteudo")
+    conversa_id = corpo.get("conversa")
+
+    if not isinstance(nome, str) or not nome:
+        raise ErroDePedido(400, "falta o nome do ficheiro")
+    if not isinstance(conteudo_b64, str):
+        raise ErroDePedido(400, "falta o conteúdo do ficheiro")
+    if not isinstance(conversa_id, str) or not conversa_id:
+        raise ErroDePedido(400, "falta a conversa")
+
+    try:
+        conteudo = base64.b64decode(conteudo_b64, validate=True)
+    except (ValueError, binascii.Error) as erro:
+        raise ErroDePedido(400, "o conteúdo não é base-64 válido") from erro
+
+    if not conteudo:
+        raise ErroDePedido(400, "o ficheiro está vazio")
+
+    # O nome não pode trazer bytes nulos nem caminho: um nome com
+    # ``/`` é um caminho, e o destinatário vai mostrar o nome num
+    # explorador de ficheiros.
+    if "\x00" in nome:
+        raise ErroDePedido(400, "o nome tem bytes nulos")
+    if "/" in nome or "\\" in nome or nome in (".", ".."):
+        raise ErroDePedido(400, "o nome não pode ser um caminho")
+
+    try:
+        conversa = contexto.loja.conversa(conversa_id)
+    except loja_mod.LojaInvalida as erro:
+        raise ErroDePedido(404, "não há essa conversa") from erro
+
+    # E o manifesto, que é o mesmo objecto que a media usa — e por isso
+    # o receptor sabe montar o ficheiro com o mesmo montador.
+    #
+    # O tipo é ``ficheiro`` e não ``video``: é a chave que escolhe, e
+    # um ficheiro enviado com a chave de vídeo seria aberto por um
+    # leitor de vídeo.
+    import messenger.media as media_mod
+
+    try:
+        manifesto = media_mod.Manifesto.novo(
+            media_mod.TIPO_FIXEIRO,
+            media_mod.CODEC_NENHUM,
+            media_mod.FORMATO_BINARIO,
+            0,
+            nome,
+            conteudo,
+        )
+        manifesto.validar()
+    except media_mod.ErroMedia as erro:
+        raise ErroDePedido(400, str(erro)) from erro
+
+    contexto.loja.registar_transferencia(
+        conversa["id"],
+        "me",
+        id=manifesto.id,
+        tipo=manifesto.tipo,
+        codec=manifesto.codec,
+        formato=manifesto.formato,
+        nome=manifesto.nome,
+        total_bytes=manifesto.total_bytes,
+        total_pedacos=manifesto.total_pedacos,
+        bytes_por_pedaco=manifesto.bytes_por_pedaco,
+        duracao_s=manifesto.duracao_s,
+        sha256=manifesto.sha256,
+        completo=True,
+    )
+
+    return {
+        "transferencia": {
+            "id": manifesto.id,
+            "nome": manifesto.nome,
+            "totalBytes": manifesto.total_bytes,
+            "totalPedacos": manifesto.total_pedacos,
+            "sha256": manifesto.sha256.hex(),
+        }
     }
 
 
@@ -844,6 +985,78 @@ def _quadro_streaming(contexto: Any, parametros: dict[str, str]) -> dict[str, An
     }
 
 
+def _imagem_streaming(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
+    """Descodifica um quadro de VP8 para JPEG, e devolve a imagem.
+
+    `POST /media/streaming/imagem`.
+
+    ## E porque isto é uma rota e não o browser a descodificar
+
+    Porque o renderizador é um WebKitGTK 6
+    (`scripts/interface-visual.js`), e o WebKitGTK **não garante**
+    `VideoDecoder` — a API de WebCodecs. O `VideoChamada.js` foi escrito
+    contra essa hipótese e avisa no seu cabeçalho que «um browser sem
+    `VideoDecoder` não tem vídeo».
+
+    Sem `VideoDecoder`, o caminho de pixéis tem de ser um formato que
+    **qualquer** motor de renderização mostra num `<img>` sem
+    descodificar nada: JPEG. E quem descodifica é o daemon, que é o
+    único processo com um `ffmpeg` com o decoder de VP8.
+
+    ## E porque recebe o VP8 e não o quadro
+
+    Porque quem chama é o **receptor** de um stream: recebeu o VP8 pela
+    rede e quer a imagem. A captura produz VP8, e é o receptor que
+    precisa de JPEG.
+
+    ## E o corpo
+
+    O VP8 **crú**, sem contentor. E a geometria, porque o JPEG
+    descodificado tem a dimensão mas o receptor precisa de saber a
+    altura antes de o navegador o descodificar.
+
+    ## Os erros, e a diferença entre eles
+
+    | estado | resposta |
+    | --- | --- |
+    | não há daemon | **503** |
+    | o VP8 não é descodificável | **422** |
+
+    E **422** e não 500: o corpo não é uma imagem, e isso é um erro do
+    conteúdo pedido e não do servidor. A interface trata os dois como
+    «esta imagem não veio» e segue para a seguinte, porque uma imagem
+    perdido não é o fim de uma chamada.
+    """
+    daemon = contexto.extras.get("daemon")
+    if daemon is None:
+        raise ServicoIndisponivel("não há daemon a correr")
+
+    corpo = contexto.json()
+    vp8 = corpo.get("vp8")
+    largura = corpo.get("largura")
+    altura = corpo.get("altura")
+    if not isinstance(vp8, str) or not vp8:
+        raise ErroDePedido(400, "falta o VP8")
+    if not isinstance(largura, int) or not isinstance(altura, int):
+        raise ErroDePedido(400, "faltam a largura e a altura")
+
+    try:
+        bruto = base64.b64decode(vp8, validate=True)
+    except (ValueError, binascii.Error) as erro:
+        raise ErroDePedido(400, "o VP8 não é base-64 válido") from erro
+
+    try:
+        imagem = daemon.media_imagem(bruto, largura, altura)
+    except ipc_client.ErroDaemon as erro:
+        raise ErroDePedido(422, str(erro) or "o VP8 não descodificou") from erro
+
+    return {
+        "largura": imagem["largura"],
+        "altura": imagem["altura"],
+        "jpeg": base64.b64encode(imagem["jpeg"]).decode("ascii"),
+    }
+
+
 def _audio_streaming(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:
     """O próximo pacote de Opus, em base-64.
 
@@ -878,9 +1091,19 @@ def _audio_streaming(contexto: Any, parametros: dict[str, str]) -> dict[str, Any
     # resultado no browser, mas a rota e o laço não são o mesmo
     # nível, e o `null` é mais barato.
     if pacote is None:
-        return {"opus": None}
+        return {"opus": None, "sequencia": None, "clockMs": None}
 
-    return {"opus": base64.b64encode(pacote).decode("ascii")}
+    # E o cabeçalho vai com o áudio: a sequência e o tempo de media.
+    #
+    # E porque o tempo é o que importa: o `clockMs` é o instante em que
+    # o áudio foi **capturado**, e é o que permite à interface alinhar
+    # o som com a imagem. Sem ele, o áudio é uma sequência de bytes e o
+    # lip sync é uma adivinhação.
+    return {
+        "opus": base64.b64encode(pacote.dados).decode("ascii"),
+        "sequencia": pacote.sequencia,
+        "clockMs": pacote.clock_ms,
+    }
 
 
 def _parar_streaming(contexto: Any, parametros: dict[str, str]) -> dict[str, Any]:

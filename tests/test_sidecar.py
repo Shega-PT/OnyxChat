@@ -153,8 +153,13 @@ class _DaemonFalso:
             raise self.audio_erro
         if not self.tem_audio:
             return None
-        # 80 bytes a 32 kbit/s são 20 ms (§5.3).
-        return bytes(range(80))
+        # 80 bytes a 32 kbit/s são 20 ms (§5.3), e o `clock_ms` é o
+        # tempo acumulado — que para o primeiro pacote é 20 ms.
+        return ipc_client.PacoteAudio(
+            sequencia=0,
+            clock_ms=20,
+            dados=bytes(range(80)),
+        )
 
 
 class _Aberto:
@@ -1670,7 +1675,7 @@ def test_o_executar_arranca_e_fecha_a_loja(tmp_path: Path, monkeypatch) -> None:
 #
 # Estas rotas existem desde 2026-10-13. Antes disso o menu tinha seis
 # botões que não escreviam em lado nenhum, e a rota `/conversas/{id}/lida`
-# já existia no servidor desde a Etapa 5 sem que nada a chamasse. O teste
+# já existia no servidor sem que nada a chamasse. O teste
 # que prova isto é o de baixo: conta as rotas declaradas e confirma que
 # cada uma tem pelo menos um teste que a exercita.
 
@@ -2285,18 +2290,24 @@ def test_parar_streaming_nao_parte_o_ffmpeg(aberto_com_daemon: _Aberto) -> None:
 def test_o_audio_vem_em_base64_numa_bolsa(
     aberto_com_daemon: _Aberto,
 ) -> None:
-    """O áudio volta em `{opus: base64}`, e não em base-64 pelado.
+    """O áudio volta em `{opus: base64, sequencia, clockMs}`.
 
     Porque uma `string` vazia não distingue «não há pacote» de «um
     pacote de tamanho zero» — e um pacote de Opus de tamanho zero é um
     pacote corrompido, não um silêncio. Devolver `""` faria o
     `Chamada.jsx` tocar silêncio em vez de dizer que não há nada.
+
+    E o `clockMs` é o que permite o lip sync: é o instante em que o
+    áudio foi **capturado**, e sem ele o som e a imagem de uma chamada
+    não ficam alinhados.
     """
     codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/audio")
     assert codigo == 200, corpo
-    assert set(corpo) == {"opus"}, corpo
+    assert set(corpo) == {"opus", "sequencia", "clockMs"}, corpo
     bruto = base64.b64decode(corpo["opus"])
     assert bruto == bytes(range(80)), "o pacote tem de chegar intacto"
+    assert corpo["sequencia"] == 0, "a sequência do primeiro pacote"
+    assert corpo["clockMs"] == 20, "o tempo do primeiro pacote"
 
 
 def test_o_audio_que_acaba_da_null_e_nao_uma_bolsa_vazia(
@@ -2313,7 +2324,7 @@ def test_o_audio_que_acaba_da_null_e_nao_uma_bolsa_vazia(
     daemon.tem_audio = False
     codigo, corpo = pedir(aberto_com_daemon, "/api/media/streaming/audio")
     assert codigo == 200, corpo
-    assert corpo == {"opus": None}, corpo
+    assert corpo == {"opus": None, "sequencia": None, "clockMs": None}, corpo
 
 
 def test_a_captura_morta_da_409_no_audio(

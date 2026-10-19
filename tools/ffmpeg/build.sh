@@ -244,6 +244,26 @@ RECEITA=(
     --enable-indev=v4l2
     --enable-indev=alsa
 
+    # --- a saída de áudio -------------------------------------------
+    # O `alsa` como **saída** é o que dá som aos altifalantes, e sem
+    # ele o daemon sabe descodificar Opus mas não tem por onde o
+    # tocar.
+    #
+    # E o `pulse` também, porque o `pipewire-pulse` — o componente que
+    # faz o PipeWire falar o protocolo do PulseAudio — é o que está
+    # instalado, e é por ele que o áudio chega ao servidor de som.
+    #
+    # O `pulse` é interno do FFmpeg e não precisa de biblioteca
+    # extra; o `alsa` usa a `libasound`, que já está no prefixo local.
+    --enable-outdev=alsa
+    --enable-outdev=pulse
+    # E o **muxer** `pulse`, que é o contentor do protocolo PulseAudio.
+    # O `outdev` diz ao FFmpeg que há um dispositivo; o muxer diz como
+    # se escreve nele. Sem o muxer, o `pulse` é um dispositivo que não
+    # tem por onde escrever — e o erro é «Requested output format
+    # 'pulse' is not known».
+    --enable-muxer=pulse
+
     # --- o áudio a caminho de volta: descodificar Opus ---------------
     # `--enable-encoder=libopus` (acima) codifica; não descodifica. O
     # `docs/media.md` §7.1 chama ao Opus «o áudio da chamada», e o

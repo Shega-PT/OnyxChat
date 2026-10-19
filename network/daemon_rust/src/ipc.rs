@@ -143,15 +143,30 @@ pub const CMD_MEDIA_REPRODUZIR: u8 = 0x10;
 pub const CMD_MEDIA_LER: u8 = 0x11;
 /// `MEDIA_AUDIO` — o próximo pacote de Opus da captura viva.
 ///
-/// **Corpo da resposta:** `dados`, Opus cru. Sem cabeçalho nenhum, e a
-/// razão está em [`MEDIA_LER`].
+/// **Corpo da resposta:** `seq: u32 LE ‖ clock_ms: i64 LE ‖ opus`.
 ///
-/// ## Por que este comando não tem `clock_ms`
+/// ## E porque tem `clock_ms`, e antes não tinha
 ///
-/// Porque o áudio **é** o relógio. §5.3: o relógio de media avança por
-/// contagem de bytes dividida por `bytes_por_ms`, e um pacote de Opus de
-/// 20 ms a 32 kbit/s são 80 bytes — o receptor sabe que se passaram
-/// 20 ms sem lhe dizermos.
+/// Porque o lip sync (§5.4) precisa de saber **quando** o áudio que
+/// chegou foi produzido, e não só **quanto** áudio é.
+///
+/// A versão anterior não tinha cabeçalho, e a razão era que «o áudio
+/// **é** o relógio»: o receptor contava os bytes e dividia por
+/// `bytes_por_ms`. E isso dava o tempo **recebido**, que é o tempo em
+/// que o pacote chegou — e não o tempo em que foi capturado.
+///
+/// São coisas diferentes. Um pacote que esperou 200 ms na rede tem o
+/// mesmo tamanho, e o receptor sem cabeçalho não consegue distinguir
+/// «a voz chegou agora» de «a voz foi capturada há 200 ms». E a diferença
+/// entre os dois é exactamente o que faz o áudio e o vídeo de uma chamada
+/// deixarem de estar alinhados.
+///
+/// ## E o formato é o mesmo do [`MEDIA_LER`]
+///
+/// `seq: u32 LE ‖ clock_ms: i64 LE ‖ dados`. E não por simetria
+/// estética: o receptor tem **um** caminho de código para os dois, e um
+/// caminho só é um caminho que não pode ter metade das regras de um e
+/// metade as do outro.
 ///
 /// E o Opus não tem picture boundaries: cada pacote tem um índice
 /// interno, e o receptor descodifica o que receber e sabe o número de
@@ -167,6 +182,37 @@ pub const CMD_MEDIA_LER: u8 = 0x11;
 /// emissor. Um limitador aqui cortaria áudio por uma comparação com um
 /// relógio que o daemon não tem.
 pub const CMD_MEDIA_AUDIO: u8 = 0x12;
+
+/// `MEDIA_IMAGEM` — descodifica um quadro VP8 para JPEG.
+///
+/// **Corpo da resposta:** `largura: u16 LE ‖ altura: u16 LE ‖ jpeg`.
+///
+/// ## E porque este comando existe
+///
+/// Porque a interface é uma página servida a um WebKitGTK 6
+/// (`scripts/interface-visual.js`), e o WebKitGTK **não garante**
+/// `VideoDecoder` — a API de WebCodecs. Sem ela, o receptor de um
+/// stream de vídeo não tem como ver a imagem.
+///
+/// E a descodificação tem de ser aqui, no daemon, porque é o único
+/// sítio onde há um `ffmpeg` com o decoder de VP8. O binário embebido
+/// traz `--enable-decoder=vp8` desde a receita, e nunca o tinha usado.
+///
+/// ## E porque devolve JPEG e não pixéis
+///
+/// Porque um JPEG é o que qualquer motor de renderização mostra num
+/// `<img>` sem descodificar nada, e os pixéis crus seriam uma textura
+/// que a interface teria de decodificar — que é o problema que se
+/// quer resolver.
+///
+/// ## E o corpo
+///
+/// O VP8 **crú**, sem contentor. O `ffmpeg` de descodificação quer um
+/// IVF, e o módulo `media/imagem.rs` reconstrói um de uma trama só a
+/// volta do que chega. Reconstruir é melhor do que aceitar: o
+/// contentor de origem diz quantas tramas há, e o que o receptor tem é
+/// uma.
+pub const CMD_MEDIA_IMAGEM: u8 = 0x13;
 pub const ERR_DECIFRAGEM_FALHOU: u8 = 0x05;
 /// Opcode fora da tabela (`docs/ipc.md` §Erros).
 pub const ERR_COMANDO_DESCONHECIDO: u8 = 0x01;
@@ -371,6 +417,7 @@ pub fn processar_pedido(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
         CMD_MEDIA_CAPTURAR => processar_media_capturar(estado, resto),
         CMD_MEDIA_LER => processar_media_ler(estado),
         CMD_MEDIA_AUDIO => processar_media_audio(estado),
+        CMD_MEDIA_IMAGEM => processar_media_imagem(estado, resto),
         CMD_MEDIA_REPRODUZIR => processar_media_reproduzir(estado, resto),
         _ => resposta_erro(ERR_COMANDO_DESCONHECIDO, "comando desconhecido"),
     }
@@ -1750,6 +1797,72 @@ fn processar_media_estado(estado: &Estado) -> Vec<u8> {
 ///
 /// Ver `docs/media.md` §4.6.4: desencriptar os envelopes guardados
 /// rebateria no anti-replay, e ler a coluna `texto` não perde nada.
+/// `MEDIA_IMAGEM 0x13` → `vp8: N bytes`; resposta
+/// `largura: u16 LE ‖ altura: u16 LE ‖ jpeg`.
+///
+/// ## E porque o corpo leva o VP8 e não o JPEG
+///
+/// Porque quem chama é o **receptor** de um stream: ele recebeu o VP8
+/// pela rede e quer a imagem. A captura produz VP8, e é o receptor que
+/// precisa de JPEG — e o `daemon` é o único processo que tem um
+/// `ffmpeg` com o decoder de VP8.
+///
+/// A geometria vai no corpo porque o JPEG **também** a tem, e quem
+/// escreve o `<img>` precisa de saber a altura antes de o navegador
+/// ter descodificado seja o que for. E vai **declarada** — a que o
+/// emissor disse — e não a que o JPEG diz, porque quem escreve o
+/// `<img>` precisa de um número em que possa confiar.
+fn processar_media_imagem(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
+    if corpo.is_empty() {
+        return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_IMAGEM: corpo vazio");
+    }
+
+    // A geometria vem da captura viva, que é a fonte da verdade sobre
+    // o que o `ffmpeg` está a produzir. E quando não há captura, o
+    // receptor descodifica o que recebeu — e a geometria tem de vir
+    // de outro sítio.
+    let geometria = {
+        let guarda = bloquear(&estado.captura);
+        guarda.as_ref().map(|s| s.captura.cabecalho_video())
+    };
+
+    let cabecalho = match geometria {
+        Some(c) => c,
+        None => {
+            // Sem captura, o corpo traz a geometria: `largura: u16 ‖
+            // altura: u16 ‖ vp8`.
+            if corpo.len() < 4 {
+                return resposta_erro(
+                    ERR_PAYLOAD_MALFORMADO,
+                    "MEDIA_IMAGEM: sem captura, o corpo precisa da geometria",
+                );
+            }
+            crate::media::ivf::Cabecalho {
+                largura: u16::from_le_bytes([corpo[0], corpo[1]]),
+                altura: u16::from_le_bytes([corpo[2], corpo[3]]),
+                fps: 30,
+            }
+        }
+    };
+
+    let vp8 = if geometria.is_some() {
+        corpo
+    } else {
+        &corpo[4..]
+    };
+
+    match crate::media::imagem::descodificar(vp8, cabecalho, 0) {
+        Ok(imagem) => {
+            let mut resposta = Vec::with_capacity(4 + imagem.jpeg.len());
+            resposta.extend_from_slice(&(imagem.largura as u16).to_le_bytes());
+            resposta.extend_from_slice(&(imagem.altura as u16).to_le_bytes());
+            resposta.extend_from_slice(&imagem.jpeg);
+            resposta_ok(&resposta)
+        }
+        Err(e) => resposta_erro(ERR_MEDIA, &format!("MEDIA_IMAGEM: {e}")),
+    }
+}
+
 fn processar_media_reproduzir(estado: &Estado, corpo: &[u8]) -> Vec<u8> {
     let Some((&leitor_byte, id_hex)) = corpo.split_first() else {
         return resposta_erro(ERR_PAYLOAD_MALFORMADO, "MEDIA_REPRODUZIR: corpo curto");

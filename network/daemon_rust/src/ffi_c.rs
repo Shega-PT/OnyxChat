@@ -409,7 +409,7 @@ mod tests {
     }
 
     // ----------------------------------------------------------------
-    // Fase F: a limpeza está implementada, não só documentada
+    // A limpeza está implementada, não só documentada
     // ----------------------------------------------------------------
 
     /// `limpar` apaga mesmo, e o Rust verifica em debug.
@@ -482,7 +482,7 @@ mod tests {
     fn k9_rejeitado_nao_deixa_saida_utilizavel() {
         let chave = [0x77u8; K9_TAM_CHAVE];
         let nonce = [0x33u8; K9_TAM_NONCE];
-        let original = k9_cifrar(b"onyxchat fase F", &chave, &nonce).expect("cifra");
+        let original = k9_cifrar(b"onyxchat", &chave, &nonce).expect("cifra");
 
         // Um byte trocado no meio: a tag deixa de fechar.
         let mut adulterado = original.clone();

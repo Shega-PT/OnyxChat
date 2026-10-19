@@ -43,6 +43,7 @@ from typing import Iterator
 import pytest
 
 from messenger import media
+from messenger.amizade import derivar_k1_por_tipo
 from messenger.ipc_client import ChavesAmizade, ClienteIpc, ErroDaemon
 from messenger.keys import Chaves, Identidade
 from messenger.ipc_client import (
@@ -314,18 +315,51 @@ def test_a_sondagem_escolhe_o_tipo_certo(daemon: ClienteIpc, par: dict) -> None:
 
 
 
-def test_uma_extensao_desconhecida_e_recusada(daemon: ClienteIpc, par: dict) -> None:
-    """Uma extensão fora da tabela não é adivinhada.
+def test_uma_extensao_desconhecida_via_como_ficheiro(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """Uma extensão fora da tabela é um ficheiro, e não uma recusa.
 
-    Adivinhar o formato pelo nome é a conveniência que manda um vídeo
-    para o receptor a ser lido como áudio — e o receptor não tem como
-    saber que errou.
+    ## A decisão, e o que a substitui
+
+    A versão anterior desta função **recusava** com «não sei o
+    formato de 'ficheiro.desconhecido'». E a recusa estava certa
+    *para a media*: adivinhar o formato pelo nome é a conveniência que
+    manda um vídeo para o receptor a ser lido como áudio, e o receptor
+    não tem como saber que errou.
+
+    Mas a recusa também significa que **enviar um ficheiro que não
+    fosse áudio ou vídeo era impossível** — e essa é a lacuna que o
+    envio de ficheiro arbitrário vem resolver.
+
+    ## A distinção que a substitui
+
+    Uma extensão **desconhecida** é um ficheiro cujo conteúdo o
+    sistema não sabe descrever — e o destinatário recebe-o **inteiro**,
+    que é o que uma pessoa espera ao enviar um ``.pdf`` ou um ``.zip``.
+
+    Uma extensão **conhecida** continua a decidir o codec, e a
+    incoerência continua a ser recusada: o teste do Matroska logo a
+    seguir é o que prova isso.
+
+    ## E o que não é adivinhado
+
+    O **formato** não é adivinhado. O ficheiro viaja com o formato
+    ``binario`` e o codec ``nenhum``, e o receptor sabe que o
+    destinatário tem de o abrir por si — em vez de o sistema decidir
+    que o PDF é um vídeo.
     """
-    with pytest.raises(media.ErroMedia, match="não sei o formato"):
-        media.enviar_transferencia(
-            Pipeline(daemon), par["chaves"], par["identidade"], daemon,
+    pipeline = Pipeline(daemon)
+    with a_registar(daemon) as registos:
+        enviado = media.enviar_transferencia(
+            pipeline, par["chaves"], par["identidade"], daemon,
             b"x" * 100, "ficheiro.desconhecido",
         )
+
+    assert enviado.tipo == media.TIPO_FIXEIRO, enviado.tipo
+    assert enviado.formato == media.FORMATO_BINARIO, enviado.formato
+    assert enviado.codec == media.CODEC_NENHUM, enviado.codec
+    assert enviado.nome == "ficheiro.desconhecido"
 
 
 def test_matroska_exige_que_se_diga_o_codec(daemon: ClienteIpc, par: dict) -> None:
@@ -423,6 +457,12 @@ class _ClienteQueDevolveQuadros:
         self.capturar_args: tuple[int, ...] | None = None
         #: A marca de origem de cada envio, na ordem.
         self.origens: list[bool] = []
+        #: O tempo de áudio acumulado, em milissegundos.
+        self.ms_de_audio: int = 0
+        #: Os quantos pacotes já foram emitidos.
+        self.pacotes_emitidos: int = 0
+        #: Os bytes por milissegundo, a 32 kbit/s (§5.3).
+        self.bytes_por_ms: int = 4
         cliente.media_capturar = self.media_capturar  # type: ignore[method-assign]
         cliente.media_ler = self.media_ler  # type: ignore[method-assign]
         cliente.media_audio = self.media_audio  # type: ignore[method-assign]
@@ -434,7 +474,7 @@ class _ClienteQueDevolveQuadros:
     def media_capturar(self, *args: int) -> None:
         self.capturar_args = tuple(args)
 
-    def media_audio(self) -> bytes | None:
+    def media_audio(self) -> media.PacoteAudio | None:
         if self.pacotes_restantes <= 0:
             return None
         self.pacotes_restantes -= 1
@@ -443,7 +483,20 @@ class _ClienteQueDevolveQuadros:
         # de durações diferentes, que é o caso que o relógio tem de
         # aguentar sem derivar.
         tamanho = self.tamanhos.pop(0) if self.tamanhos else 80
-        return bytes(tamanho)
+        # E o `clock_ms` é **contado**, como o daemon faz: o tempo
+        # acumulado dos bytes que já passaram. E o que permite à
+        # agregação usar o tempo real em vez de o estimar.
+        # O tempo é contado: os bytes que passaram, divididos pelos
+        # bytes por milissegundo. E é a mesma conta que o daemon faz,
+        # com o resto acumulado — que aqui não é preciso porque os
+        # pacotes são de 80 bytes, que dão 20 ms exactos.
+        self.ms_de_audio += tamanho // self.bytes_por_ms
+        self.pacotes_emitidos += 1
+        return media.PacoteAudio(
+            sequencia=self.pacotes_emitidos,
+            clock_ms=self.ms_de_audio,
+            dados=bytes(tamanho),
+        )
 
     def media_ler(self) -> QuadroVideo:
         if self._quadros_restantes <= 0:
@@ -617,13 +670,24 @@ def test_o_receptor_separa_texto_audio_e_video(
     receptor = _receptor(par, daemon)
 
     textos: list[str] = []
-    audios: list[bytes] = []
+    # O áudio vem com o seu tempo, que é o mestre da §5.2 — e é o que
+    # permite ao receptor saber a que instante do áudio o quadro de
+    # vídeo pertence.
+    audios: list[tuple[bytes, int]] = []
+
+    def registar_audio(dados: bytes, clock_ms: int) -> None:
+        """Guarda o áudio com o seu tempo.
+
+        E o callback de dois argumentos, porque o `clock_ms` viaja com
+        o áudio e é o mestre da §5.2.
+        """
+        audios.append((dados, clock_ms))
 
     # 1. Texto.
     envelope_texto = pipeline.cifrar(
         "olá, estás a ouvir-me?", _chave_de(par, "texto", b""), par["identidade"]
     )
-    assert receptor.um_quadro_de_video(envelope_texto, textos.append, audios.append) is None
+    assert receptor.um_quadro_de_video(envelope_texto, textos.append, registar_audio) is None
     assert textos == ["olá, estás a ouvir-me?"], textos
     assert audios == []
 
@@ -639,14 +703,16 @@ def test_o_receptor_separa_texto_audio_e_video(
     envelope_audio = pipeline.cifrar(
         moldura_audio, _chave_de(par, "audio", b""), par["identidade"]
     )
-    assert receptor.um_quadro_de_video(envelope_audio, textos.append, audios.append) is None
+    assert receptor.um_quadro_de_video(envelope_audio, textos.append, registar_audio) is None
     assert len(audios) == 1, "um pacote de áudio"
-    assert audios[0] == bytes((i * 3) % 256 for i in range(120))
+    assert audios[0][0] == bytes((i * 3) % 256 for i in range(120))
+    # E o tempo é o da moldura, que é o que a moldura carrega.
+    assert audios[0][1] == 40, f"o clock_ms do áudio é {audios[0][1]} e devia ser 40"
 
     # 3. Vídeo.
     vp8 = bytes((i * 11 + 5) % 256 for i in range(400))
     envelope_video = _envelope_de_video(pipeline, par, 42, 233, vp8)
-    quadro = receptor.um_quadro_de_video(envelope_video, textos.append, audios.append)
+    quadro = receptor.um_quadro_de_video(envelope_video, textos.append, registar_audio)
     assert quadro is not None, "isto era vídeo e tem de ser reconhecido"
     seq, clock_ms, dados = quadro
     assert (seq, clock_ms) == (42, 233), f"{seq}, {clock_ms}"
@@ -727,18 +793,29 @@ def test_a_ordem_de_sondagem_e_texto_primeiro() -> None:
     """
     ordem = media.order_de_sondagem()
     assert ordem[0] == "texto", f"a primeira tentativa é {ordem[0]}"
-    assert ordem == ("texto", "audio", "video", "call", "ficheiro"), ordem
+    assert ordem == ("texto", "audio", "video", "ficheiro", "call"), ordem
     # Os dois primeiros depois do texto têm moldura; os dois últimos
     # são de controlo e não têm. A distinção é o que impede alguém de
     # tentar abrir `call` como se fosse uma moldura `ONX1`.
     for nome in ("audio", "video"):
         assert nome in media.TIPOS, f"{nome!r} não é um tipo de media com moldura"
-    for nome in ("call", "ficheiro"):
-        assert nome not in media.TIPOS, (
-            f"{nome!r} tem chave mas não tem moldura — se estivesse em TIPOS, "
-            "o byte 5 da moldura aceitaria um terceiro tipo que não cabe"
-        )
-        assert nome in media.TIPOS_DE_CHAVE, f"{nome!r} não deriva chave"
+    # O `call` não tem moldura: é uma linha ASCII num envelope, e não
+    # uma moldura `ONX1`.
+    assert "call" not in media.TIPOS, (
+        "«call» não devia ter moldura: é uma linha ASCII num envelope, "
+        "e não uma moldura ONX1"
+    )
+    assert "call" in media.TIPOS_DE_CHAVE, "«call» não deriva chave"
+
+    # E o `ficheiro` **tem** moldura: o ficheiro viaja
+    # em fatias, e a machinery de fatias — manifesto, resumo, montagem,
+    # retoma — é a de `ONX1`. Um contentor novo seria a mesma
+    # machinery escrita duas vezes, e as duas divergiriam.
+    assert "ficheiro" in media.TIPOS, (
+        "«ficheiro» devia ter moldura: é o que dá a fatias, resumo e "
+        "montagem sem reescrever a machinery"
+    )
+    assert "ficheiro" in media.TIPOS_DE_CHAVE, "«ficheiro» não deriva chave"
 
 
 # ---------------------------------------------------------------------
@@ -852,7 +929,7 @@ def test_o_audio_e_o_video_saos_no_ramo_da_moldura_certa(
         )
         emissor.um_quadro()
         # Oito pacotes de 20 ms são os 160 ms de uma mensagem de áudio
-        # (a agregação da Fase 2), e não três mensagens de uma.
+        # (a agregação do áudio), e não três mensagens de uma.
         for _ in range(8):
             emissor.um_audio_distinto()
 
@@ -874,7 +951,7 @@ def test_o_clock_ms_do_audio_sai_dos_bytes(daemon: ClienteIpc, par: dict) -> Non
     seria um segundo relógio, que deriva do primeiro ao longo de uma
     chamada — que é o desvio que §5.3 existe para evitar.
 
-    E a agregação (Fase 2) não muda isto: o relógio que sai é o
+    E a agregação do áudio não muda isto: o relógio que sai é o
     **acumulado** de todos os pacotes da mensagem, não o do primeiro.
     """
     pipeline = Pipeline(daemon)
@@ -1005,7 +1082,7 @@ def test_o_audio_que_acaba_devolve_none_e_nao_erro(
     pipeline = Pipeline(daemon)
     # **Seis** pacotes: chegam a 120 ms, que não chegam aos 160 do alvo
     # — e é esse o caso que interessa. Uma captura que morre com a fila
-    # meio cheia tem de mandar o que ficou (a Fase 2, `_despejar_audio`)
+    # meio cheia tem de mandar o que ficou (`_despejar_audio`)
     # e só depois dizer que acabou. Se a fila estivesse cheia, o fim
     # seria indistinguível do despejo.
     involucro = _ClienteQueDevolveQuadros(daemon, quadros=4, pacotes=6)
@@ -1216,7 +1293,7 @@ def test_a_chamada_va_do_emissor_ao_receptor(
     )
 
     # Um quadro de vídeo e uma mensagem de áudio — que são **oito**
-    # pacotes de 20 ms agregados (a Fase 2), e não oito mensagens.
+    # pacotes de 20 ms agregados, e não oito mensagens.
     emissor.enviados = 0
     emissor.um_quadro()
     emissor.enviados = 0
@@ -1256,7 +1333,7 @@ def test_a_chamada_va_do_emissor_ao_receptor(
     seq, clock_ms, dados = quadros[0]
     assert seq == 0, f"o seq do primeiro quadro: {seq}"
     assert len(dados) == 400, f"o VP8 chegou com {len(dados)} bytes"
-    # A agregação (Fase 2) chega aqui como **uma** mensagem de áudio
+    # A agregação chega aqui como **uma** mensagem de áudio
     # com os pacotes concatenados — 640 bytes, que são 160 ms a
     # 32 kbit/s (4 bytes por milissegundo).
     #
@@ -1344,7 +1421,7 @@ def test_o_clock_ms_do_audio_e_o_tempo_acumulado(
     para o fim da chamada sem que nada désse conta, que é exactamente
     o «desvio de relógio» que §5.3 existe para detectar.
 
-    ## E a agregação (Fase 2) não estraga isto
+    ## E a agregação não estraga isto
 
     A agregação junta pacotes antes de mandar, e a soma dos tempos de um
     corpo pode ser lida do próprio corpo: a 32 kbit/s são 4 bytes por
@@ -1399,3 +1476,155 @@ def test_o_clock_ms_do_audio_e_o_tempo_acumulado(
     # é a propriedade de «não deriva» de §5.3.
     total_ms = sum(ms_do_corpo(m.corpo) for m in audios)
     assert total_ms == acumulado, f"{total_ms} ms nos corpos, {acumulado} no relógio"
+
+
+# ---------------------------------------------------------------------
+# Ficheiros arbitrários
+# ---------------------------------------------------------------------
+
+
+def test_um_ficheiro_desconhecido_e_enviado_como_ficheiro(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """Um ``.pdf`` é enviado, e não recusado.
+
+    A versão anterior desta função recusava com «não sei o formato de
+    'relatorio.pdf' — a extensão não está na tabela», e a consequência
+    era que enviar um ficheiro que não fosse áudio ou vídeo era
+    **impossível**. Que é o pedido que o envio de ficheiro traz.
+    """
+    pipeline = Pipeline(daemon)
+    conteudo = b"%PDF-1.7\n" + bytes((i * 7) % 256 for i in range(1000))
+
+    with a_registar(daemon) as registos:
+        enviado = media.enviar_transferencia(
+            pipeline, par["chaves"], par["identidade"], daemon, conteudo, "relatorio.pdf"
+        )
+
+    assert enviado.tipo == media.TIPO_FIXEIRO, enviado.tipo
+    assert enviado.codec == media.CODEC_NENHUM, enviado.codec
+    assert enviado.formato == media.FORMATO_BINARIO, enviado.formato
+    assert enviado.nome == "relatorio.pdf"
+    assert enviado.total_bytes == len(conteudo)
+
+
+def test_o_ficheiro_viaja_com_a_chave_do_tipo_ficheiro(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """A chave é a do ficheiro, e não a do texto nem a do vídeo.
+
+    E o que garante que um ficheiro **não** abre com a chave do áudio: o
+    receptor escolhe a chave pelo tipo, e um ficheiro enviado com a
+    chave de vídeo seria lido como um vídeo que não abre.
+    """
+    pipeline = Pipeline(daemon)
+    conteudo = b"conteudo do ficheiro"
+
+    with a_registar(daemon) as registos:
+        media.enviar_transferencia(
+            pipeline, par["chaves"], par["identidade"], daemon, conteudo, "notas.txt"
+        )
+
+    envelopes = [env for plaintext, env in registos if not plaintext]
+    assert envelopes, "não foi enviado nada"
+
+    # Abre com a chave do ficheiro…
+    for envelope in envelopes:
+        texto = pipeline.decifrar(
+            envelope, _chave_de(par, media.TIPO_FIXEIRO, envelope), par["pub"]
+        )
+        assert texto.startswith("ONX1"), texto[:16]
+
+    # …e **não** abre com a do texto.
+    for envelope in envelopes:
+        with pytest.raises(ErroIpc):
+            pipeline.decifrar(
+                envelope, _chave_de(par, "texto", envelope), par["pub"]
+            )
+
+
+def test_a_media_continua_a_usar_a_sua_propria_chave(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """Acrescentar o tipo ``ficheiro`` não muda a chave do áudio.
+
+    E a compatibilidade que importa: uma conversa que já existia tem de
+    continuar a abrir depois desta alteração. O byte do tipo entra no
+    ``info`` do HKDF, e mudar a derivação de um tipo é indistinguível de
+    uma chave errada — o sintoma seria texto ilegível, e não um erro.
+    """
+    pipeline = Pipeline(daemon)
+    conteudo = bytes(200)
+
+    with a_registar(daemon) as registos:
+        enviado = media.enviar_transferencia(
+            pipeline, par["chaves"], par["identidade"], daemon, conteudo, "audio.ogg"
+        )
+
+    assert enviado.tipo == "audio", enviado.tipo
+
+    derivadas = media.chaves_media(
+        par["chaves"].k1,
+        par["chaves"].k5_proprio,
+        par["chaves"].k5_par,
+        par["pub"],
+    )
+    # E o valor da chave de áudio é o de sempre — o mesmo que o vector
+    # congelado em `tests/test_amizade.py` fixa.
+    esperada = derivar_k1_por_tipo(
+        par["chaves"].k5_proprio, par["chaves"].k5_par, par["pub"], media.TIPO_AUDIO
+    )
+    assert derivadas["audio"] == esperada
+
+
+def test_o_ficheiro_viaja_em_fatias_e_um_ficheiro_grande_em_muitas(
+    daemon: ClienteIpc, par: dict
+) -> None:
+    """O ficheiro é fatiado como a media, e o resumo bate.
+
+    E o que garante que um ficheiro de 10 MB chega inteiro: o mesmo
+    ``montador`` que a media usa, com o mesmo resumo, e o receptor
+    que monta tem de ver os mesmos bytes.
+    """
+    pipeline = Pipeline(daemon)
+    conteudo = bytes((i * 31 + 7) % 256 for i in range(media.TAM_FATIA * 2 + 500))
+
+    with a_registar(daemon) as registos:
+        enviado = media.enviar_transferencia(
+            pipeline, par["chaves"], par["identidade"], daemon, conteudo, "grande.bin"
+        )
+
+    assert enviado.total_pedacos == 3, f"{enviado.total_pedacos} fatias"
+    assert enviado.total_bytes == len(conteudo)
+
+    envelopes = [env for plaintext, env in registos if not plaintext]
+    montador = None
+    for envelope in envelopes:
+        texto = pipeline.decifrar(
+            envelope, _chave_de(par, media.TIPO_FIXEIRO, envelope), par["pub"]
+        )
+        aberta = media.abrir(texto)
+        if montador is None:
+            manifesto = media.Manifesto.de_corpo(aberta.corpo)
+            montador = media.Montador(manifesto)
+            continue
+        montador.receber(aberta.seq, aberta.corpo)
+
+    montado = montador.montar()
+    assert montado is not None, "o montador não montou: faltam fatias"
+    assert montado == conteudo, "o ficheiro não chegou inteiro"
+
+
+def test_um_nome_sem_extensao_e_recusado(daemon: ClienteIpc, par: dict) -> None:
+    """Sem extensão não há como saber se é media, e é recusado.
+
+    A diferença para a extensão **desconhecida** é que esta se sabe
+    descrever — é um ficheiro — e aquela não se sabe descrever de
+    todo. Um ficheiro sem nome é um ficheiro que o destinatário não
+    sabe abrir.
+    """
+    pipeline = Pipeline(daemon)
+    with pytest.raises(media.ErroMedia, match="extensão"):
+        media.enviar_transferencia(
+            pipeline, par["chaves"], par["identidade"], daemon, b"x", "sem-extensao"
+        )

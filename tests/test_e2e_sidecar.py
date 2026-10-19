@@ -253,8 +253,8 @@ def test_uma_mensagem_cifrada_pelo_daemon_vem_de_cima(
 ) -> None:
     """O daemon cifra, e o que sai é um envelope de versão 1.
 
-    Isto não é um teste do sidecar — é o limite do que a Etapa 5 da
-    interface pode afirmar. A rota `/api/mensagens` **guarda texto**,
+    Isto não é um teste do sidecar — é o limite do que a interface
+    pode afirmar. A rota `/api/mensagens` **guarda texto**,
     não envelopes: o texto que chega ao ecrã é o que a pessoa escreveu, e
     o envelope que vai para o outro lado é montado pelo daemon, a partir
     de uma `k1` de sessão.

@@ -271,7 +271,7 @@ depois de 4096 mensagens dentro de 10 minutos.
 
 > Este parágrafo estava `em memória` até 2026-10-13, e contradizia as
 > três secções acima — que descrevem a persistência, a `fsync` e o
-> `rename` como decisões tomadas. Tinha ficado da fase em que o registo
+> `rename` como decisões tomadas. Tinha ficado de quando o registo
 > ainda não era gravado, e sobreviveu à implementação porque **ninguém
 > lê o fim de um ficheiro à procura de uma afirmação que já não é
 > verdade**.

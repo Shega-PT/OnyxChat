@@ -290,7 +290,7 @@ export const security = {
     { id: 'a2', level: 'warn', text: 'Pedido de contacto bloqueado (identificador desconhecido)', at: ago(600) },
     { id: 'a3', level: 'ok', text: 'Chave de sessão rotacionada com A7K2M4', at: ago(180) },
   ],
-  // Todo o bloco `security` é substituído por dados reais na Etapa 7
+  // Todo o bloco `security` é substituído por dados reais no que falta
   // (`ESTADO 0x03`). Até lá, a impressão é a **mesma** da identidade:
   // dois valores diferentes para a mesma chave é o que faz um painel de
   // segurança deixar de ser crível.

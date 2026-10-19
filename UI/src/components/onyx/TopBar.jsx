@@ -222,13 +222,13 @@ export default function TopBar({ onOpenNav }) {
 
               O que fica são as duas acções que uma identidade tem:
               trancar e levar a cópia de segurança. Ambas já existem no
-              backend desde a Etapa 5 — `POST /api/conta/trancar` e
+              backend — `POST /api/conta/trancar` e
               `GET /api/conta/exportar` — e ambas passam por
               `SessaoContext`, que é quem sabe se a conta existe.
 
               Este item já-prometia «Bloquear» e «Exportar chave» e não
-              fazia nada: abria um modal a dizer que chegariam na Etapa 4,
-              que já estava concluída. A lição é a do `Recuperar.jsx` — um
+              fazia nada: abria um modal a dizer que chegariam mais tarde,
+              quando já estavam prontas. A lição é a do `Recuperar.jsx` — um
               botão que existe e não faz nada é pior do que um botão que
               não existe, porque o primeiro promete.
             */}

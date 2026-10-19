@@ -586,7 +586,7 @@ def test_a_forma_do_identificador_gerado_passa_o_alfabeto(tmp_path: Path) -> Non
     """Cada conta criada tem de produzir um identificador que a descoberta
     aceite.
 
-    A incompatibilidade que a Etapa 3 encontrou — a expressão regular do
+    A incompatibilidade que se encontrou — a expressão regular do
     servidor a rejeitar o identificador que o projecto produz — não pode
     voltar por outro caminho, e vinte e cinco contas seguidas é a forma
     barata de o notar antes do registo.

@@ -340,7 +340,8 @@ def test_a_lista_de_comandos_cobre_o_ciclo_de_uma_chamada():
 def test_cada_comando_tem_a_descricao():
     """A descrição é o que a UI mostra, e um comando sem ela é invisível.
 
-    Não é decorativo: `COMANDOS_CALL` é a fonte de verdade da Fase 6, e
+    Não é decorativo: `COMANDOS_CALL` é a fonte de verdade da
+    interface, e
     uma entrada sem descrição apareceria como um botão sem rótulo.
     """
     for accao, texto in controle.COMANDOS_CALL.items():

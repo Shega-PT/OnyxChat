@@ -11,11 +11,11 @@ import { defineConfig } from 'vite'
 // =====================================================================
 // vite.config.js
 // ---------------------------------------------------------------------
-// O plugin de integração que vinha com o projecto original foi removido
-// na Etapa 2. Fazia três coisas, e nenhuma sobrevive:
+// O plugin de integração que vinha com o projecto original foi removido.
+// Fazia três coisas, e nenhuma sobrevive:
 //
 //   1. **Proxy de `/api`** para um backend hospedado. Não há
-//      backend hospedado, e o serviço local — o sidecar da Etapa 5 —
+//      backend hospedado, e o serviço local — o sidecar —
 //      escuta em `127.0.0.1` numa porta fixa e serve a sua própria origem,
 //      o que dispensa proxy.
 //   2. **Injecção de variáveis de ambiente lidas do servidor**. Não há
@@ -29,7 +29,7 @@ import { defineConfig } from 'vite'
 // ## Divisão do código de produção
 //
 // Ainda não há divisão. O pacote tem ~650 kB numa só peça, e o Vite avisa
-// disso — com razão. A divisão por vista entra na Etapa 6, com a casca de
+// disso — com razão. A divisão por vista entra com a casca de
 // desktop: `manualChunks` agruparia a casca e o fornecedor separadamente
 // de cada rota, e só faz sentido decidir isso quando souber que há uma
 // janela de aplicação e não um servidor.

@@ -43,7 +43,7 @@ void roundtrip(const std::vector<uint8_t> &dados) {
     CHECK(std::memcmp(claro.data(), dados.data(), dados.size()) == 0);
 }
 
-/// Fase F: uma decifragem K4 **rejeitada** tem de deixar o buffer de
+/// Uma decifragem K4 **rejeitada** tem de deixar o buffer de
 /// saída limpo.
 ///
 /// A K4 valida o padding PKCS#7 **depois** de escrever a
@@ -336,7 +336,7 @@ int main() {
         }
     }
 
-    // ---- Fase F: limpeza de memória nos caminhos de erro ----------
+    // ---- limpeza de memória nos caminhos de erro --------------------
     saida_limpa_em_decifragem_rejeitada();
     saida_preenchida_em_decifragem_aceite();
     onyx_limpar_limpa_o_que_se_pede();

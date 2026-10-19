@@ -233,7 +233,7 @@ def test_a_impressao_fica_vazia_ate_ao_handshake(loja: Loja) -> None:
 
     A impressão deriva-se de um nome e um sal, e o sal é do outro. Inventar
     uma aqui daria à interface um valor que não verifica nada — que é o
-    que a Etapa 3 veio substituir.
+    que a fórmulaactual veio substituir.
     """
     pedido = loja.registar_pedido(IDENT, "Ana")
     loja.decidir_pedido(pedido["id"], "aceite")

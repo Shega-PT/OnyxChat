@@ -434,9 +434,26 @@ pub fn lancar(captura: Captura, modo: Modo) -> Result<Stream, ErroMedia> {
     // `Stream` a segurar o canal aberto. Ver `_guarda_audio`.
     let para_a_thread = envio.clone();
 
+    // E o relógio do áudio, que é o mestre da chamada (§5.3).
+    //
+    // ## E porque é uma cópia e não uma referência
+    //
+    // Porque o `RelogioMedia` avança **na thread do áudio** — é lá que
+    // os bytes passam — e o `Stream` tem o seu próprio, que avança com
+    // o vídeo.
+    //
+    // ## E porque não é o mesmo relógio
+    //
+    // Porque o áudio e o vídeo são **dois relógios** que correm à
+    // mesma taxa mas com origens diferentes: o do áudio conta bytes de
+    // Opus, e o do vídeo conta bytes de VP8. A §5.3 diz que o áudio é o
+    // mestre, e é por isso que o relógio do áudio é o que vai no
+    // cabeçalho de cada pacote.
+    let relogio_audio = super::relogio::RelogioMedia::novo(u32::from(captura.bytes_por_ms()));
+
     let lida = std::thread::Builder::new()
         .name("onyx-media-audio".into())
-        .spawn(move || pump_audio(ficheiro_audio, para_a_thread))
+        .spawn(move || pump_audio(ficheiro_audio, para_a_thread, relogio_audio))
         .is_ok();
 
     if !lida {
@@ -786,8 +803,8 @@ pub fn entrada_de_video() -> Vec<String> {
 ///
 /// Porque `read_dir` devolve na ordem do sistema de ficheiros, que num
 /// directório de dispositivos é por ordem de criação. Num `/dev` recriado
-/// a cada arranque, isso muda entre arranques — e uma chamada que
-/// ontem usava a câmara e hoje usa outra sem dizer qual é o tipo
+/// a cada arranque, isso muda entre arranques — e uma chamada que usa
+/// uma câmara num arranque e outra no seguinte, sem dizer qual, é o tipo
 /// exacto de falha que ninguém consegue reproduzir.
 fn primeira_camera() -> Option<std::path::PathBuf> {
     let dir = std::path::Path::new("/dev");
@@ -824,7 +841,7 @@ fn primeira_camera() -> Option<std::path::PathBuf> {
 /// muda que não se ouve nenhum é o pior tipo de falha: não há
 /// mensagem, não há erro, e o sintoma é «o outro não me ouve».
 ///
-/// A区別 é esta: se `ONYXMICROFONE` estiver definido, usa-se esse
+/// A distinção é esta: se `ONYXMICROFONE` estiver definido, usa-se esse
 /// dispositivo; senão usa-se `default`, que é o que a maioria das
 /// máquinas tem e é o que funciona.
 ///
@@ -893,13 +910,58 @@ fn current_uid_str() -> String {
 /// Bloqueante no envio, de propósito: o áudio não pode ser descartado
 /// (`docs/media.md` §7.2), e um `try_send` que falhasse abriria um
 /// buraco no relógio mestre.
-fn pump_audio(mut ficheiro: std::fs::File, envio: SyncSender<Vec<u8>>) {
+/// Lê o pipe de áudio até ao fim, depositando no canal.
+///
+/// ## E porque cada pacote leva o relógio
+///
+/// Porque o `clock_ms` é o que permite ao receptor saber **quando** o
+/// áudio que recebeu foi produzido — e sem isso o lip sync é
+/// impossível: o receptor teria de adivinhar o tempo a partir do
+/// tamanho do pacote, e o tamanho só diz quanto áudio **há**, não
+/// quando foi capturado.
+///
+/// O formato do canal é `seq: u32 LE ‖ clock_ms: i64 LE ‖ opus`, e é
+/// o mesmo que o `MEDIA_LER` usa para o vídeo. A simetria não é
+/// estética: o receptor tem um caminho de código para os dois.
+///
+/// ## E porque o relógio avança **aqui**
+///
+/// Porque o `pump_audio` é quem lê os bytes, e o tempo de media é o
+/// tempo **decorrido** de áudio — que é o que se conta à medida que os
+/// bytes passam. Contar no receptor seria contar os bytes recebidos, e
+/// a rede altera a ordem e o tempo de chegada.
+fn pump_audio(
+    mut ficheiro: std::fs::File,
+    envio: SyncSender<Vec<u8>>,
+    mut relogio: super::relogio::RelogioMedia,
+) {
     let mut pedaco = vec![0u8; TAMANHO_PEDACO_AUDIO];
+    let mut sequencia: u32 = 0;
+    // O resto dos bytes que não deram um milissegundo inteiro.
+    //
+    // E o que faz a média ser **exacta**: um pacote de 1 ms a 4
+    // bytes/ms arredondaria para zero a cada vez, e o relógio não
+    // andava. Com o resto acumulado em bytes, a média é exacta em
+    // qualquer número de pacotes.
+    let mut resto_bytes: u32 = 0;
     loop {
         match ficheiro.read(&mut pedaco) {
             Ok(0) => return,
             Ok(n) => {
-                if envio.send(pedaco[..n].to_vec()).is_err() {
+                // E o relógio avança com os bytes que passaram, e
+                // **antes** de o pacote ser enviado — porque o tempo
+                // de um pacote é o tempo até ao fim desse pacote, e
+                // mandá-lo antes de o contar daria ao receptor um
+                // tempo atrasado de um pacote.
+                relogio.avancar_audio(n, &mut resto_bytes);
+
+                let mut mensagem = Vec::with_capacity(12 + n);
+                mensagem.extend_from_slice(&sequencia.to_le_bytes());
+                mensagem.extend_from_slice(&relogio.media_ms.to_le_bytes());
+                mensagem.extend_from_slice(&pedaco[..n]);
+                sequencia = sequencia.wrapping_add(1);
+
+                if envio.send(mensagem).is_err() {
                     // O receptor largou o canal — o `Stream` foi
                     // dropado. Não há ninguém para quem entregar.
                     return;

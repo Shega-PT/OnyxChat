@@ -41,7 +41,7 @@ pode divergir em silêncio.
 | K8 | Substituição | `lua/deslocamento.lua` | deslocamento `+7` |
 
 K2 e K8 são a mesma função com deslocamentos diferentes: `b' = (b + k)
-mod 256`. Vivem no mesmo ficheiro desde a fase G6 — antes eram
+mod 256`. Vivem no mesmo ficheiro desde que as camadas foram reunidas — antes eram
 `cesar.lua` e `substituicao.lua`, com o corpo byte-a-byte idêntico, e
 dois ficheiros que só podiam divergir. 
 

@@ -322,8 +322,8 @@ sudo sysctl --system
 ```
 
 > `overcommit_memory = 1` só é seguro depois de a pressão de memória
-> estar resolvida pela F0. Com a configuração de build em vigor, o pico
-> de RAM dos testes cabe folgado.
+> estar resolvida. Com a configuração de build em vigor, o pico de RAM dos
+> testes cabe folgado.
 
 ---
 

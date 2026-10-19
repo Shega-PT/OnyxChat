@@ -274,7 +274,10 @@ def test_as_contagens_versionadas_conferem() -> None:
     """
     assert ve._conta(ve.RAIZ / "fuzz" / "corpus", "sementes") == 50
     js = ve._conta(ve.RAIZ / "UI", "ficheiros JavaScript versionados")
-    assert js == 95, js
+    # O numero baixa quando um ficheiro sai: o `VideoChamada.js` e o
+    # `AudioChamada.js` sairam quando a descodificacao passou para o
+    # daemon, e a `Chamada.jsx` ficou com o que os dois faziam.
+    assert js == 93, js
 
 
 def test_a_contagem_de_sementes_ignora_o_disco() -> None:
@@ -379,7 +382,9 @@ def test_a_contagem_de_metodos_conta_o_ficheiro_certo() -> None:
     demo = ve._conta(ve.RAIZ / "UI/src/lib/onyx/mock-adapter.js", "métodos")
     contrato = ve.RAIZ / "UI/src/lib/onyx/data-adapter.js"
     declarados = contrato.read_text(encoding="utf-8").count("@property")
-    assert ponte == 34, ponte
+    # O número acompanha o contrato do adaptador: o `decodeVideoImage`
+    # O `decodeVideoImage` e o `sendFile` + `listStorage` somaram três.
+    assert ponte == 37, ponte
     assert demo == ponte, f"os dois adaptadores divergem: {ponte} != {demo}"
     assert declarados == ponte, f"o contrato declara {declarados} e há {ponte}"
 

@@ -55,7 +55,7 @@ Chaves de comunicação
   outras — são independentes por desenho, para que uma compromising
   não leve as outras.
 * **Derivação da K1 por mensagem:** a K1 que entra no pipeline **pode**
-  ser derivada do par (`amizade.rs`, fase I):
+  ser derivada do par (`amizade.rs`):
 
   ```text
   semente = SHA-256(b"ONYX/AMIZADE/v1" ‖ menor(k5ₐ, k5_b) ‖ maior(k5ₐ, k5_b))
@@ -183,14 +183,14 @@ as seeds guardadas em `Segredo`.
 
 ### O C tinha zeroização escrita e nenhuma feita
 
-Até à fase F, este documento afirmava que `sodium_memzero` era chamado
+Este documento afirmava que `sodium_memzero` era chamado
 em `crypto/c_cpp/k9_chacha.c`. **Não era.** Uma busca por
 `memzero|memset|explicit_bzero` em `crypto/c_cpp/` não devolvia
 nenhuma ocorrência — só a *declaração* no header do libsodium vendored.
 A garantia estava escrita e não implementada, que é o estado mais
 perigoso: um leitor que confie no documento deixa de olhar.
 
-O que a fase F fez, e o que está implementado:
+O que está implementado:
 
 | Onde | O quê | Porquê |
 | --- | --- | --- |
@@ -313,8 +313,8 @@ que não devolve a página mantém-na trancada para sempre, e o `Drop`
 liberta o que não precisa de continuar trancado.
 
 Este parágrafo esteve errado até 2026-10-13: a secção dizia `PLANEADO`
-(F0c) e o `roadmap.md` repetia o rótulo, com o código à frente dos dois
-desde a fase F. É o erro que a regra editorial do
+e o `roadmap.md` repetia o rótulo, com o código à frente dos dois.
+É o erro que a regra editorial do
 [`roadmap.md`](roadmap.md) §Estado actual vs futuro existe para tornar
 impossível de novo — um `PLANEADO` que já tem código é uma promessa que
 o código está a cumprir em silêncio.

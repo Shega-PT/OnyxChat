@@ -8,6 +8,7 @@ import {
   Archive,
   Compass,
   Fingerprint,
+  FolderOpen,
   MessageSquare,
   Radio,
   Settings2,
@@ -24,6 +25,7 @@ export const NAV_ITEMS = [
   { to: '/rede', label: 'Rede', icon: Radio },
   { to: '/seguranca', label: 'Segurança', icon: Shield },
   { to: '/identidade', label: 'Identidade', icon: Fingerprint },
+  { to: '/armazenamento', label: 'Armazenamento', icon: FolderOpen },
 ];
 
 export const FOOTER_ITEMS = [{ to: '/definicoes', label: 'Definições', icon: Settings2 }];

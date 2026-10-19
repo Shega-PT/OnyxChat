@@ -315,7 +315,7 @@ def test_consultar_servidor_em_baixo() -> None:
 # Identificadores Onyx
 # ---------------------------------------------------------------------
 # O servidor de descoberta tem de aceitar o identificador que o próprio
-# projecto produz. Antes da Etapa 3 a expressão regular aceitava apenas
+# projecto produz. Antes a expressão regular aceitava apenas
 # `[A-Za-z0-9._-]`, e o identificador Onyx — que termina em `#` e tem
 # símbolos na cauda — era **rejeitado** no primeiro passo da cadeia
 # `identificador → registo → encontrar o par`.

@@ -341,7 +341,7 @@ def test_descobrir_servidor_por_omissao(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------
-# Etapa de rede — rede, handshake e relé
+# Rede, handshake e relé
 # ---------------------------------------------------------------------
 
 HEX_PUB_LOCAL = "44" * 32

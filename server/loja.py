@@ -672,6 +672,57 @@ class Loja:
             _transferencia_de(linha) for linha in self._cx.execute(sql, args).fetchall()
         ]
 
+    def armazenamento(self, *, completas: bool | None = None) -> list[dict[str, Any]]:
+        """**Todas** as transferências da conta, de todas as conversas.
+
+        E a vista de armazenamento: «o que tenho guardado?».
+
+        ## E porque é um método e não `transferencias()` sem conversa
+
+        Porque [`transferencias`](Loja.transferencias) é **por
+        conversa**, e a pergunta do armazenamento é por **conta**. São
+        perguntas diferentes, e responder à segunda percorrendo as
+        conversas seria a interface a fazer o trabalho da base de dados.
+
+        ## E a quem pertence cada transferência
+
+        A uma conta. A loja é de uma conta — `criar_tabela` cria o
+        esquema todo e a conta é o que a abre — e por isso não há
+        filtro de dono: **toda** a tabela é desta conta.
+
+        E é por isso que a vista não precisa de pedir o dono: um
+        `WHERE conta_id = ?` seria redundante, e um filtro que não
+        filtra nada é pior do que não ter filtro — porque dá a ilusão
+        de que o filtro existe.
+
+        ## E o que devolve
+
+        Uma linha por transferência, com o **nome de quem enviou** e o
+        **nome da conversa** — porque um ficheiro sem contexto é
+        «report.pdf» numa lista de trinta, e o contexto é o que
+        distingue «o PDF que me mandaram» de «o PDF que eu mandei».
+        """
+        # O nome está no **contacto**, e não na conversa: a conversa é
+        # uma ligação para o contacto, e o contacto é quem tem o nome.
+        sql = (
+            "SELECT t.*, ct.nome AS nome_contacto "
+            "FROM transferencias t "
+            "JOIN conversas c ON c.id = t.conversa_id "
+            "JOIN contactos ct ON ct.id = c.contacto_id"
+        )
+        args: list[Any] = []
+        if completas is not None:
+            sql += " WHERE t.completo = ?"
+            args.append(1 if completas else 0)
+        sql += " ORDER BY t.recebido_em DESC"
+
+        saida = []
+        for linha in self._cx.execute(sql, args).fetchall():
+            transferencia = _transferencia_de(linha)
+            transferencia["contacto"] = linha["nome_contacto"]
+            saida.append(transferencia)
+        return saida
+
     def contar_pedacos(self, transferencia_id: str) -> int:
         """Quantas fatias já chegaram.
 

@@ -214,6 +214,30 @@ pub enum ErroMedia {
     DeltaTruncado,
     /// O código de telha não é 1 nem 2.
     DeltaCodigoDesconhecido(u8),
+
+    // --- imagem --------------------------------------------------------
+    /// Um quadro VP8 de tamanho zero chegou a descodificar.
+    ///
+    /// Distinto de fim de stream porque um `ffmpeg` que morre devolve
+    /// `None` e um quadro vazio devolve isto — e a diferença importa:
+    /// `None` acaba a chamada, isto é um quadro perdido.
+    ///
+    /// O tamanho zero nunca é legítimo. Um keyframe tem uma keyframe; um
+    /// quadro delta sem delta tem o resto do quadro anterior, que o VP8
+    /// codifica em pelo menos um byte.
+    QuadroVP8Vazio,
+
+    /// A descodificação VP8→JPEG não produziu uma imagem usável.
+    ///
+    /// A razão é uma frase e **não** um `errno`, porque o que falha aqui
+    /// é quase sempre o `ffmpeg` a escrever outra coisa: um JPEG sem o
+    /// cabeçalho, um PNG, ou nada. O `errno` seria um código de sistema
+    /// de ficheiros para um erro de descodificador, que não diz nada.
+    ///
+    /// E a verificação é feita **depois** do `ffmpeg`: o `ffmpeg` que
+    /// recebe bytes errados sai com `0` e escreve outra coisa, e um
+    /// código de saída a dizer «tudo bem» seria mentira.
+    DescodificacaoFalhou(&'static str),
     /// O corpo de uma unidade não chega para o `base_seq`.
     ///
     /// Distinto de [`ErroMedia::DeltaTruncado`] porque a correcção é
@@ -328,6 +352,10 @@ impl fmt::Display for ErroMedia {
             ErroMedia::DeltaTruncado => write!(f, "o delta acaba a meio de uma telha"),
             ErroMedia::DeltaCodigoDesconhecido(c) => {
                 write!(f, "código de telha 0x{c:02x} desconhecido")
+            }
+            ErroMedia::QuadroVP8Vazio => write!(f, "quadro VP8 de tamanho zero"),
+            ErroMedia::DescodificacaoFalhou(motivo) => {
+                write!(f, "descodificação VP8 para JPEG falhou: {motivo}")
             }
             ErroMedia::BaseTruncado => write!(f, "o corpo não chega para o base_seq"),
 

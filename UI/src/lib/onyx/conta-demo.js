@@ -15,7 +15,7 @@
 // A frase que aceitamos é `demo`, e a verificação é uma comparação de
 // texto. Isto **não** é criptografia e não pretende ser: o keystore real
 // é `messenger/storage.py`, com ChaCha20-Poly1305 e PBKDF2 a 200 mil
-// iterações, e a interface fala com ele através do sidecar da Etapa 5.
+// iterações, e a interface fala com ele através do sidecar.
 //
 // A linha que separa as duas coisas é esta: `bridge-adapter.js` não
 // conhece este ficheiro, e `data-adapter.js` escolhe entre os dois
@@ -167,7 +167,7 @@ export function apagarConta() {
  *
  * O identificador vem de `mock-data.js`, derivado a sério. A
  * demonstração **não** calcula identidade: seria uma segunda fórmula, e
- * a segunda fórmula é exactamente o que a Etapa 3 veio substituir.
+ * a segunda fórmula é exactamente o que a fórmula actual veio substituir.
  *
  * @param {{ utilizador: string, frase: string }} dados
  * @returns {object} a conta criada.
@@ -262,7 +262,7 @@ export function reporConta({ conta, frase }) {
  * A identidade de demonstração, derivada e com a forma certa.
  *
  * Vem de `mock-data.js`, e não é inventada aqui — a interface nem sequer
- * tem o sal nem a fórmula, e é essa a propriedade que a Etapa 3
+ * tem o sal nem a fórmula, e é essa a propriedade que a fórmula
  * estabeleceu.
  *
  * @returns {{ identifier: string, fingerprint: string }}

@@ -51,9 +51,9 @@ coincidir com as referências em `crypto/python_lua/`.
 > `k` = +3 e +7. Implementam o mesmo módulo Lua (`lua/deslocamento.lua`)
 > e chamam a mesma função (`lua_camadas::deslocamento`); o que as
 > distingue é o deslocamento, que é um parâmetro, não uma
-> implementação. Tiveram ficheiros Lua separados até à fase G6 — com o
-> corpo idêntico — e a divergência silenciosa entre os dois era o risco
-> que a fase eliminou. As camadas continuam a ser distintas no
+> implementação. Tiveram ficheiros Lua separados — com o corpo
+> idêntico — e a divergência silenciosa entre os dois era o risco que a
+> reunião eliminou. As camadas continuam a ser distintas no
 > **protocolo**: K2 e K8 ocupam posições diferentes na sequência
 > K1→K9, e é isso que as define.
 

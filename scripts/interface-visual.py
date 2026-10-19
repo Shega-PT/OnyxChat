@@ -31,7 +31,7 @@
 # (``?mock=0``), ou seja, o backend verdadeiro. É o que permite ver se o
 # que a interface mostra veio mesmo do sidecar.
 #
-# A diferença entre as duas não é cosmética: é exactamente o que a Etapa 7
+# A diferença entre as duas não é cosmética: é exactamente o que falta
 # do `docs/roadmap.md` tem de acertar. Ver um ecrã com ``--demo`` não diz
 # nada sobre o modo como esse ecrã trata os dados reais.
 #

@@ -51,7 +51,7 @@ as especificações. Cada nível é autónomo e remete para o seguinte.
 > especificações normativas próprias**: não define bytes, e por isso não
 > entra na secção de especificações. O seu README é a fonte de verdade
 > sobre o estado da interface, e [`../UI/README.md`](../UI/README.md)
-> §Etapas e §O que a interface mostra e o que o backend sabe são as
+> §Estado da interface e §O que a interface mostra e o que o backend sabe são as
 > partes que interessam a quem avalia o projecto — a segunda porque
 > documenta, linha a linha, o que a interface **ainda não** sabe.
 

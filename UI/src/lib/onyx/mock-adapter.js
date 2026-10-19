@@ -30,7 +30,7 @@
 // Existe porque a interface precisa de ser mostrada e desenhada sem o
 // backend ligado, e porque desenhar contra dados inventados é mais rápido
 // do que desenhar contra o backend real — que ainda nem existe como
-// superfície HTTP (Etapa 5).
+// superfície HTTP.
 //
 // Enquanto isto estiver ligado, a barra de aviso da casca está no ecrã.
 //
@@ -65,7 +65,7 @@ const delay = (ms = 280) => new Promise((resolve) => setTimeout(resolve, ms));
  * `messenger/identidade.py`, com SHA-256 e um sal — e guardados. Uma
  * demonstração que inventa o valor a cada leitura não demonstraria o
  * sistema real, e o valor inventado seria um resumo de 32 bits, que é
- * exactamente o que a Etapa 3 veio substituir.
+ * exactamente o que a fórmula actual veio substituir.
  *
  * A função mantém-se porque o `contact` aninhado dentro de uma conversa
  * continua a precisar de vir montado, e porque o contrato com as vistas
@@ -301,6 +301,41 @@ export const mockAdapter = {
   async readAudioFrame() {
     await delay(20);
     return null;
+  },
+
+  // A imagem de um quadro: um JPEG de 1×1, que é o menor JPEG
+  // válido. E o mock não tem VP8 para descodificar, e um JPEG de
+  // 1×1 serve para o componente ter o que mostrar.
+  async decodeVideoImage(vp8, largura, altura) {
+    await delay(1);
+    return {
+      largura,
+      altura,
+      jpeg:
+        '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
+    }
+  },
+
+  // O ficheiro enviado: um manifesto como o que o daemon devolve.
+  async sendFile(conversationId, nome, conteudo) {
+    await delay(10);
+    return {
+      transferencia: {
+        id: 'mock' + nome.length.toString(16),
+        nome,
+        totalBytes: Math.floor((conteudo.length * 3) / 4),
+        totalPedacos: 1,
+        sha256: '00'.repeat(32),
+      },
+    }
+  },
+
+  // O armazenamento: a lista do que está guardado, em todas as
+  // conversas. E o mock não tem transferências — que é o mesmo que
+  // dizer que a conta está vazia.
+  async listStorage(completas = undefined) {
+    await delay(10);
+    return { transferencias: [] }
   },
 
   async stopVideoStream() {

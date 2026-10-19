@@ -81,7 +81,7 @@ export default function Recuperar() {
    * ficheiro para um servidor é dar-lhe o poder de ler um ficheiro que a
    * pessoa não escolheu.
    *
-   * O texto passa **cru**, sem `JSON.parse`. A cópia que a Etapa 5 passou
+   * O texto passa **cru**, sem `JSON.parse`. A cópia que passou
    * a exportar é base64 de um keystore binário — o corpo de uma resposta
    * HTTP tem de ser JSON, e o ficheiro não — e fazer-lhe `JSON.parse`
    * era reprovar sempre com «não é uma cópia de conta», mesmo com a

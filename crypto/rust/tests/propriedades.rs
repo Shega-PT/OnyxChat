@@ -5,7 +5,7 @@
 // exige autorização do titular — ver COMMERCIAL-LICENSE.md.
 
 // =====================================================================
-// propriedades.rs — property tests do núcleo criptográfico (Fase 3.2)
+// propriedades.rs — property tests do núcleo criptográfico
 // ---------------------------------------------------------------------
 // Invariântes verificadas para TODO o domínio de inputs gerados
 // (Resumo §48 — categorias de teste), não apenas para exemplos fixos:

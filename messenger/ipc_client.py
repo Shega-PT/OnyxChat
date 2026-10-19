@@ -90,6 +90,13 @@ CMD_MEDIA_LER = 0x11
 # porque o áudio **é** o relógio — o receptor conta os bytes e sabe o
 # tempo (docs/media.md §5.3).
 CMD_MEDIA_AUDIO = 0x12
+# `MEDIA_IMAGEM` — descodifica um quadro de VP8 para JPEG.
+#
+# E o caminho de volta da imagem. O renderizador da interface é um
+# WebKitGTK 6, e o WebKitGTK **não garante** `VideoDecoder` — a API de
+# WebCodecs. Sem ela, quem tem o `ffmpeg` com o decoder de VP8 é o
+# daemon, e quem mostra a imagem é a interface, num `<img>`.
+CMD_MEDIA_IMAGEM = 0x13
 
 #: Erro de media do daemon (``ERR_MEDIA`` em ``ipc.rs``).
 #:
@@ -296,6 +303,33 @@ class QuadroVideo:
             e ligar também para descodificar duplicaria o executável
             por uma coisa que o emissor nunca precisa. Quem descodifica
             é o receptor (``media.VideoDescodificador``).
+    """
+
+    sequencia: int
+    clock_ms: int
+    dados: bytes
+
+
+@dataclass(frozen=True)
+class PacoteAudio:
+    """Um pacote de Opus da captura viva (``MEDIA_AUDIO``).
+
+    Attributes:
+        sequencia: a ordem de **transporte**, com a mesma semântica do
+            :class:`QuadroVideo` — a ordem em que o pacote viajou, e
+            não a ordem em que foi capturado.
+        clock_ms: o tempo de **media** do pacote, em milissegundos.
+
+            E o que permite o *lip sync* (§5.4): o receptor compara-o
+            com o relógio contado e sabe a que momento do áudio este
+            pacote pertence, o que é o que alinha o áudio com o vídeo.
+
+            E é o **mestre**: §5.3 diz que o áudio é o relógio, porque
+            é o canal que não se perde um pacote sem se notar.
+        dados: os bytes de **Opus**, não PCM.
+
+            E o daemon não descodifica no caminho da captura — a
+            descodificação é de quem **ouve**, e quem ouve é o receptor.
     """
 
     sequencia: int
@@ -526,7 +560,7 @@ class ClienteIpc:
         raise ErroDaemon(corpo[0], mensagem)
 
     # -------------------------------------------------------------
-    # Pipeline (Etapa anterior)
+    # Pipeline (etapa anterior)
     # -------------------------------------------------------------
 
     def cifrar(
@@ -668,13 +702,70 @@ class ClienteIpc:
             dados=bytes(resposta[12:]),
         )
 
-    def media_audio(self, timeout_ms: int | None = None) -> bytes | None:
-        """``MEDIA_AUDIO``: o próximo pacote de Opus.
+    def media_imagem(self, vp8: bytes, largura: int, altura: int) -> dict[str, object]:
+        """``MEDIA_IMAGEM``: descodifica um VP8 para JPEG.
+
+        E o caminho de volta da imagem.
+
+        ## E porque a geometria vai no pedido
+
+        Porque o JPEG descodificado **também** tem a dimensão, e
+        quem escreve o ``<img>`` precisa de saber a altura antes de o
+        navegador ter descodificado seja o que for.
+
+        E porque o VP8 **cru** não sabe a sua própria dimensão: a
+        geometria está no cabeçalho do IVF, que é do emissor, e quem
+        recebe o VP8 pela rede não o viu.
+
+        :param vp8: os bytes crus do quadro.
+        :param largura: a largura em pixéis.
+        :param altura: a altura em pixéis.
+        :returns: um dicionário com ``largura``, ``altura`` e ``jpeg``.
+        """
+        corpo = (
+            largura.to_bytes(4, "little")
+            + altura.to_bytes(4, "little")
+            + vp8
+        )
+        resposta = self._pedir(CMD_MEDIA_IMAGEM, corpo)
+        if len(resposta) < 4:
+            raise ErroRespostaCurta(CMD_MEDIA_IMAGEM, len(resposta), 4)
+        largura_v = int.from_bytes(resposta[0:2], "little")
+        altura_v = int.from_bytes(resposta[2:4], "little")
+        return {
+            "largura": largura_v,
+            "altura": altura_v,
+            "jpeg": bytes(resposta[4:]),
+        }
+
+    def media_audio(self, timeout_ms: int | None = None) -> PacoteAudio | None:
+        """``MEDIA_AUDIO``: o próximo pacote de Opus, com o seu tempo.
 
         Bloqueia até haver pacote, ou devolve ``None`` se a captura
-        acabou. Não há cabeçalho e não há ``clock_ms``: o áudio **é** o
-        relógio, e o receptor conta os bytes e sabe o tempo
-        (``docs/media.md`` §5.3).
+        acabou.
+
+        ## E porque tem ``clock_ms``, e antes não tinha
+
+        Porque o *lip sync* (§5.4) precisa de saber **quando** o áudio
+        que chegou foi produzido, e não só **quanto** áudio é.
+
+        A versão anterior não tinha cabeçalho, e a razão era que «o áudio
+        **é** o relógio»: o receptor contava os bytes e dividia por
+        ``bytes_por_ms``. E isso dava o tempo **recebido** — o tempo em
+        que o pacote chegou — e não o tempo em que foi capturado.
+
+        São coisas diferentes. Um pacote que esperou 200 ms na rede tem o
+        mesmo tamanho, e o receptor sem cabeçalho não distingue «a voz
+        chegou agora» de «a voz foi capturada há 200 ms». E essa
+        diferença é exactamente o que faz o áudio e o vídeo de uma
+        chamada deixarem de estar alinhados.
+
+        ## E o formato é o mesmo do :meth:`media_ler`
+
+        ``seq: u32 LE ‖ clock_ms: i64 LE ‖ opus``. E não por simetria
+        estética: o receptor tem **um** caminho de código para os dois, e
+        um caminho só é um caminho que não pode ter metade das regras de
+        um e metade as do outro.
 
         Args:
             timeout_ms: Não usado — o ``MEDIA_AUDIO`` bloqueia até haver
@@ -683,10 +774,11 @@ class ClienteIpc:
                 dos dois bloqueia.
 
         Returns:
-            O pacote de Opus, ou ``None`` se a captura acabou.
+            O pacote de Opus com o seu tempo, ou ``None`` se a captura
+            acabou.
         """
         try:
-            return self._pedir(CMD_MEDIA_AUDIO, b"")
+            resposta = self._pedir(CMD_MEDIA_AUDIO, b"")
         except ErroDaemon as e:
             # `ERR_MEDIA` no `MEDIA_AUDIO` é o `ffmpeg` a morrer, e é o
             # fim da captura. Qualquer outro código é uma falha e sobe:
@@ -694,6 +786,20 @@ class ClienteIpc:
             if e.codigo == ERR_MEDIA:
                 return None
             raise
+
+        if len(resposta) < 12:
+            raise ErroIpc(
+                f"o MEDIA_AUDIO devolveu {len(resposta)} bytes, "
+                "e o cabeçalho são 12"
+            )
+
+        seq = int.from_bytes(resposta[0:4], "little")
+        clock_ms = int.from_bytes(resposta[4:12], "little", signed=True)
+        return PacoteAudio(
+            sequencia=seq,
+            clock_ms=clock_ms,
+            dados=bytes(resposta[12:]),
+        )
 
     def media_estado(self) -> EstadoMedia:
         """``MEDIA_ESTADO``: o que o daemon pode fazer de media.

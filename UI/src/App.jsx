@@ -18,6 +18,7 @@ import Network from '@/pages/Network';
 import Security from '@/pages/Security';
 import Identity from '@/pages/Identity';
 import Settings from '@/pages/Settings';
+import Armazenamento from '@/pages/Armazenamento';
 import Entrar from '@/pages/Entrar';
 import Registar from '@/pages/Registar';
 import Recuperar from '@/pages/Recuperar';
@@ -112,6 +113,7 @@ function Aplicacao() {
         <Route path="/seguranca" element={<Security />} />
         <Route path="/identidade" element={<Identity />} />
         <Route path="/definicoes" element={<Settings />} />
+        <Route path="/armazenamento" element={<Armazenamento />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

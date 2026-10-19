@@ -174,6 +174,9 @@ mensagem** (opcode incluído), mínimo possível — ou seja,
 | `MEDIA_ESTADO`     | `0x0E` | cliente→daemon | vazio                                                        | 1           | —                   |
 | `MEDIA_CAPTURAR`   | `0x0F` | cliente→daemon | `largura: u16 LE ‖ altura: u16 LE ‖ fps: u16 LE ‖ audio_kbps: u16 LE` | 9 | quatro inteiros |
 | `MEDIA_REPRODUZIR` | `0x10` | cliente→daemon | `leitor: 1B ‖ transferencia: 32 ASCII hex`                     | 34          | hex                 |
+| `MEDIA_LER`       | `0x11` | cliente→daemon | vazio                                                        | 1           | —                   |
+| `MEDIA_AUDIO`     | `0x12` | cliente→daemon | vazio                                                        | 1           | —                   |
+| `MEDIA_IMAGEM`    | `0x13` | cliente→daemon | `largura: u32 LE ‖ altura: u32 LE ‖ vp8`                    | ≥ 9         | binário             |
 
 Notas:
 
@@ -192,6 +195,21 @@ Notas:
   `0x13 NonceRepetido` (`message_format.md` §Anti-replay).
 * `DECODE` mantém o mutex do registo anti-replay durante a decifragem
   (janela *check-and-insert* atómica).
+* `MEDIA_LER` devolve `sequencia: u32 LE ‖ clock_ms: i64 LE ‖ vp8`, e
+  `MEDIA_AUDIO` devolve `sequencia: u32 LE ‖ clock_ms: i64 LE ‖ opus` —
+  o **mesmo** formato nos dois, porque o receptor tem um caminho de
+  código para os dois e o lip sync precisa do relógio de cada um.
+* `MEDIA_AUDIO` bloqueia até haver pacote, e `MEDIA_LER` bloqueia até
+  haver quadro. Não há temporizador: quem lê decide a velocidade.
+* `MEDIA_IMAGEM` devolve `largura: u16 LE ‖ altura: u16 LE ‖ jpeg` — e
+  é o comando que dá a imagem à interface, porque o renderizador não
+  garante `VideoDecoder` (`docs/media.md` §10.3.0).
+* **Os comandos e os erros partilham números, e não é colisão.** O
+  `MEDIA_IMAGEM` é o comando `0x13` e o `NonceRepetido` é o erro
+  `0x13`, e os dois existem ao mesmo tempo. A razão é que a resposta
+  começa por `0x00` (`OK`) ou `0x01` (`ERRO`), e o código de erro só
+  é lido no segundo caso — é o `byte[1]` de uma resposta de erro, e o
+  `byte[0]` de um pedido. Espaços diferentes, números iguais.
 
 ### Respostas por comando (`OK`, `0x00`)
 
@@ -214,6 +232,9 @@ Notas:
 | `MEDIA_ESTADO`     | `loja:1B ‖ ffmpeg:1B ‖ leitor:1B`                              | 4       |
 | `MEDIA_CAPTURAR`   | `largura: u16 LE ‖ altura: u16 LE` — a **efectiva**            | 5       |
 | `MEDIA_REPRODUZIR` | `pid: u32 LE`                                                  | 5       |
+| `MEDIA_LER`       | `sequencia: u32 LE ‖ clock_ms: i64 LE ‖ vp8`                   | ≥ 13    |
+| `MEDIA_AUDIO`     | `sequencia: u32 LE ‖ clock_ms: i64 LE ‖ opus`                  | ≥ 13    |
+| `MEDIA_IMAGEM`    | `largura: u16 LE ‖ altura: u16 LE ‖ jpeg`                      | ≥ 5     |
 
 ### Tipos de frame P2P (corpo de `RECEBER`)
 

@@ -53,8 +53,10 @@ from .amizade import (
     ErroDerivacao,
     derivar_k1_por_tipo,
 )
+from . import lipsync
 from .ipc_client import (
     ERR_DECIFRAGEM_FALHOU,
+    PacoteAudio,
     ERR_MEDIA,
     ErroDaemon,
     ErroIpc,
@@ -93,7 +95,7 @@ TAM_PRE_AMBULO = INICIO_CORPO + 1
 TAM_MEDIA_MAX = (MAX_PLAINTEXT - TAM_PRE_AMBULO) // 4 * 3
 
 # ---------------------------------------------------------------------
-# A agregação do áudio (Fase 2)
+# A agregação do áudio
 # ---------------------------------------------------------------------
 
 #: Quantos pacotes de Opus vão no máximo na mesma mensagem.
@@ -187,7 +189,55 @@ SEPARADOR = b"\n"
 TIPOS = {
     "audio": (b"A", TIPO_AUDIO),
     "video": (b"V", TIPO_VIDEO),
+    # O ficheiro arbitrário, que viaja em molduras como os outros.
+    #
+    # E a **única** adição ao conjunto de tipos da moldura. O
+    # acréscimo é retrocompatível: uma implementação anterior recusa
+    # com «tipo desconhecido», que é a resposta certa — não sabe ler
+    # ficheiros.
+    "ficheiro": (b"F", TIPO_FICHEIRO),
 }
+
+#: O tipo ``ficheiro``, que **não** tem carácter na moldura.
+#:
+#: ## E porque está aqui e não em :data:`TIPOS`
+#:
+#: Porque ``TIPOS`` é a tabela de **molduras**, e um ficheiro não viaja
+#: em molduras: viaja em envelopes de controlo, que são texto opaco
+#: cifrado com a chave do tipo ``ficheiro``.
+#:
+#: ## E porque o ficheiro não usa o tipo ``video`` ou ``audio``
+#:
+#: Porque o tipo é o que escolhe a **chave**, e a chave é o que separa
+#: o ficheiro do texto e do áudio na sondagem. Um ficheiro enviado com
+#: a chave de vídeo seria aberto por um leitor de vídeo — que esperaria
+#: um VP8 e receberia um PDF.
+#:
+#: ## E o que a chave nova faz ao custo
+#:
+#: Nada. A K1 é derivada por tipo e a derivação é o que dá a
+#: separação; acrescentar um tipo é acrescentar uma linha a
+#: :data:`TIPOS_DE_CHAVE`, e a derivação de cada tipo **não muda**.
+#:
+#: O custo real é de **compatibilidade**: um par com a versão antiga
+#: recusa o ficheiro com «tipo desconhecido», que é a resposta
+#: correcta — não sabe lê-lo.
+TIPO_FIXEIRO = "ficheiro"
+
+#: O carácter do ficheiro no corpo do manifesto.
+#:
+#: E ``F``, e é o **único** acréscimo ao conjunto de caracteres do
+#: formato. A moldura ``ONX1`` continua com ``A`` e ``V`` — um ficheiro
+#: não viaja em molduras, viaja em envelopes de controlo — e o
+#: manifesto é que diz ao receptor «isto é um ficheiro».
+#:
+#: ## E porque ``F`` e não um valor novo
+#:
+#: Porque o byte do tipo no manifesto é um **carácter ASCII** legível,
+#: e um ficheiro com o byte ``0x46`` lê-se como ``F`` num
+#: ``hexdump``. Um valor numérico novo seria indistinguível de um
+#: ``rawvideo`` malformado.
+CARACTERE_FIXEIRO = b"F"
 
 #: Os tipos que têm chave derivada, por nome.
 #:
@@ -205,8 +255,16 @@ TIPOS = {
 #: texto de media, e isso começa na chave.
 TIPOS_DE_CHAVE = {
     **{nome: byte for nome, (_, byte) in TIPOS.items()},
-    "call": TIPO_CALL,
+    # O `call` vai **depois** do ficheiro, e a ordem é a da sondagem.
+    #
+    # E a razão é de frequência: o ficheiro é mais comum que o
+    # convite — uma conversa envia ficheiros, e uma chamada é um
+    # evento. E a ordem tem de ser **a mesma** que a do Rust
+    # (`media/teclas.rs::ORDEM`), porque são duas listas que dizem a
+    # mesma coisa e divergirem daria um tipo que um dos lados abre e o
+    # outro não.
     "ficheiro": TIPO_FICHEIRO,
+    "call": TIPO_CALL,
 }
 
 #: O inverso de :data:`TIPOS`: caractere → nome.
@@ -227,6 +285,9 @@ TIPOS_POR_CARACTERE = {car.decode("ascii"): nome for nome, (car, _) in TIPOS.ite
 #: diferentes, e inverter um dicionário à mão num chamador é o
 #: caminho mais curto para os dois divergirem.
 CARACTERE_POR_TIPO = {nome: car.decode("ascii") for nome, (car, _) in TIPOS.items()}
+
+#: O inverso para o ficheiro, que não tem moldura mas tem manifesto.
+CARACTERE_POR_TIPO[ TIPO_FIXEIRO] = CARACTERE_FIXEIRO.decode("ascii")
 
 #: Os modos, como tuplo ``(carácter, nome)``.
 MODOS = {
@@ -504,6 +565,13 @@ INICIO_SHA256 = INICIO_DURACAO + 4
 FIM_NOME = INICIO_SHA256 + 32
 
 #: Os codecs — o que se **descodifica**.
+#: O codec dos ficheiros que não são media.
+#:
+#: E ``"nenhum"`` e não ``"binario"`` porque o valor descreve o que o
+#: **codec** faz — e um PDF não é codificado, é copiado. Um nome que
+#: dissesse «binário» descreveria o **formato**, que é outra coisa.
+CODEC_NENHUM = "nenhum"
+
 CODECS = {
     0x0001: "opus",
     0x0002: "rawvideo-gray",
@@ -516,6 +584,13 @@ CODECS = {
     # declara-lo, e o receptor tem de saber o que e'. Nenhum emissor
     # novo o produz.
     0x0004: "vp8",
+    # O codec dos ficheiros que **não** são media.
+    #
+    # E ``"nenhum"`` e não ``"binario"`` porque o valor descreve o que
+    # o **codec** faz — e um PDF não é codificado, é copiado. Um nome
+    # que dissesse «binário» descreveria o **formato**, que é outra
+    # coisa.
+    0x0005: CODEC_NENHUM,
 }
 
 #: Os formatos — o **contentor**.
@@ -524,6 +599,15 @@ CODECS = {
 #: diferentes: o codec diz o que se descodifica, o formato diz o que o
 #: contentor é. Um vídeo Matroska com Opus dentro tem ambos, e o
 #: receptor precisa das duas coisas.
+#: O formato dos ficheiros que não são media.
+#:
+#: E ``"binario"`` porque é o que é: bytes que o sistema não sabe
+#: descodificar, e que entrega inteiros ao destinatário. O nome não é
+#: ``"opaco"`` porque opaco descreve quem não pode ver, e aqui quem não
+#: pode ver é o **sistema de media** — o destinatário vê o ficheiro
+#: todo.
+FORMATO_BINARIO = "binario"
+
 FORMATOS = {
     0x0001: "ogg",
     0x0002: "mp3",
@@ -532,6 +616,10 @@ FORMATOS = {
     0x0020: "mp4",
     0x0021: "matroska",
     0x0022: "webm",
+    # O ficheiro arbitrário. O valor é o último porque é o mais recente
+    # e o mais alto — e um valor de formato que **muda** de signify
+    # é uma incompatibilidade silenciosa.
+    0x0030: FORMATO_BINARIO,
 }
 
 #: A extensão → formato. Para o emissor, que tem um caminho e não sabe
@@ -637,12 +725,22 @@ class Manifesto:
         cls, tipo: str, codec: str, formato: str, duracao_s: int, nome: str, conteudo: bytes
     ) -> "Manifesto":
         """Monta o manifesto a partir de um conteúdo já lido."""
-        if tipo not in TIPOS_POR_CARACTERE.values():
+        if tipo not in TIPOS_POR_CARACTERE.values() and tipo != TIPO_FIXEIRO:
             raise ErroMedia(f"tipo desconhecido: {tipo!r}")
         if codec not in CODECS.values():
             raise ErroMedia(f"codec desconhecido: {codec!r}")
         if formato not in FORMATOS.values():
             raise ErroMedia(f"formato desconhecido: {formato!r}")
+        if tipo == TIPO_FIXEIRO:
+            # Um ficheiro tem o codec e o formato que o sistema não
+            # sabe descrever. Aceitar outras combinações seria aceitar
+            # um ficheiro que diz ser um vídeo, e o receptor ia tentar
+            # descodificá-lo como um.
+            if codec != CODEC_NENHUM or formato != FORMATO_BINARIO:
+                raise ErroMedia(
+                    f"um ficheiro tem codec {CODEC_NENHUM!r} e formato "
+                    f"{FORMATO_BINARIO!r}, e não {codec!r}/{formato!r}"
+                )
         if "\x00" in nome:
             # Um `str` com um zero no meio é um `CString` truncado à
             # espera de acontecer, e passa a um `snprintf` como
@@ -692,7 +790,11 @@ class Manifesto:
     def corpo(self) -> bytes:
         """O corpo do manifesto, pronto a ser montado numa moldura."""
         corpo = bytearray()
-        corpo.append(CARACTERE_POR_TIPO[self.tipo].encode("ascii")[0])
+        corpo.append(
+            CARACTERE_FIXEIRO[0]
+            if self.tipo == TIPO_FIXEIRO
+            else CARACTERE_POR_TIPO[self.tipo].encode("ascii")[0]
+        )
         corpo += self.total_bytes.to_bytes(4, "big")
         corpo += self.total_pedacos.to_bytes(4, "big")
         corpo += self.bytes_por_pedaco.to_bytes(2, "big")
@@ -995,18 +1097,50 @@ def enviar_transferencia(
     :raises ErroMedia: se o conteúdo não couber num ``u32`` — que é o
         maior ficheiro que o manifesto descreve.
     """
-    formato_val = FORMATOS_POR_NOME.get(nome.rsplit(".", 1)[-1].lower() if "." in nome else "")
+    # O formato e o codec saem da **extensão**, quando a extensão
+    # está na tabela; e quando não está, o ficheiro é um ficheiro
+    # arbitrário.
+    #
+    # ## E porquê não recusar a extensão desconhecida
+    #
+    # Porque a extensão é uma convenção, e uma convenção que o sistema
+    # não conhece não é um ficheiro que não pode ser enviado. É um
+    # ficheiro cujo conteúdo o sistema não sabe descrever — e o
+    # destinatário recebe-o **inteiro**, que é o que uma pessoa espera
+    # ao enviar um `.pdf` ou um `.zip`.
+    #
+    # A versão anterior desta função recusava com «não sei o formato de
+    # …», e a consequência era que enviar um ficheiro que não fosse
+    # áudio ou vídeo era **impossível** — que é o pedido que a
+    # traz.
+    #
+    # ## E o que continua a ser recusado
+    #
+    # Um nome **sem extensão** e com conteúdo que não seja media. A
+    # diferença é que «sem extensão» não é uma convenção que se possa
+    # adivinhar, e um ficheiro sem nome é um ficheiro que o destinatário
+    # não sabe abrir.
+    extensao = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+    formato_val = FORMATOS_POR_NOME.get(extensao)
     if formato_val is None:
-        raise ErroMedia(f"não sei o formato de {nome!r} — a extensão não está na tabela")
-    formato = _nome_de(FORMATOS, formato_val, "formato")
+        if not extensao:
+            raise ErroMedia(
+                f"o ficheiro {nome!r} não tem extensão, e sem extensão não "
+                "sei se é media"
+            )
+        tipo = TIPO_FIXEIRO
+        formato = FORMATO_BINARIO
+        codec = CODEC_NENHUM
+    else:
+        formato = _nome_de(FORMATOS, formato_val, "formato")
 
-    codec_val = FORMATOS_CODEC_PADRAO.get(formato_val)
-    if codec_val is None:
-        raise ErroMedia(
-            f"o formato {formato!r} não decide o codec — diz qual é explicitamente"
-        )
-    codec = CODECS[codec_val]
-    tipo = "audio" if codec == "opus" else "video"
+        codec_val = FORMATOS_CODEC_PADRAO.get(formato_val)
+        if codec_val is None:
+            raise ErroMedia(
+                f"o formato {formato!r} não decide o codec — diz qual é explicitamente"
+            )
+        codec = CODECS[codec_val]
+        tipo = "audio" if codec == "opus" else "video"
 
     manifesto = Manifesto.novo(tipo, codec, formato, duracao_s, nome, conteudo)
     manifesto.validar()
@@ -1733,7 +1867,7 @@ class EmissorStreaming:
         #: ``clear()`` e a lista não a faz em tempo constante; e porque
         #: o conteúdo nunca é lido pacote a pacote depois de montado —
         #: o receptor concatena e o `ffmpeg` desmultiplexa.
-        self._audio_a_espera: deque[bytes] = deque()
+        self._audio_a_espera: deque[PacoteAudio] = deque()
 
         #: Os milissegundos que uma mensagem de áudio tem de ter antes
         #: de sair.
@@ -1875,7 +2009,12 @@ class EmissorStreaming:
         # interessa é que a mensagem não cresça sem limite — que é o
         # que faria o `clock_ms` de saída deixar de dizer quanto áudio
         # ela leva.
-        ms_acumulada = sum(self._ms_do_audio(len(p)) for p in self._audio_a_espera)
+        # E o tempo acumulado é o **último** `clock_ms` menos o
+        # primeiro, e não a soma das durações estimadas. A diferença
+        # entre os dois é o desvio acumulado — e é a soma que a
+        # agregação tem de respeitar, porque é ela que decide o
+        # tamanho da mensagem.
+        ms_acumulada = self._ms_do_audio_acumulado()
         if (
             ms_acumulada < self._ms_por_moldura_audio
             and len(self._audio_a_espera) < PAQUETES_POR_MOLDURA
@@ -1901,7 +2040,7 @@ class EmissorStreaming:
         # pacotes válidos, que é exactamente o que `ffmpeg -f opus` faz
         # com um ficheiro. Nenhum cabeçalho, nenhum índice, nenhuma
         # contagem — e por isso zero bytes de overhead no caminho.
-        corpo = b"".join(self._audio_a_espera)
+        corpo = b"".join(p.dados for p in self._audio_a_espera)
         self._audio_a_espera.clear()
 
         texto = self._moldura("audio", corpo, self.audios, self._ms_audio)
@@ -1909,6 +2048,40 @@ class EmissorStreaming:
         self._cifrar_e_enviar(texto, "audio")
         self.audios += 1
         return True
+
+    def _ms_do_audio_acumulado(self) -> int:
+        """Os milissegundos de áudio que a fila carrega.
+
+        E o **diferença** entre o `clock_ms` do último pacote e o do
+        primeiro, mais a duração do primeiro.
+
+        ## E porque não a soma das durações
+
+        Porque a duração de um pacote era **estimada** pelos bytes
+        (``_ms_do_audio``), e a estimativa é uma média. Uma média
+        acumula desvio: ao fim de uma chamada de dez minutos, um
+        pacote de 20 ms estimado em 19,6 ms dá 24 segundos de
+        diferença — que é o suficiente para o lip sync estar
+        completamente desfeito.
+
+        E o `clock_ms` que o daemon envia é **contado**: o daemon
+        conta os bytes que passam pelo pipe e sabe o tempo exacto, com
+        o resto acumulado em bytes para a média ser exacta.
+
+        ## E o que acontece com um pacote só
+
+        Que o tempo é o do próprio pacote, e a fila ainda não tem
+        tempo suficiente para sair — que é o que o ``< 160`` de
+        :meth:`um_audio_distinto` verifica.
+        """
+        if not self._audio_a_espera:
+            return 0
+        primeiro = self._audio_a_espera[0]
+        ultimo = self._audio_a_espera[-1]
+        # O tempo do primeiro pacote é o **começo** dele, e o do último é
+        # o **fim**. A diferença é o que os pacotes intermediários
+        # cobrem, e é isso que se quer.
+        return (ultimo.clock_ms - primeiro.clock_ms) + self._ms_do_audio(len(primeiro.dados))
 
     def _despejar_audio(self) -> None:
         """Manda o que ficou na fila, sem esperar pelo tempo que falta.
@@ -1922,8 +2095,13 @@ class EmissorStreaming:
         if not self._audio_a_espera:
             return
 
-        ms_acumulada = sum(self._ms_do_audio(len(p)) for p in self._audio_a_espera)
-        corpo = b"".join(self._audio_a_espera)
+        # E o tempo acumulado é o **último** `clock_ms` menos o
+        # primeiro, e não a soma das durações estimadas. A diferença
+        # entre os dois é o desvio acumulado — e é a soma que a
+        # agregação tem de respeitar, porque é ela que decide o
+        # tamanho da mensagem.
+        ms_acumulada = self._ms_do_audio_acumulado()
+        corpo = b"".join(p.dados for p in self._audio_a_espera)
         self._audio_a_espera.clear()
 
         texto = self._moldura("audio", corpo, self.audios, self._ms_audio)
@@ -2101,7 +2279,14 @@ class ReceptorStreaming:
         aberta = abrir(texto)
         if tipo == "audio":
             if ao_audio is not None:
-                ao_audio(aberta.corpo)
+                # E o `clock_ms` vai com os bytes.
+                #
+                # Porque é o **mestre** da §5.2, e o receptor precisa
+                # dele para saber a que instante do áudio o quadro de
+                # vídeo pertence. Sem ele, o lip sync teria de adivinhar
+                # o tempo a partir do tamanho do pacote — e o tamanho
+                # diz quanto áudio **há**, não quando foi capturado.
+                ao_audio(aberta.corpo, aberta.clock_ms)
             return None
 
         # Vídeo. E o `seq` e o `clock_ms` são o que o `VideoDecoder`
@@ -2315,6 +2500,42 @@ class ChamadaRede:
         self.quadros = 0
         #: Quantos pacotes de áudio já passaram.
         self.audios = 0
+        #: A sessão de sincronia (§5.5).
+        #:
+        #: E o que decide se um quadro de vídeo se apresenta, se se
+        #: apresenta já, ou se se descarta — pelo desvio entre o relógio
+        #: do áudio e o do vídeo.
+        #:
+        #: E o áudio é quem a alimenta: cada pacote de Opus traz o seu
+        #: `clock_ms` no cabeçalho, e é o **mestre** da chamada.
+        self.lipsync = lipsync.SessaoLipSync()
+        #: A última decisão, para o diagnóstico.
+        self.ultima_decisao = lipsync.Decisao.SINCRONIZAR
+
+    def _ao_audio_com_tempo(self, dados: bytes, clock_ms: int) -> None:
+        """Recebe um pacote de áudio, com o seu tempo, e regista-o.
+
+        E o que alimenta o relógio mestre da §5.2.
+
+        ## E porque o tempo vem com o áudio
+
+        Porque é o **único** tempo que existe. O tempo de chegada do
+        pacote depende da rede, e o tempo de captura é o que o emissor
+        contou — o `clock_ms` que viaja no cabeçalho.
+
+        E é por isso que o `MEDIA_AUDIO` ganhou o cabeçalho: sem ele, o
+        receptor só sabia *quanto* áudio tinha recebido, e não *quando*
+        foi capturado — e a diferença entre as duas coisas é o
+        desvio de sincronia.
+
+        ## E porque o callback muda de forma
+        Porque o `ReceptorStreaming` entrega os bytes, e o tempo vem
+        junto deles. Um callback de um só argumento perderia o tempo, e
+        a sessão de lip sync ficaria sem o mestre.
+        """
+        self.lipsync.registar_audio(clock_ms)
+        if self._ao_audio is not None:
+            self._ao_audio(dados)
 
     def um_frame(self, frame) -> bool:
         """Trata um frame da ligação.
@@ -2339,13 +2560,16 @@ class ChamadaRede:
             return False
 
         quadro = self._receptor.um_quadro_de_video(
-            frame.corpo, self._ao_texto, self._ao_audio
+            frame.corpo, self._ao_texto, self._ao_audio_com_tempo
         )
         if quadro is None:
             return False
 
         seq, clock_ms, _vp8 = quadro
         self.quadros += 1
+        # E a decisão do lip sync, que é o que diz se o quadro se
+        # apresenta ou se se descarta.
+        self.ultima_decisao = self.lipsync.decidir(clock_ms)
         # O `clock_ms` e o `seq` ficam para quem vai descodificar: o
         # `VideoDecoder` usa-os para ordenar, e o `clock_ms` em
         # milissegundos tem de ir para microssegundos.

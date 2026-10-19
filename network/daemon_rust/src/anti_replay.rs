@@ -25,7 +25,7 @@
 // legítimo que chegue com as chaves erradas não pode bloquear a
 // mensagem para sempre.
 //
-// ## Persistência (fase B3)
+// ## Persistência
 // O registo era deliberadamente em memória, e essa decisão era um
 // buraco: reiniciar o daemon abria uma janela de replay de TTL
 // completo. Um agente que captura um envelope e reenvia-o a cada
@@ -616,7 +616,7 @@ mod tests {
     }
 
     // ----------------------------------------------------------------
-    // Persistência (fase B3) — o registo sobrevive a um reinício
+    // Persistência — o registo sobrevive a um reinício
     // ----------------------------------------------------------------
 
     /// 12 bytes em hexadecimal, para nomes de ficheiro de teste.
@@ -634,7 +634,7 @@ mod tests {
         std::env::temp_dir().join(format!("onyxchat-antireplay-{}.dat", para_hex(*nonce)))
     }
 
-    /// **O bug que esta fase fecha.** Um registo novo aceita de novo um
+    /// **O bug que isto fecha.** Um registo novo aceita de novo um
     /// `nonce1` que o registo anterior já tinha rejeitado.
     ///
     /// Sem isto, capturar um envelope e reenviá-lo depois de o daemon

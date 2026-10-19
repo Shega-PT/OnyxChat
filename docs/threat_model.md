@@ -123,7 +123,7 @@ propriedade que se verificou ser falsa.
 > Uma evolução natural seria escrevê-las num ficheiro `0600` em vez do
 > stdout.
 
-> **Alargamento (F0c).** A8 inclui agora a tentativa de ler **swap** —
+> **Alargamento.** A8 inclui agora a tentativa de ler **swap** —
   a área onde o kernel pode colocar páginas de memória sensível. O
 > `/swapfile` do sistema é `0600 root:root`, pelo que um utilizador
   **não-root** não o consegue ler directamente. Isto é o que separa A8
@@ -139,12 +139,12 @@ propriedade que se verificou ser falsa.
 Isto é o objetivo da **defesa em profundidade** (`pipeline.md`
 §Introdução) — não é "nove vezes mais segurança".
 
-### A10 — Atacante com acesso privilegiado ao sistema *(novo, F0c)*
+### A10 — Atacante com acesso privilegiado ao sistema *(novo)*
 
 | | |
 | --- | --- |
 | **Pode tentar** | ler `/swapfile` e `/proc/*/mem` como root; fazer *cold-boot attack* à RAM física; analisar o SSD em busca de restos de páginas descartadas; capturar dumps de núcleo |
-| **Defesas** | **`mlockall(MCL_CURRENT\|MCL_FUTURE)`** no arranque do daemon impede o page-out de material sensível (`IMPLEMENTADO` — `paginas.rs`, `main.rs`); `zeroize` no `Drop` no Rust reduz a janela em RAM; desde a fase F o C limpa a saída das suas camadas nos caminhos de erro com `sodium_memzero` (`onyx_limpar`) |
+| **Defesas** | **`mlockall(MCL_CURRENT\|MCL_FUTURE)`** no arranque do daemon impede o page-out de material sensível (`IMPLEMENTADO` — `paginas.rs`, `main.rs`); `zeroize` no `Drop` no Rust reduz a janela em RAM; o C limpa a saída das suas camadas nos caminhos de erro com `sodium_memzero` (`onyx_limpar`) |
 | **Não é mitigado** | acesso físico ao hardware, forense de disco, *cold-boot*, dumps de núcleo |
 
 Isto está deliberadamente **fora** do âmbito de A8 e é declarado como
@@ -180,7 +180,7 @@ garantia.
    sensível é limpa no `Drop` pressupõe que a página não foi descartada
    para swap. `mlockall` reduz o risco; não o elimina.
 8. **Anti-replay persistente, mas não contra um atacante local.** O
-   registo de `nonce1` sobrevive a reinícios do daemon (fase B3,
+   registo de `nonce1` sobrevive a reinícios do daemon (persistência,
    `docs/message_format.md` §Persistência), o que fecha a janela em que
    um envelope capturado passava depois de um reinício. **Não fecha** a
    variante em que o atacante escreve no directório de estado antes do

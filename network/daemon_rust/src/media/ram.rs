@@ -221,6 +221,46 @@ fn criar(nome: &str) -> Result<RawFd, ErroMedia> {
     Ok(fd)
 }
 
+/// Cria um `memfd` **aberto para escrita**, sem selo.
+///
+/// ## E porque esta função existe
+///
+/// Porque [`FicheiroEmRam`] sela o descritor com `F_SEAL_SEAL`, e esse
+/// selo proíbe qualquer escrita posterior — incluindo a de um filho que
+/// o`|ffmpeg` de descodificação vai fazer. Passar um `FicheiroEmRam`
+/// como saída de um `ffmpeg` dá um ficheiro de zero bytes, sem erro e
+/// sem aviso: o `ffmpeg` escreve, recebe `EPERM`, e o que o chamador lê
+/// é um ficheiro vazio.
+///
+/// É a diferença entre um `memfd` que **transporta** bytes já prontos —
+/// e que pode ser selado, porque ninguém mais escreve nele — e um que
+/// **recebe** de um programa, que tem de ficar aberto até esse programa
+/// sair.
+///
+/// ## E porque `MFD_ALLOW_SEALING` na mesma
+///
+/// Para que o selo possa ser posto **depois**, em [`selar`]. Um
+/// `memfd` criado sem `MFD_ALLOW_SEALING` nunca pode ser selado, e o
+/// contents de um ficheiro selado é uma garantia que este projecto
+/// usa para o que executa e não para o que um `ffmpeg` escreve.
+pub fn ficheiro_aberto_para_escrita(nome: &str) -> Result<RawFd, ErroMedia> {
+    criar(nome)
+}
+
+/// Põe o selo de conteúdo num `memfd` que foi escrito.
+///
+/// Chamado depois de o escritor acabar, e é o que transforma um
+/// ficheiro aberto num ficheiro que ninguém pode mexer. Selar antes de
+/// o escritor acabar é o que dava o ficheiro de zero bytes, e selar
+/// depois é o que faz o `Drop` poder fechar sem medo de que alguém
+/// esteja a escrever.
+pub fn selar(fd: RawFd) -> Result<(), ErroMedia> {
+    if unsafe { libc::fcntl(fd, libc::F_ADD_SEALS, SELO_CONTEUDO) } < 0 {
+        return Err(ErroMedia::ExecucaoFalhou(ultimo_erro()));
+    }
+    Ok(())
+}
+
 /// Fecha um descritor que ficou por caminho numa falha.
 fn fechar(fd: RawFd) {
     unsafe { libc::close(fd) };

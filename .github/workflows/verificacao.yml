@@ -434,7 +434,7 @@ jobs:
 
       - name: o `dist` não chama nada de fora
         # `UI/README.md` promete «nenhum recurso externo» e dá o comando
-        # que prova. Prometer sem verificar é o que a Etapa 7 vai
+        # que prova. Prometer sem verificar é o que falta
         # corrigir; enquanto a promessa existe, ela é verificada.
         run: |
             if grep -E 'src="https?://|href="https?://' UI/dist/index.html; then

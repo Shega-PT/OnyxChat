@@ -145,6 +145,29 @@ pub enum Tipo {
     Audio,
     /// Vídeo.
     Video,
+    /// Ficheiro arbitrário.
+    ///
+    /// ## E porque é um tipo da moldura
+    ///
+    /// Porque o ficheiro viaja em **fatias**, e a machinery de fatias
+    /// — manifesto, resumo, montagem, retoma — é a de `ONX1`. Um
+    /// contentor novo para os ficheiros seria a mesma machinery escrita
+    /// duas vezes, e as duas versões divergiriam.
+    ///
+    /// ## E porque `F` e não um valor novo
+    ///
+    /// Porque o byte do tipo no preâmbulo é um **carácter legível**, e
+    /// `F` diz «ficheiro» num `hexdump`. E porque o valor no `info`
+    /// do HKDF é **outro** — ver [`Tipo::tipo_derivado`] — e o
+    /// acréscimo de um tipo não muda a derivação dos outros.
+    ///
+    /// ## E o que custa a compatibilidade
+    ///
+    /// Uma implementação anterior que receba `F` recusa com
+    /// [`ErroMedia::TipoDesconhecido`], que é a resposta correcta: não
+    /// sabe ler ficheiros. E um par antigo continua a ler áudio e vídeo
+    /// sem qualquer alteração — o que é a compatibilidade que importa.
+    Ficheiro,
 }
 
 impl Tipo {
@@ -157,6 +180,7 @@ impl Tipo {
         match self {
             Tipo::Audio => b'A',
             Tipo::Video => b'V',
+            Tipo::Ficheiro => b'F',
         }
     }
 
@@ -170,6 +194,7 @@ impl Tipo {
         match self {
             Tipo::Audio => super::teclas::bytes_de_tipo_audio(),
             Tipo::Video => super::teclas::bytes_de_tipo_video(),
+            Tipo::Ficheiro => super::teclas::bytes_de_tipo_ficheiro(),
         }
     }
 
@@ -182,6 +207,7 @@ impl Tipo {
         match c {
             b'A' => Ok(Tipo::Audio),
             b'V' => Ok(Tipo::Video),
+            b'F' => Ok(Tipo::Ficheiro),
             _ => Err(ErroMedia::TipoDesconhecido(c)),
         }
     }

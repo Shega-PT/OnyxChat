@@ -135,7 +135,7 @@ ARTEFACTOS=(
   "UI/.env|sim"
   "UI/.env.producao|sim"
   "UI/npm-debug.log|sim"
-  # O alvo do Tauri (Etapa 6). Já é apanhado pelo `target/` da raiz, porque
+  # O alvo do Tauri. Já é apanhado pelo `target/` da raiz, porque
   # um padrão sem barra inicial casa em qualquer nível — mas isso é
   # coincidência, não intenção. Declarar aqui é o que garante que continua
   # a valer se o alvo do Rust mudar de nome.

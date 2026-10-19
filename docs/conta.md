@@ -141,7 +141,7 @@ e deixa passar `Passw0rd!`.
 
 `storage.py` usa PBKDF2-HMAC-SHA256 a 200 000 iterações. Argon2id é melhor
 — mais resistente a GPUs e a ataques que exploram a memória. Não foi
-trocado nesta Etapa porque `storage.py` é partilhado com
+trocado porque `storage.py` é partilhado com
 `user/config.py` e com o cliente de linha de comandos, e mexer no KDF de
 um keystore já existente exige **re-encriptar** o que está no disco dos
 utilizadores. É uma migração, e está declarada no `roadmap.md`.

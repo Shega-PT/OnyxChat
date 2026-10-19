@@ -13,7 +13,7 @@
 --
 -- ## Porque é um ficheiro e não dois
 --
--- Até à fase G6 havia `cesar.lua` e `substituicao.lua`, com o corpo
+-- Antes de as camadas serem reunidas havia `cesar.lua` e `substituicao.lua`, com o corpo
 -- byte-a-byte idêntico e apenas o cabeçalho em comum. O algoritmo de
 -- K2 é o de K8 com outro `k`; manter dois ficheiros obrigava a
 -- sincronizar duas implementações que só podiam divergir, e nada

@@ -4,10 +4,10 @@
 // Não é open source pela definição da OSI. Uso comercial
 // exige autorização do titular — ver COMMERCIAL-LICENSE.md.
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { dataAdapter } from '@/lib/onyx/data-adapter';
 import { usarToast as useToast } from '@/lib/shadcn';
-import { Bell, BellOff, ChevronLeft, Lock, MoreHorizontal, ShieldCheck, Trash2, User, Ban } from 'lucide-react';
+import { Bell, BellOff, ChevronLeft, Lock, MoreHorizontal, Phone, PhoneOff, ShieldCheck, Trash2, User, Ban, Video, VideoOff } from 'lucide-react';
 import {
   Menu as DropdownMenu,
   MenuConteudo as DropdownMenuContent,
@@ -31,6 +31,7 @@ export default function ConversationView({
   conversation,
   contact = undefined,
   onSend,
+  onSendFile = undefined,
   onBack = undefined,
   className = undefined,
 }) {
@@ -38,6 +39,19 @@ export default function ConversationView({
   const { toast } = useToast();
   const [transferencias, setTransferencias] = useState([]);
   const [estadoMedia, setEstadoMedia] = useState(null);
+
+  // O estado da chamada, e quem a pessoa está a chamar.
+  //
+  // E **aqui** que vive a escolha de quem chama, e não no `TopBar`: o
+  // `TopBar` é a barra global, e uma chamada é sempre a **uma** pessoa
+  // — que é a pessoa com quem se está a falar nesta conversa.
+  //
+  // E os dois botões são separados porque uma chamada de áudio e uma
+  // de vídeo são coisas diferentes: a de áudio não precisa de câmara,
+  // e quem está a receber um convite de áudio não quer ver a cara de
+  // quem liga.
+  const [chamada, definirChamada] = useState(null);
+
 
   // As transferências são buscadas à parte das mensagens porque são
   // uma **lista**, e a conversa traz as linhas. As duas coisas estão
@@ -92,6 +106,40 @@ export default function ConversationView({
     };
   }, []);
 
+  /**
+   * Liga uma chamada a quem está nesta conversa.
+   *
+   * @param {boolean} comVideo `true` para vídeo, `false` para áudio.
+   */
+  const aoChamar = useCallback(
+    (comVideo) => {
+      if (!contact) {
+        toast({
+          title: 'Não se pode chamar um grupo',
+          description: 'Uma chamada é sempre a uma pessoa.',
+        });
+        return;
+      }
+      definirChamada({ estado: 'a-tocar', comVideo, contacto: contact.id });
+      toast({
+        title: comVideo ? 'A chamar com vídeo…' : 'A chamar…',
+        description: truncate(contact ? contact.name : conversation.title, 40),
+      });
+    },
+    [contact, conversation.title, toast],
+  );
+
+  /**
+   * Termina a chamada, se houver.
+   */
+  const aoDesligar = useCallback(() => {
+    if (!chamada) {
+      return;
+    }
+    definirChamada(null);
+    toast({ title: 'Chamada terminada' });
+  }, [chamada, toast]);
+
   if (!conversation) {
     return (
       <div className={cn('flex min-w-0 flex-1 items-center justify-center bg-onyx-bg', className)}>
@@ -106,6 +154,7 @@ export default function ConversationView({
 
   const isGroup = !contact;
   const title = contact ? contact.name : conversation.title;
+
 
   const openSessionInfo = () => {
     openModal({
@@ -157,6 +206,42 @@ export default function ConversationView({
         </div>
 
         <div className="ml-auto flex items-center gap-1">
+          {/* Os botões de chamada, e são dois porque áudio e vídeo são
+              coisas diferentes. A chamada de áudio não precisa de câmara
+              — e quem recebe um convite de áudio não quer ver a cara de
+              quem liga. */}
+          {chamada ? (
+            <OnyxTooltip label="Desligar">
+              <OnyxIconButton onClick={aoDesligar} aria-label="Desligar">
+                {chamada.comVideo ? (
+                  <VideoOff className="h-4 w-4" />
+                ) : (
+                  <PhoneOff className="h-4 w-4" />
+                )}
+              </OnyxIconButton>
+            </OnyxTooltip>
+          ) : (
+            <>
+              <OnyxTooltip label="Chamada de áudio">
+                <OnyxIconButton
+                  onClick={() => aoChamar(false)}
+                  aria-label="Chamada de áudio"
+                  disabled={isGroup}
+                >
+                  <Phone className="h-4 w-4" />
+                </OnyxIconButton>
+              </OnyxTooltip>
+              <OnyxTooltip label="Chamada de vídeo">
+                <OnyxIconButton
+                  onClick={() => aoChamar(true)}
+                  aria-label="Chamada de vídeo"
+                  disabled={isGroup}
+                >
+                  <Video className="h-4 w-4" />
+                </OnyxIconButton>
+              </OnyxTooltip>
+            </>
+          )}
           <OnyxTooltip label="Verificar sessão">
             <OnyxIconButton onClick={openSessionInfo} aria-label="Verificar sessão">
               <ShieldCheck className="h-4 w-4" />
@@ -243,7 +328,12 @@ export default function ConversationView({
         </OnyxButton>
       </div>
 
-      <MessageComposer onSend={onSend} recipientName={contact ? contact.name : title} route={conversation.route} />
+      <MessageComposer
+        onSend={onSend}
+        onSendFile={onSendFile}
+        recipientName={contact ? contact.name : title}
+        route={conversation.route}
+      />
     </div>
   );
 }

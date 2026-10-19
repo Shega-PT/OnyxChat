@@ -7,7 +7,7 @@
 // =====================================================================
 // p2p.rs — ligações ponto a ponto do OnyxChat (etapa de rede)
 // ---------------------------------------------------------------------
-// Implementa o plano aprovado em Fase 3:
+// Implementa o plano aprovado:
 //
 //   * enquadramento `[u32 LE comprimento][tipo:1B][corpo]` — o mesmo
 //     formato do handshake (`docs/handshake.md`) e do relay

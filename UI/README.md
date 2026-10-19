@@ -17,7 +17,8 @@ dependência de ningún serviço externo em tempo de execução.
 > quem não sabe o que está a ver continua a ver uma demonstração rotulada
 > como tal, e quem sabe desliga o interruptor e vê o backend verdadeiro.
 >
-> O que **falta** é a Etapa 7: cada ecrã tratar o backend como fonte
+> O que **falta** é o último ponto desta secção: cada ecrã tratar o
+> backend como fonte
 > principal e não como hipótese, e mostrar o que o sidecar devolveu em vez
 > do que o adaptador de demonstração inventou. Está registada em
 > [`../docs/roadmap.md`](../docs/roadmap.md).
@@ -98,10 +99,10 @@ dados deixar de ser o adaptador de demonstração.
 
 | Onde | Aviso | Porque fica |
 | --- | --- | --- |
-| `lib/onyx/use-async.js:25` | `useEffect` recebe um array de dependências com expansão (`[run, ...deps]`) | O gancho aceita dependências por argumento, o que impede a verificação estática. Substitui-se quando o carregamento passar a React Query (Etapa 5). |
+| `lib/onyx/use-async.js:25` | `useEffect` recebe um array de dependências com expansão (`[run, ...deps]`) | O gancho aceita dependências por argumento, o que impede a verificação estática. Substitui-se quando o carregamento passar a React Query. |
 | `lib/onyx/onyx-context.jsx:67,76` | `useDetails` e `useContextLabel` recebem dependências por argumento | O contrato é "republicar um nó React sempre que as dependências mudam"; a regra não tem como avaliar isso. |
 | `pages/Contacts.jsx:33`, `pages/Conversations.jsx:19` | `data \|\| []` dentro das dependências produz um array novo em cada render | Desaparece com React Query, que mantém identidade estável para o mesmo estado. |
-| `pages/OAuthConsent.jsx:75,116` | variáveis não usadas | **Resolvido na Etapa 2**: o ficheiro saiu com o resto da integração hospedada. |
+| `pages/OAuthConsent.jsx:75,116` | variáveis não usadas | **Resolvido**: o ficheiro saiu com o resto da integração hospedada. |
 
 Não foram silenciados. Um aviso desligado porque inconvenientemente é pior
 do que um aviso visível, porque a regra deixa de ter utilidade no ponto
@@ -171,7 +172,7 @@ UI/
    │  └─ onyx/
    │     ├─ data-adapter.js   # A costura — ver abaixo
    │     ├─ mock-adapter.js   # implementação de demonstração
-   │     ├─ bridge-adapter.js # 34 métodos sobre o sidecar (Etapa da interface)
+   │     ├─ bridge-adapter.js # 37 métodos sobre o sidecar
    │     ├─ runtime.js        # interruptor de demonstração
    │     ├─ mock-data.js      # Os dados fictícios
    │     ├─ onyx-context.jsx  # Estado partilhado da casca
@@ -183,11 +184,11 @@ UI/
    │  ├─ onyx/                # 46 componentes do sistema de design
    │  ├─ AuthLayout.jsx       # invólucro dos ecrãs de acesso
    │  └─ ui/                  # ⚠ 8 ficheiros do shadcn (7 componentes + 1 gancho)
-   └─ pages/                  # Os 11 ecrãs
+   └─ pages/                  # Os 12 ecrãs
 ```
 
 **Os ecrãs de acesso estão aqui, e são nossos.** `Entrar.jsx`,
-`Registar.jsx` e `Recuperar.jsx` construíram-se na Etapa 4 sobre o
+`Registar.jsx` e `Recuperar.jsx` construíram-se sobre o
 `AuthLayout`, que é nosso. O que da versão hospedada foi removido — e
 removido a sério — são `Login`, `Register`, `ForgotPassword`,
 `ResetPassword` e o ecrã de consentimento OAuth: verificação por correio
@@ -196,8 +197,8 @@ servidor, e este projecto não tem. A *recuperação* de conta resolve-se por
 eliminação — tentar de novo, repor de uma cópia, recomeçar — e o ecrã diz
 o que cada uma dessas coisas custa.
 
-`AuthLayout.jsx`, o invólucro visual, **foi preservado** e é nosso. A Etapa 4
-reconstruiu os ecrãs sobre ele, e construiu-os com os primitivos `Onyx*` e
+`AuthLayout.jsx`, o invólucro visual, **foi preservado** e é nosso. Os
+ecrãs foram reconstruídos sobre ele, e construídos com os primitivos `Onyx*` e
 não com os do shadcn — por isso `button`, `input`, `label` e `input-otp`
 saíram do pacote.
 
@@ -210,7 +211,7 @@ Toda a interface lê e escreve através de um único módulo:
 
 ```text
 páginas  →  dataAdapter  →  mockAdapter     (demonstração)
-páginas  →  dataAdapter  →  bridgeAdapter   (backend real, Etapa 5)
+páginas  →  dataAdapter  →  bridgeAdapter   (backend real)
 ```
 
 Nenhuma página conhece a origem dos dados, e nenhuma escreve no adaptador.
@@ -268,7 +269,7 @@ serviço que um browser possa usar de fora. A interface de cliente do
 `onyxchatd` é um *socket Unix* binário (`docs/ipc.md`), e um browser
 não abre sockets Unix.
 
-A **Etapa 5** resolveu isso sem expor nada: `server/sidecar.py` é um
+O **sidecar** resolveu isso sem expor nada: `server/sidecar.py` é um
 servidor HTTP em `127.0.0.1` que fala com o socket Unix, e é o único
 processo que faz essa tradução. Serve 22 rotas, não escuta em outra
 interface, e `server/origem.py` decide quem tem o direito de lhe falar.
@@ -292,9 +293,11 @@ buraco do sidecar: **não é recolhida por ninguém**. O `sqlite3` da loja
 não guarda tempos, e um número de latência que ninguém mede não se
 mostra.
 
-**O que muda é a Etapa 7**, e nada disto depende dela: o sidecar tem as
-22 rotas e o `bridge-adapter` sabe chamá-las. O que falta é cada ecrã
-usar o backend como fonte principal, e mostrar o que ele devolveu.
+**O que muda** é cada ecrã usar o backend como fonte principal, e
+nada disto depende disso: o sidecar tem as 22 rotas e o
+`bridge-adapter` sabe chamá-las. O que falta é cada ecrã mostrar o que
+o backend devolveu, em vez do que o adaptador de demonstração
+inventou.
 
 ### Identidade
 
@@ -367,11 +370,11 @@ Ajustes ao `backend` estão em [`../docs/conta.md`](../docs/conta.md).
 `lib/onyx/conta-demo.js` guarda a conta de demonstração em `localStorage`
 e aceita `demo`. **Não é criptografia** e o ficheiro diz isso: a conta
 real é `messenger/storage.py`, com ChaCha20-Poly1305 e PBKDF2 a 200 mil
-iterações, e a interface fala com ela pelo sidecar da Etapa 5.
+iterações, e a interface fala com ela pelo sidecar.
 
 A identidade da demonstração **não** é inventada: vem de `mock-data.js`,
 derivada a sério em `messenger/identidade.py`. A interface não tem o sal
-nem a fórmula, e é essa a propriedade que a Etapa 3 estabeleceu.
+nem a fórmula, e é essa a propriedade que a fórmula actual estabeleceu.
 
 #### A medidor de força
 
@@ -383,19 +386,19 @@ recusado.
 
 ---
 
-## Etapas
+## Estado da interface
 
-| Etapa | Objectivo | Estado |
-| --- | --- | --- |
-| 1 | Desbloquear a construção, corrigir o âmbito das verificações, alinhar a interface com o prompt | **concluída** |
-| 2 | Remover a integração com o serviço hospedado; interruptor de demonstração com aviso visível | **concluída** |
-| 3 | Identidade sobre SHA-256, com vectores cruzados | **concluída** |
-| 4 | Credenciais locais cifradas e ecrãs de acesso, sem serviço externo | **concluída** |
-| 5 | Sidecar Python em `127.0.0.1`: HTTP sobre o socket Unix | **concluída** |
-| 6 | ~~Casca de desktop (Tauri)~~ — **reformulada** | **descartada**: a interface é web |
-| 7 | Cada página alimentada pelo backend, e não pelo adaptador de demonstração | `PLANEADO` |
+| Objectivo | Estado |
+| --- | --- |
+| Desbloquear a construção, corrigir o âmbito das verificações, alinhar a interface com o prompt | **concluído** |
+| Remover a integração com o serviço hospedado; interruptor de demonstração com aviso visível | **concluído** |
+| Identidade sobre SHA-256, com vectores cruzados | **concluído** |
+| Credenciais locais cifradas e ecrãs de acesso, sem serviço externo | **concluído** |
+| Sidecar Python em `127.0.0.1`: HTTP sobre o socket Unix | **concluído** |
+| ~~Casca de desktop (Tauri)~~ — **reformulado** | **descartado**: a interface é web |
+| Cada página alimentada pelo backend, e não pelo adaptador de demonstração | `PLANEADO` |
 
-> **A Etapa 6 não está `PLANEADO`: foi reformulada, e o número ficou.**
+> **A casca de desktop não está `PLANEADO`: foi reformulada.**
 > A linha dizia «Casca de desktop (Tauri) · `PLANEADO`» enquanto a
 > `Estrutura.txt` afirmava o contrário — que `src-tauri/` está vazio e que
 > «o plano é outro». A árvore tem razão: não há dependência de Tauri em
@@ -404,16 +407,7 @@ recusado.
 > sem um único ficheiro é um `CONCEITO` a fingir ser trabalho agendado, e
 > a interface passa a web por decisão.
 
-> **Estes números são da interface, e só dela.** O código Rust e Python da
-> camada de rede usava «Etapa 7» para Tor, P2P, IPC e handshake — trabalho
-> que está feito e testado. Duas séries com o mesmo nome e sentidos
-> opostos é o tipo de colisão que faz um leitor acreditar que a rede não
-> existe, porque o `roadmap.md` diz que a Etapa 7 é `PLANEADO`. Desde
-> 2026-10-13 a rede escreve **«etapa de rede»**, sem número, e esta tabela
-> fica com a numeração sequencial. Se voltar a aparecer um «Etapa 7» no
-> código de rede, é uma referência à interface e está errada lá.
-
-> **A Etapa 5 ficou com duas decisões que valem a pena saber.**
+> **O sidecar deixou com duas decisões que valem a pena saber.**
 >
 > **Não há WebSocket.** Nenhum consumidor do contrato o pede, e um
 > WebSocket meio implementado é pior do que nenhum: `/api/eventos`

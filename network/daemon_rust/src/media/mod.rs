@@ -62,6 +62,7 @@ pub mod loja;
 
 /// O ficheiro montado em RAM, entregue como descritor selado.
 pub mod ram;
+pub mod saida;
 
 /// A reprodução: juntar loja, RAM e leitor do sistema.
 pub mod reproduzir;
@@ -78,6 +79,7 @@ pub mod anel;
 /// O coalescing adaptativo e o `HOLD`.
 pub mod coalescer;
 pub mod desempate;
+pub mod imagem;
 pub mod ivf;
 pub mod lote;
 

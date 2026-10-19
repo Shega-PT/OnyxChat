@@ -61,6 +61,26 @@ export default function Conversations() {
     }, 900);
   };
 
+  /**
+   * Envia um ficheiro para a conversa.
+   *
+   * E o caminho de ficheiro arbitrário: antes, o sistema só sabia
+   * enviar media.
+   *
+   * E o conteúdo vem em base-64, que é o que a rota aceita — e é o
+   * mesmo custo que a media já paga.
+   *
+   * @param {string} nome
+   * @param {string} conteudo O conteúdo em base-64.
+   */
+  const handleSendFile = async (nome, conteudo) => {
+    const transferencia = await dataAdapter.sendFile(selected.id, nome, conteudo);
+    toast({
+      title: 'Ficheiro enviado',
+      description: `${nome} · ${transferencia.transferencia?.totalBytes ?? 0} bytes`,
+    });
+  };
+
   // -----------------------------------------------------------------
   // As acções que escrevem
   // -----------------------------------------------------------------
@@ -229,6 +249,7 @@ export default function Conversations() {
         conversation={active}
         contact={contact}
         onSend={handleSend}
+        onSendFile={handleSendFile}
         onBack={() => setMobileView('lista')}
       />
     </div>
